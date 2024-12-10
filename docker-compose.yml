@@ -1,4 +1,4 @@
-version: '3'
+version: '3.8'
 
 services:
   frontend:
@@ -9,8 +9,11 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
-    depends_on:
-      - backend
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:5000
+    networks:
+      - app-network
 
   backend:
     build:
@@ -20,3 +23,10 @@ services:
       - "3000:3000"
     volumes:
       - ./backend:/app
+      - /app/node_modules
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
