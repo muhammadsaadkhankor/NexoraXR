@@ -23,7 +23,7 @@ const prompt = ChatPromptTemplate.fromMessages([
 
 const model = new ChatOpenAI({
   openAIApiKey: process.env.OPENAI_API_KEY || "-",
-  modelName: process.env.OPENAI_MODEL || "davinci",
+  modelName: process.env.OPENAI_MODEL || "gpt-4", // Changed from "davinci" to "gpt-3.5-turbo"
   temperature: 0.2,
 });
 

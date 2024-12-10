@@ -32,7 +32,12 @@ app.post("/tts", async (req, res) => {
       question: userMessage,
       format_instructions: parser.getFormatInstructions(),
     });
+    console.log("OpenAI messages:", openAImessages);
+    if (!openAImessages || !Array.isArray(openAImessages.messages)) {
+      throw new Error("Invalid response from OpenAI");
+    }
   } catch (error) {
+    console.error("Error invoking OpenAI:", error);
     openAImessages = defaultResponse;
   }
   openAImessages = await lipSync({ messages: openAImessages.messages });
