@@ -1,4 +1,4 @@
-# Digital Being
+# Dtalk
 
 ## Overview
 Digital Being is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
