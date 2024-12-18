@@ -1,5 +1,8 @@
 # Digital Being
 
+## Overview
+Digital Being is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
+
 ## Step 1: Creating Avatar
 To create a humanoid avatar and most importantly a professor-like avatar, we use Avaturn [avaturn.me](https://avaturn.me). 
 
@@ -20,7 +23,7 @@ To animate the avatar, follow these steps since avatars from different sources (
 
 ## Step 3: Frontend for Avatar Animations
 1. Loads a 3D model and applies changes to dynamically render all meshes such as dress, glasses, caps, etc. 
-2. Animates the avatar’s face and body based on user input and predefined expressions.
+2. Animates the avatar's face and body based on user input and predefined expressions.
 3. Maps speech sounds (visemes) to corresponding facial movements for lip-syncing.
 4. Defines facial expressions (e.g., smile, angry, sad) using different facial morph targets.
 5. Uses morph targets to control facial features like eye movement, mouth shapes, and jaw position.
@@ -35,8 +38,96 @@ To animate the avatar, follow these steps since avatars from different sources (
 6. **OpenAI for Text Responses:** It uses OpenAI's language model to generate responses based on user questions. The responses include text, facial expressions, and animations for the avatar.
 7. **File Handling:** Handles reading and converting audio files into base64 format, executing command-line operations like audio conversion, and reading JSON files for lip-sync data.
 
-## Step 5: Dockerization
-1. Dockerize the front-end and back-end together using Docker Compose to run both services in parallel.
-2. To build the front-end and back-end and run them simultaneously, use:
-   ```bash
-   docker-compose up -d --build
+## Installation Instructions
+
+There are two ways to install and run this project:
+
+### Method 1: Without Docker
+
+If you prefer to run the application without Docker, follow these steps:
+
+1. Clone the repository:
+    ```bash
+    git clone [your-repository-url]
+    cd [repository-name]
+    ```
+
+2. Install Frontend Dependencies:
+    ```bash
+    cd frontend
+    yarn install
+    ```
+
+3. Install Backend Dependencies:
+    ```bash
+    cd ../backend
+    yarn install
+    ```
+
+4. Start the Development Servers:
+
+    For Frontend:
+    ```bash
+    cd frontend
+    yarn run dev
+    ```
+
+    For Backend (in a new terminal):
+    ```bash
+    cd backend
+    yarn run dev
+    ```
+
+### Method 2: Using Docker (Recommended)
+
+We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
+
+#### Prerequisites:
+- Docker and Docker Compose installed and running on your machine
+- [Download Docker](https://www.docker.com/products/docker-desktop/)
+
+#### Steps:
+
+1. Clone the repository:
+    ```bash
+    git clone [your-repository-url]
+    cd [repository-name]
+    ```
+
+2. Build the Docker containers:
+    ```bash
+    docker-compose build
+    ```
+
+3. Start the application:
+
+    Option A: Run in background mode:
+    ```bash
+    docker-compose up -d
+    ```
+
+    Option B: Run in foreground mode (with logs):
+    ```bash
+    docker-compose up
+    ```
+
+4. Stop the application:
+    ```bash
+    docker-compose down
+    ```
+
+#### Note:
+We strongly recommend using the Docker method as it provides:
+- Consistent environment across different machines
+- No compatibility issues
+- All dependencies pre-configured
+- Easier setup and maintenance
+
+## License
+[Add your license information here]
+
+## Contributing
+[Add contribution guidelines here]
+
+## Contact
+[Add contact information here]
