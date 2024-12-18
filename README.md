@@ -48,8 +48,8 @@ If you prefer to run the application without Docker, follow these steps:
 
 1. Clone the repository:
     ```bash
-    git clone [your-repository-url]
-    cd [repository-name]
+    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+    cd [dtalk]
     ```
 
 2. Install Frontend Dependencies:
