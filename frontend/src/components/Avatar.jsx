@@ -7,13 +7,25 @@ import { useSpeech } from "../hooks/useSpeech";
 import facialExpressions from "../constants/facialExpressions";
 import visemesMapping from "../constants/visemesMapping";
 import morphTargets from "../constants/morphTargets";
-// ProfAbed_updated
-const AVATAR_PATH = '/models/ProfAbed.glb'; 
+
+const DEFAULT_AVATAR_PATH = '/models/ProfAbed_VR.glb';
 const ANIMATIONS_PATH = '/models/animations.glb';
 
-export function Avatar(props) {
+export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const group = useRef();
-  const { nodes, materials } = useGLTF(AVATAR_PATH);
+  const previousModelPath = useRef(modelPath);
+
+  useEffect(() => {
+    console.log('Model path changed:', modelPath);
+    if (previousModelPath.current !== modelPath) {
+      console.log('Loading new model...');
+      useGLTF.preload(modelPath);
+      useGLTF.dispose(previousModelPath.current);
+      previousModelPath.current = modelPath;
+    }
+  }, [modelPath]);
+
+  const { nodes, materials } = useGLTF(modelPath);
   const { animations } = useGLTF(ANIMATIONS_PATH);
   const { actions, mixer } = useAnimations(animations, group);
   const { message, onMessagePlayed } = useSpeech();
@@ -151,7 +163,6 @@ export function Avatar(props) {
     }),
   });
 
-  // This function dynamically renders all meshes
   const renderMeshes = (nodes, materials) => {
     return Object.values(nodes).map((node) => {
       if (node.isMesh || node.isSkinnedMesh) {
@@ -172,12 +183,10 @@ export function Avatar(props) {
 
   return (
     <group ref={group} {...props} dispose={null}>
-      <primitive object={nodes.Hips} />
-      {renderMeshes(nodes, materials)}
+      {nodes && nodes.Hips && <primitive object={nodes.Hips} />}
+      {nodes && materials && renderMeshes(nodes, materials)}
     </group>
   );
 }
 
-useGLTF.preload(AVATAR_PATH);
-
-
+useGLTF.preload(DEFAULT_AVATAR_PATH);
