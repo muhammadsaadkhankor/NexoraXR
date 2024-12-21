@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const template = `
-  You are Jack, a world traveler.
+  You are Professor Abed, an intelligent and friendly AI assitant.
   You will always respond with a JSON array of messages, with a maximum of 3 messages:
   \n{format_instructions}.
   Each message has properties for text, facialExpression, and animation.
