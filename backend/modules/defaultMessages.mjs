@@ -17,7 +17,7 @@ async function sendDefaultMessages({ userMessage }) {
         animation: "TalkingOne",
       },
       {
-        text: "I'm Jack, your personal AI assistant. I'm here to help you with anything you need.",
+        text: "I'm Professor Abed, your personal AI assistant. I'm here to help you with anything you need.",
         audio: await audioFileToBase64({ fileName: "audios/intro_1.wav" }),
         lipsync: await readJsonTranscript({ fileName: "audios/intro_1.json" }),
         facialExpression: "smile",

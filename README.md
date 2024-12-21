@@ -68,10 +68,11 @@ If you prefer to run the application without Docker, follow these steps:
 
 3. Install Backend Dependencies:
     Before installing the backend, perform the following steps:
-    - Extract the `bin.zip` file:
+    - Extract the `bin.zip` file using a command:
       ```
       unzip bin.zip -d bin
       ```
+      Alternatively, use any zip extractor like WinRAR or file explorer.
     - Create the `.env` file from the template:
       ```
       cp env.template.txt .env
@@ -97,6 +98,8 @@ If you prefer to run the application without Docker, follow these steps:
     yarn run dev
     ```
 
+---
+
 ### Method 2: Using Docker (Recommended)
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
@@ -120,6 +123,11 @@ We recommend using Docker as it ensures consistent behavior across different sys
     ```
 
 3. Build the Docker containers:
+    Ensure that the `bin.zip` file is unzipped during the build process. Add the following command to your `Dockerfile`:
+    ```
+    RUN unzip /app/bin.zip -d /app/bin
+    ```
+    Then build the containers:
     ```
     docker-compose build
     ```
@@ -140,6 +148,8 @@ We recommend using Docker as it ensures consistent behavior across different sys
     ```
     docker-compose down
     ```
+
+---
 
 #### Note:
 We strongly recommend using the Docker method as it provides:

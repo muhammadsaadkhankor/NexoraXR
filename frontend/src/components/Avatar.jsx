@@ -8,7 +8,7 @@ import facialExpressions from "../constants/facialExpressions";
 import visemesMapping from "../constants/visemesMapping";
 import morphTargets from "../constants/morphTargets";
 
-const DEFAULT_AVATAR_PATH = '/models/ProfAbed_VR.glb';
+const DEFAULT_AVATAR_PATH = '/models/ProfAbed_suit.glb';
 const ANIMATIONS_PATH = '/models/animations.glb';
 
 export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
