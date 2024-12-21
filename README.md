@@ -4,7 +4,7 @@
 Digital Being is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
 
 ## Step 1: Creating Avatar
-To create a humanoid avatar and most importantly a professor-like avatar, we use Avaturn [avaturn.me](https://avaturn.me). 
+To create a humanoid avatar and most importantly a professor-like avatar, we use Avaturn [avaturn.me](https://avaturn.me).
 
 ### Steps to create an avatar using Avaturn:
 1. First, we uploaded three photos of the face (front, left, and right side).
@@ -38,6 +38,14 @@ To animate the avatar, follow these steps since avatars from different sources (
 6. **OpenAI for Text Responses:** It uses OpenAI's language model to generate responses based on user questions. The responses include text, facial expressions, and animations for the avatar.
 7. **File Handling:** Handles reading and converting audio files into base64 format, executing command-line operations like audio conversion, and reading JSON files for lip-sync data.
 
+## About the .env File
+The `.env` file is used to store API keys and configuration variables required for this project. It contains sensitive information that should not be shared publicly. The `.env` file includes:
+
+- **API Keys:** Keys for services like ElevenLabs (TTS), Whisper (speech recognition), and OpenAI (text generation).
+- **Environment Variables:** Variables to configure server settings, such as `PORT` and other options.
+
+An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
+
 ## Installation Instructions
 
 There are two ways to install and run this project:
@@ -47,19 +55,30 @@ There are two ways to install and run this project:
 If you prefer to run the application without Docker, follow these steps:
 
 1. Clone the repository:
-    ```bash
+    ```
     git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-    cd [dtalk]
+    cd dtalk
     ```
 
 2. Install Frontend Dependencies:
-    ```bash
+    ```
     cd frontend
     yarn install
     ```
 
 3. Install Backend Dependencies:
-    ```bash
+    Before installing the backend, perform the following steps:
+    - Extract the `bin.zip` file:
+      ```
+      unzip bin.zip -d bin
+      ```
+    - Create the `.env` file from the template:
+      ```
+      cp env.template.txt .env
+      ```
+
+    Then, install backend dependencies:
+    ```
     cd ../backend
     yarn install
     ```
@@ -67,13 +86,13 @@ If you prefer to run the application without Docker, follow these steps:
 4. Start the Development Servers:
 
     For Frontend:
-    ```bash
+    ```
     cd frontend
     yarn run dev
     ```
 
     For Backend (in a new terminal):
-    ```bash
+    ```
     cd backend
     yarn run dev
     ```
@@ -89,30 +108,36 @@ We recommend using Docker as it ensures consistent behavior across different sys
 #### Steps:
 
 1. Clone the repository:
-    ```bash
-    git clone [your-repository-url]
-    cd [repository-name]
+    ```
+    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+    cd dtalk
     ```
 
-2. Build the Docker containers:
-    ```bash
+2. Prepare the `.env` file:
+    Before building the Docker containers, create the `.env` file:
+    ```
+    cp env.template.txt .env
+    ```
+
+3. Build the Docker containers:
+    ```
     docker-compose build
     ```
 
-3. Start the application:
+4. Start the application:
 
     Option A: Run in background mode:
-    ```bash
+    ```
     docker-compose up -d
     ```
 
     Option B: Run in foreground mode (with logs):
-    ```bash
+    ```
     docker-compose up
     ```
 
-4. Stop the application:
-    ```bash
+5. Stop the application:
+    ```
     docker-compose down
     ```
 
