@@ -16,7 +16,7 @@ const AvatarFileSelector = ({ onAvatarChange }) => {
   };
 
   return (
-    <div className="fixed top-20 right-4 z-20">
+    <div className="fixed bottom-4 right-4 z-20">
       <label className="flex items-center gap-2 bg-white bg-opacity-50 backdrop-blur-md p-4 rounded-lg cursor-pointer hover:bg-opacity-70 text-gray-700">
         <svg 
           xmlns="http://www.w3.org/2000/svg" 
