@@ -7,7 +7,7 @@ import { ChatInterface } from "./components/ChatInterface";
 import AvatarFileSelector from "./components/AvatarFileSelector";
 
 function App() {
-  const [currentAvatarPath, setCurrentAvatarPath] = useState('/models/ProfAbed_VR.glb');
+  const [currentAvatarPath, setCurrentAvatarPath] = useState('/models/ProfAbed_suit.glb');
 
   const handleAvatarChange = useCallback((newPath) => {
     console.log('Setting new avatar path:', newPath);

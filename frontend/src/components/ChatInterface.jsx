@@ -5,11 +5,16 @@ export const ChatInterface = ({ hidden, ...props }) => {
   const input = useRef();
   const { tts, loading, message, startRecording, stopRecording, recording } = useSpeech();
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = input.current.value;
     if (!loading && !message) {
-      tts(text);
-      input.current.value = "";
+      try {
+        await tts(text);
+        input.current.value = "";
+      } catch (error) {
+        console.error('Error sending message:', error);
+        // Handle error in UI if needed
+      }
     }
   };
   if (hidden) {

@@ -20,24 +20,64 @@ app.get("/voices", async (req, res) => {
 });
 
 app.post("/tts", async (req, res) => {
-  const userMessage = await req.body.message;
-  const defaultMessages = await sendDefaultMessages({ userMessage });
-  if (defaultMessages) {
-    res.send({ messages: defaultMessages });
-    return;
-  }
-  let openAImessages;
   try {
-    openAImessages = await openAIChain.invoke({
+    const userMessage = req.body.message;
+    const defaultMessages = await sendDefaultMessages({ userMessage });
+    
+    if (defaultMessages) {
+      res.send({ messages: defaultMessages });
+      return;
+    }
+    
+    const openAIResponse = await openAIChain.invoke({
       question: userMessage,
       format_instructions: parser.getFormatInstructions(),
     });
+
+    // Add validation
+    if (!openAIResponse || !openAIResponse.messages || !Array.isArray(openAIResponse.messages)) {
+      throw new Error('Invalid response format from OpenAI');
+    }
+
+    const processedMessages = await lipSync({ messages: openAIResponse.messages });
+    res.send({ messages: processedMessages });
+    
   } catch (error) {
-    openAImessages = defaultResponse;
+    console.error('Error:', error);
+    // Send default error response
+    const errorResponse = [{
+      text: "I'm sorry, there seems to be an error. Could you please try again?",
+      facialExpression: "sad",
+      animation: "Idle"
+    }];
+    try {
+      const processedError = await lipSync({ messages: errorResponse });
+      res.send({ messages: processedError });
+    } catch (e) {
+      res.status(500).send({ error: 'Failed to process response' });
+    }
   }
-  openAImessages = await lipSync({ messages: openAImessages.messages });
-  res.send({ messages: openAImessages });
 });
+
+// app.post("/tts", async (req, res) => {
+//   const userMessage = await req.body.message;
+//   const defaultMessages = await sendDefaultMessages({ userMessage });
+//   if (defaultMessages) {
+//     res.send({ messages: defaultMessages });
+//     return;
+//   }
+//   let openAImessages;
+//   try {
+//     openAImessages = await openAIChain.invoke({
+//       question: userMessage,
+//       format_instructions: parser.getFormatInstructions(),
+//     });
+//   } catch (error) {
+//     openAImessages = defaultResponse;
+//   }
+//   openAImessages = await lipSync({ messages: openAImessages.messages });
+//   res.send({ messages: openAImessages });
+// });
 
 app.post("/sts", async (req, res) => {
   const base64Audio = req.body.audio;
