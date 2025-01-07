@@ -46,19 +46,20 @@ The `.env` file is used to store API keys and configuration variables required f
 
 An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
 
+## prerequisite
+1. First ensure git installed on your system, if not you can install it from the link below:
+-[git for windows](https://git-scm.com/downloads/win)
+
 ## Installation Instructions
-
 There are two ways to install and run this project:
-
 ### Method 1: Without Docker
-
 If you prefer to run the application without Docker, follow these steps:
-
-1. Clone the repository:
+1. Open you terminal anywhere in your pc (any directory).
+    - Than clone your repository by copying command from bitbucket interface
+    - After cloning finished type command:
+    ```    cd dtalk
     ```
-    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-    cd dtalk
-    ```
+    - this will take you to repository.
 
 2. Install Frontend Dependencies:
     ```
