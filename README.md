@@ -59,21 +59,16 @@ There are two ways to install and run this project:
 
 If you prefer to run the application without Docker, follow these steps:
 
-1. Open you terminal anywhere in your pc (any directory).
+1. Open your terminal inside any directory you want to clone "dtalk" repository.
 
-    - Than clone your repository by copying command from bitbucket interface.
-    
-    - When cloning complete type following command:
-    
-    
-    ```    cd dtalk
-    ```
-    
-2. Firstwe will install all packages required for the front end by following commands:
+- Copy command from bitbucekt interface to clone repository.
+
+- Next, type ``` cd dtalk `` in same terminal will take you inside repository. 
+
+2. Inside dtalk we have two main directories, frontend and backend. first we will install all dependencies for frontend by following commands:
 
     ```
-    cd frontend
-    
+    cd frontend    
     yarn install
     ```
     
@@ -83,10 +78,17 @@ If you prefer to run the application without Docker, follow these steps:
     
     - Than we need to setup api keys, we need to create .env file using terminal. 
     
-    ``` cd backend 
+    ``` 
+    cd ..
+    
+    cd backend
+    
     copy env.template.txt .env
+    
     ```
+    
     for linux 
+    
     ```
     cp env.template.txt .env
     ```
@@ -97,14 +99,22 @@ If you prefer to run the application without Docker, follow these steps:
 
     For Frontend:
     ```
+    cd ..
+    
     cd frontend
+    
     yarn run dev
+    
     ```
 
     For Backend (in a new terminal):
     ```
+    cd ..
+    
     cd backend
+    
     yarn run dev
+    
     ```
 
 ---
