@@ -128,47 +128,38 @@ We recommend using Docker as it ensures consistent behavior across different sys
 - [Download Docker](https://www.docker.com/products/docker-desktop/)
 
 #### Steps:
+## Step 1: Clone the Repository
+1. Open a terminal inside any directory on your system.
+2. Clone the repository by copying the command from the Bitbucket interface and running it in the terminal.
+3. Navigate to the cloned repository:
+   ```bash
+   cd dtalk
+   ```
 
-1. Clone the repository:
-    ```
-    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-    cd dtalk
-    ```
+## Step 2: Backend Setup
+1. Navigate to the `backend` directory.
+2. Unzip or extract the `bin` file inside the `backend` directory.
+3. Set up the `.env` file for API keys:
+   ```bash
+   cd backend
+   cp env.template.txt .env
+   ```
+4. Open the newly created `.env` file and replace the placeholders with your API keys.
 
-2. Prepare the `.env` file:
-    Before building the Docker containers, create the `.env` file:
-    ```
-    cp env.template.txt .env
-    ```
-
-3. Build the Docker containers:
-    Ensure that the `bin.zip` file is unzipped during the build process. Add the following command to your `Dockerfile`:
-    ```
-    RUN unzip /app/bin.zip -d /app/bin
-    ```
-    Then build the containers:
-    ```
-    docker-compose build
-    ```
-
-4. Start the application:
-
-    Option A: Run in background mode:
-    ```
-    docker-compose up -d
-    ```
-
-    Option B: Run in foreground mode (with logs):
-    ```
-    docker-compose up
-    ```
-
-5. Stop the application:
-    ```
-    docker-compose down
-    ```
-
----
+## Step 3: Build and Run the Project
+1. Return to the root directory:
+   ```bash
+   cd ..
+   ```
+2. Create the Docker image:
+   ```bash
+   docker-compose build
+   ```
+3. Run the project:
+   ```bash
+   docker-compose up
+   ```
+4. To stop the project close your terminal 
 
 #### Note:
 We strongly recommend using the Docker method as it provides:
