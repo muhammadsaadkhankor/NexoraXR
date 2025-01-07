@@ -48,24 +48,38 @@ An example `.env` file (`env.template.txt`) is provided in the repository. Durin
 
 ## prerequisite
 1. First ensure git installed on your system, if not you can install it from the link below:
+
     [git for windows](https://git-scm.com/downloads/win)
+    
 ## Installation Instructions
+
 There are two ways to install and run this project:
+
 ### Method 1: Without Docker
+
 If you prefer to run the application without Docker, follow these steps:
+
 1. Open you terminal anywhere in your pc (any directory).
+
     - Than clone your repository by copying command from bitbucket interface.
+    
     - When cloning complete type following command:
+    
     ```    cd dtalk
     ```
 2. Firstwe will install all packages required for the front end by following commands:
+
     ```
     cd frontend
+    
     yarn install
     ```
 3. Than for backend we need following steps:
+
     - First go to backend, you will found file name zip.bin simply extract it inside backend.
+    
     - Than we need to setup api keys, we need to create .env file using terminal. 
+    
     ``` cd backend 
     copy env.template.txt .env
     ```
@@ -73,7 +87,9 @@ If you prefer to run the application without Docker, follow these steps:
     ```
     cp env.template.txt .env
     ```
+    
     - Open .env file using any text editor and replace api keys.
+    
 4. Start the Development Servers:
 
     For Frontend:
