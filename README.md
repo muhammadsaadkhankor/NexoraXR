@@ -47,8 +47,8 @@ The `.env` file is used to store API keys and configuration variables required f
 An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
 
 ## prerequisite
-1. First ensure git installed on your system, if not you can install it from the link below:
--[git for windows](https://git-scm.com/downloads/win)
+1. First ensure git installed on your system, if not you can install it from the link below: \\
+[git for windows](https://git-scm.com/downloads/win)
 
 ## Installation Instructions
 There are two ways to install and run this project:
