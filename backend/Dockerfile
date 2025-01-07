@@ -9,15 +9,20 @@ RUN apk add --no-cache ffmpeg unzip
 COPY package*.json yarn.lock ./
 RUN yarn install
 
-# Copy all backend files
-COPY . .
+# Create bin directory
+RUN mkdir -p bin
 
-# Extract bin.zip and handle executable with conditional rename
-RUN unzip -o bin.zip -d bin && \
-    if [ -f bin/rhubarb.exe ]; then \
-        cp bin/rhubarb.exe bin/rhubarb; \
-    fi && \
-    chmod +x bin/rhubarb*
+# Copy bin directory first
+COPY bin ./bin/
+
+# Make sure rhubarb has executable permissions
+RUN if [ -f bin/rhubarb.exe ]; then \
+    cp bin/rhubarb.exe bin/rhubarb && \
+    chmod +x bin/rhubarb; \
+fi
+
+# Copy remaining backend files
+COPY . .
 
 EXPOSE 3000
 
