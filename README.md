@@ -65,8 +65,10 @@ If you prefer to run the application without Docker, follow these steps:
     
     - When cloning complete type following command:
     
+    
     ```    cd dtalk
     ```
+    
 2. Firstwe will install all packages required for the front end by following commands:
 
     ```
@@ -74,6 +76,7 @@ If you prefer to run the application without Docker, follow these steps:
     
     yarn install
     ```
+    
 3. Than for backend we need following steps:
 
     - First go to backend, you will found file name zip.bin simply extract it inside backend.
