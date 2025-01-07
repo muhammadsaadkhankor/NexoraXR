@@ -142,7 +142,7 @@ We recommend using Docker as it ensures consistent behavior across different sys
 3. Set up the `.env` file for API keys:
    ```bash
    cd backend
-   cp env.template.txt .env
+   copy env.template.txt .env
    ```
 4. Open the newly created `.env` file and replace the placeholders with your API keys.
 
