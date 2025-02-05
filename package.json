@@ -1,0 +1,17 @@
+{
+    "name": "dtalk",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": [
+      "frontend",
+      "backend"
+    ],
+    "scripts": {
+      "dev": "concurrently \"yarn workspace digital-twin-frontend dev\" \"yarn workspace digital-twin-backend dev\"",
+      "build": "yarn workspaces run build",
+      "start": "yarn workspaces run start"
+    },
+    "devDependencies": {
+      "concurrently": "^8.0.0"
+    }
+  }
