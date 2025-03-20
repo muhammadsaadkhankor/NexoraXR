@@ -46,11 +46,15 @@ The `.env` file is used to store API keys and configuration variables required f
 
 An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
 
-## prerequisite
-1. First ensure git installed on your system, if not you can install it from the link below:
+## Prerequisites
+1. First ensure Git is installed on your system, if not you can install it from the link below:
+   - [Git for Windows](https://git-scm.com/downloads/win)
+   - For Linux: `sudo apt-get install git` (Ubuntu/Debian) or `sudo yum install git` (CentOS/RHEL)
 
-    [git for windows](https://git-scm.com/downloads/win)
-    
+2. For Docker method:
+   - Docker and Docker Compose installed and running on your machine
+   - [Download Docker](https://www.docker.com/products/docker-desktop/)
+
 ## Installation Instructions
 
 There are two ways to install and run this project:
@@ -60,62 +64,40 @@ There are two ways to install and run this project:
 If you prefer to run the application without Docker, follow these steps:
 
 1. Open your terminal inside any directory you want to clone "dtalk" repository.
+   ```bash
+   git clone <repository-url>
+   cd dtalk
+   ```
 
-- Copy command from bitbucekt interface to clone repository.
+2. Backend Setup:
 
-- Next, type ``` cd dtalk `` in same terminal will take you inside repository. 
+   Linux
+      ```bash
+      # Extract the bin file
+      unzip backend/bin.zip -d backend/bin
+      
+      # Set up the .env file
+      cp backend/env.template.txt backend/.env
+      ```
+   Window
+      ```bash
+      # Extract the bin file
+      mkdir -p backend\bin
+      tar -xf backend\bin.zip -C backend\bin
+      
+      # Set up the .env file
+      copy backend\env.template.txt backend\.env
+      ```
 
-2. Inside dtalk we have two main directories, frontend and backend. first we will install all dependencies for frontend by following commands:
-
-    ```
-    cd frontend    
-    yarn install
-    ```
+4. Then we need to install the dependencies
+   ```bash 
+   yarn install
+   ```
     
-3. Than for backend we need following steps:
-
-    - First go to backend, you will found file name zip.bin simply extract it inside backend.
-    
-    - Than we need to setup api keys, we need to create .env file using terminal. 
-    
-    ``` 
-    cd ..
-    
-    cd backend
-    
-    copy env.template.txt .env
-    
-    ```
-    
-    for linux 
-    
-    ```
-    cp env.template.txt .env
-    ```
-    
-    - Open .env file using any text editor and replace api keys.
-    
-4. Start the Development Servers:
-
-    For Frontend:
-    ```
-    cd ..
-    
-    cd frontend
-    
-    yarn run dev
-    
-    ```
-
-    For Backend (in a new terminal):
-    ```
-    cd ..
-    
-    cd backend
-    
-    yarn run dev
-    
-    ```
+5. Start the Development Servers:
+   ```bash
+   yarn dev
+   ```
 
 ---
 
@@ -123,47 +105,104 @@ If you prefer to run the application without Docker, follow these steps:
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
-#### Prerequisites:
-- Docker and Docker Compose installed and running on your machine
-- [Download Docker](https://www.docker.com/products/docker-desktop/)
-
 #### Steps:
-## Step 1: Clone the Repository
-1. Open a terminal inside any directory on your system.
-2. Clone the repository by copying the command from the Bitbucket interface and running it in the terminal.
-3. Navigate to the cloned repository:
+
+1. Clone the Repository
    ```bash
+   git clone <repository-url>
    cd dtalk
    ```
 
-## Step 2: Backend Setup
-1. Navigate to the `backend` directory.
-2. Unzip or extract the `bin` file inside the `backend` directory.
-3. Set up the `.env` file for API keys:
-   ```bash
-   cd backend
-   copy env.template.txt .env
-   ```
-4. Open the newly created `.env` file and replace the placeholders with your API keys.
+2. Backend Setup:
 
-## Step 3: Build and Run the Project
-1. Return to the root directory:
+   Linux
+      ```bash
+      # Extract the bin file
+      unzip backend/bin.zip -d backend/bin
+      
+      # Set up the .env file
+      cp backend/env.template.txt backend/.env
+      ```
+   Window
+      ```bash
+      # Extract the bin file
+      mkdir -p backend\bin
+      tar -xf backend\bin.zip -C backend\bin
+      
+      # Set up the .env file
+      copy backend\env.template.txt backend\.env
+      ```
+   
+3. Edit the `.env` file with your API keys
    ```bash
-   cd ..
+   # Open the file in your favorite editor
+   nano backend/.env
+   
+   # Add your API keys
+   OPENAI_API_KEY=your_key_here
+   ELEVEN_LABS_API_KEY=your_key_here
+   ELEVEN_LABS_VOICE_ID=your_voice_id
+   ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+   
    ```
-2. Create the Docker image:
+
+4. Build and Run with Docker
    ```bash
+   # Build the Docker containers
    docker-compose build
-   ```
-3. Run the project:
-   ```bash
+   
+   # Run the application
    docker-compose up
    ```
-4. To stop the project close your terminal 
+   
+5. Access the application
+   - Frontend: http://localhost:5173
+   - Backend: http://localhost:3000
 
-#### Note:
-We strongly recommend using the Docker method as it provides:
-- Consistent environment across different machines
-- No compatibility issues
-- All dependencies pre-configured
-- Easier setup and maintenance
+6. To stop the application
+   ```bash
+   # Use Ctrl+C in the terminal or
+   docker-compose down
+   ```
+
+## Docker Configuration Details
+
+This project uses Docker Compose to run both the frontend and backend services:
+
+- **Frontend Container**: Node.js 18 with Vite server
+  - Port: 5173
+  - Mounts source code as volume for hot reloading
+  
+- **Backend Container**: Node.js 18 with Express
+  - Port: 3000
+  - Includes FFmpeg for audio processing
+  - Sets up Rhubarb lip sync binary
+  - Connects to local LLaMA server (if used)
+
+## Troubleshooting Docker Setup
+
+If you encounter issues with Docker mounting permissions:
+
+1. Check Docker file sharing settings
+   ```bash
+   # Fix directory permissions
+   sudo chown -R $USER:$USER .
+   sudo chmod -R 755 .
+   ```
+
+2. If accessing a local LLaMA server, ensure the `host.docker.internal` setting is properly configured in `.env` file
+
+3. For connectivity issues between containers:
+   ```bash
+   # Check container status
+   docker-compose ps
+   
+   # View container logs
+   docker-compose logs
+   ```
+
+## Development Notes
+
+- The system requires API keys for OpenAI and ElevenLabs to function properly
+- For local development, ensure proper ports are available (3000, 5173)
+- When modifying code in Docker development mode, changes are reflected immediately due to volume mounts

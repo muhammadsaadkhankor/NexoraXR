@@ -1,30 +1,29 @@
-FROM node:18-alpine
+
+FROM node:18-slim
+
+# Install FFmpeg and utilities
+RUN apt-get update && apt-get install -y ffmpeg unzip
 
 WORKDIR /app
 
-# Install system dependencies including unzip
-RUN apk add --no-cache ffmpeg unzip
-
-# Copy package files first
+# Copy package files
 COPY package*.json yarn.lock ./
 RUN yarn install
 
-# Create bin directory
+# Set up Rhubarb binary
 RUN mkdir -p bin
-
-# Copy bin directory first
 COPY bin ./bin/
 
-# Make sure rhubarb has executable permissions
-RUN if [ -f bin/rhubarb.exe ]; then \
-    cp bin/rhubarb.exe bin/rhubarb && \
-    chmod +x bin/rhubarb; \
-fi
+# Make ALL binaries in bin directory executable
+RUN chmod +x ./bin/*
 
-# Copy remaining backend files
+# Copy the rest of the code
 COPY . .
+
+# Create audios directory if it doesn't exist
+RUN mkdir -p audios
 
 EXPOSE 3000
 
-# Use array syntax for CMD
-CMD ["yarn", "dev"]
+# Start the application
+CMD ["yarn", "start"]

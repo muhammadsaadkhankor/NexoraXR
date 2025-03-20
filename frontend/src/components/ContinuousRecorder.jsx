@@ -1,8 +1,10 @@
+// ContinuousRecorder.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useSpeech } from '../hooks/useSpeech';
 
 const ContinuousRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const audioContextRef = useRef(null);
@@ -52,7 +54,6 @@ const ContinuousRecorder = () => {
           
           await audioElement.play();
   
-          // Only call onMessagePlayed when NOT recording
           audioElement.onended = () => {
             if (!isRecording) {
               setTimeout(() => {
@@ -114,17 +115,7 @@ const ContinuousRecorder = () => {
         if (blob.size === 0) return;
 
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        document.body.appendChild(a);
-        a.style = 'display: none';
-        a.href = url;
-        a.download = `avatar-recording-${Date.now()}.webm`;
-        a.click();
-
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-          document.body.removeChild(a);
-        }, 100);
+        setRecordedVideoUrl(url);
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -157,18 +148,74 @@ const ContinuousRecorder = () => {
     setIsRecording(false);
   };
 
-  // Cleanup on unmount
+  const handleDownload = () => {
+    if (recordedVideoUrl) {
+      const a = document.createElement('a');
+      a.href = recordedVideoUrl;
+      a.download = `avatar-recording-${Date.now()}.webm`;
+      a.click();
+    }
+  };
+
+  // Add cleanup for URL when component unmounts
   useEffect(() => {
     return () => {
-      if (isRecording) {
-        stopRecording();
+      if (recordedVideoUrl) {
+        URL.revokeObjectURL(recordedVideoUrl);
       }
     };
-  }, [isRecording]);
+  }, [recordedVideoUrl]);
 
-  // Optional: Return null since we don't need the buttons anymore
-  return null;
+  // Position buttons above the settings button at the bottom
+  return (
+    <div className="fixed bottom-20 left-4 z-20 flex flex-col gap-2">
+      {/* Record button at the top */}
+      <button 
+        onClick={isRecording ? null : startRecording}
+        className={`flex items-center gap-2 p-3 rounded-lg ${
+          isRecording 
+            ? "bg-gray-400 cursor-not-allowed" 
+            : "bg-white bg-opacity-70 backdrop-blur-md cursor-pointer hover:bg-opacity-90"
+        }`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
+        </svg>
+        Record
+      </button>
+      
+      {/* Stop button - always visible but only enabled when recording */}
+      <button 
+        onClick={isRecording ? stopRecording : null}
+        className={`flex items-center gap-2 p-3 rounded-lg ${
+          isRecording 
+            ? "bg-red-500 text-white bg-opacity-70 backdrop-blur-md cursor-pointer hover:bg-opacity-90" 
+            : "bg-red-300 text-white cursor-not-allowed"
+        }`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+        </svg>
+        Stop
+      </button>
+      
+      {/* Download button - always visible but only enabled when there's a recording */}
+      <button
+        onClick={recordedVideoUrl ? handleDownload : null}
+        className={`flex items-center gap-2 p-3 rounded-lg ${
+          recordedVideoUrl 
+            ? "bg-green-500 text-white bg-opacity-70 backdrop-blur-md cursor-pointer hover:bg-opacity-90" 
+            : "bg-green-300 text-white cursor-not-allowed"
+        }`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Download
+      </button>
+    </div>
+  );
 };
 
 export default ContinuousRecorder;
-

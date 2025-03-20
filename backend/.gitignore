@@ -38,3 +38,8 @@ next-env.d.ts
 
 # visemes inference
 /bin
+
+# Ignore message files but keep API files in audios directory
+/audios/message_*.json
+/audios/message_*.mp3
+/audios/message_*.wav
