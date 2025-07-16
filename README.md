@@ -82,7 +82,7 @@ If you prefer to run the application without Docker, follow these steps:
    Window
       ```bash
       # Extract the bin file
-      mkdir -p backend\bin
+      mkdir backend\bin
       tar -xf backend\bin.zip -C backend\bin
       
       # Set up the .env file
@@ -126,7 +126,7 @@ We recommend using Docker as it ensures consistent behavior across different sys
    Window
       ```bash
       # Extract the bin file
-      mkdir -p backend\bin
+      mkdir backend\bin
       tar -xf backend\bin.zip -C backend\bin
       
       # Set up the .env file
