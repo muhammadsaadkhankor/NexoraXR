@@ -138,9 +138,6 @@ git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```bash
 cd dtalk
 ```
-
-**2. Backend Setup:**
-
 **For Linux/macOS:**
 ```bash
 # Extract the bin file
@@ -182,7 +179,7 @@ ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
 docker-compose build
 
 # Run the application
-docker-compose up
+docker-compose up -d
 ```
 
 **5. Access the Application**
@@ -199,39 +196,10 @@ docker-compose down
 
 After the initial setup, if the Dtalk project receives updates (e.g., new features, bug fixes, or dependency changes), you don't need to repeat the entire installation process. Simply follow the steps below to stay up-to-date with the latest code:
 
-### Without Docker
-
 1. **Navigate to your Dtalk directory**
 ```bash
 cd path/to/dtalk
 ```
-
-2. **Pull the latest changes from the repository**
-```bash
-# For main branch
-git pull origin main
-
-# For our own Llama model
-git pull origin llm
-```
-
-3. **Install new dependencies (if any)**
-```bash
-yarn install
-```
-
-4. **Start the project**
-```bash
-yarn dev
-```
-
-### With Docker
-
-1. **Navigate to your Dtalk directory**
-```bash
-cd path/to/dtalk
-```
-
 2. **Pull the latest changes from the repository**
 ```bash
 # For main branch
