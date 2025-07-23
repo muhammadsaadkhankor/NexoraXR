@@ -1,7 +1,7 @@
 # Dtalk
 
 ## Overview
-Digital Being is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
+Dtalk is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
 
 ## Step 1: Creating Avatar
 To create a humanoid avatar and most importantly a professor-like avatar, we use Avaturn [avaturn.me](https://avaturn.me).
@@ -163,6 +163,56 @@ We recommend using Docker as it ensures consistent behavior across different sys
    ```bash
    # Use Ctrl+C in the terminal or
    docker-compose down
+   ```
+
+## Updating the Project (Pull Latest Changes)
+
+After the initial setup, if the Dtalk project receives updates (e.g., new features, bug fixes, or dependency changes), you don't need to repeat the entire installation process. Simply follow the steps below to stay up-to-date with the latest code:
+
+### Without Docker
+
+1. **Open your terminal in the directory of Dtalk which you previously cloned**
+
+2. **Pull the Latest Changes from the Repository**
+   ```bash
+   # For main branch
+   git pull origin main
+   
+   # For our own Llama model
+   git pull origin llm
+   ```
+
+3. **Install New Dependencies (if any)**
+   ```bash
+   yarn install
+   ```
+
+4. **Start the Project**
+   ```bash
+   yarn dev
+   ```
+
+### With Docker
+
+1. **Open your terminal in the directory of Dtalk which you previously cloned**
+
+2. **Pull the Latest Changes from the Repository**
+   ```bash
+   # For main branch
+   git pull origin main
+   
+   # For our own Llama model
+   git pull origin llm
+   ```
+
+3. **Rebuild the Docker Images**
+   ```bash
+   docker-compose build
+   ```
+
+4. **Start or Restart the Containers**
+   ```bash
+   docker-compose up -d
    ```
 
 ## Docker Configuration Details
