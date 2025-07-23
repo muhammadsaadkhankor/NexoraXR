@@ -140,8 +140,6 @@ cd dtalk
 3. Edit the `.env` file with your API keys
    ```bash
    # Open the file in your favorite editor
-   nano backend/.env
-   
    # Add your API keys
    OPENAI_API_KEY=your_key_here
    ELEVEN_LABS_API_KEY=your_key_here
