@@ -67,7 +67,7 @@ If you prefer to run the application without Docker, follow these steps:
    ```bash
    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
    ```
-🔐 When cloning, Bitbucket will prompt you for a password. Please use the following:
+🔐 When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use the following:
 ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6
 ```bash
 cd dtalk
