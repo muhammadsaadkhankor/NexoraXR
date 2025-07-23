@@ -144,7 +144,7 @@ sudo apt-get install git
 sudo yum install git
 ```
 
-### 2. Docker Installation for Ubuntu/Linux
+### 2. Docker Installation on Ubuntu/Linux
 
 **Step 1: Update the system**
 ```bash
@@ -189,7 +189,7 @@ sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
-## Dtalk Installation for Ubuntu/Linux
+## Dtalk Installation on Ubuntu/Linux
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
@@ -257,8 +257,8 @@ docker-compose up -d
 ```
 
 **5. Access the Application**
-- **Frontend:** http://localhost:5173
-- **Backend:** http://localhost:3000
+ - **Frontend:** http://localhost:5173
+ - **Backend:** http://localhost:3000
 
 **6. Stop the Application**
 ```bash
