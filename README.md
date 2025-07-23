@@ -101,9 +101,6 @@ cd dtalk
    ```bash
    yarn dev
    ```
-
----
-
 ### Method 2: Using Docker (Recommended)
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
@@ -111,9 +108,9 @@ We recommend using Docker as it ensures consistent behavior across different sys
 #### Steps:
 
 1. Clone the Repository
-     ```bash
+```bash
    git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-   ```
+```
 🔐 When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use the following:
 ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6
 ```bash
