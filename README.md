@@ -65,10 +65,13 @@ If you prefer to run the application without Docker, follow these steps:
 
 1. Open your terminal inside any directory you want to clone "dtalk" repository.
    ```bash
-   git clone <repository-url>
-   cd dtalk
+   git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
    ```
-
+🔐 When cloning, Bitbucket will prompt you for a password. Please use the following:
+ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6
+```bash
+cd dtalk
+```
 2. Backend Setup:
 
    Linux
