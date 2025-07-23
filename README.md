@@ -137,10 +137,14 @@ cd dtalk
 # Extract the bin file
 unzip backend/bin.zip -d backend/bin
 
-# Set up the .env file
+# Set execute permissions for the rhubarb file
+cd backend/bin
+chmod +x rhubarb
+
+# Return to the project root and set up the .env file
+cd ../..
 cp backend/env.template.txt backend/.env
 ```
-
 **For Windows:**
 ```bash
 # Extract the bin file
@@ -154,9 +158,10 @@ copy backend\env.template.txt backend\.env
 **3. Configure API Keys**
 
 Edit the `.env` file with your API keys:
+in Ubuntu any file starting with "." will be hidden in user interface so you can make changes by opening .env file using nano the command is given below:
 ```bash
 # Open the file in your favorite editor and add your API keys
-vim backend/.env  # or use any text editor
+nano backend/.env  # or use any text editor
 ```
 
 Add the following to your `.env` file:
@@ -166,6 +171,7 @@ ELEVEN_LABS_API_KEY=your_key_here
 ELEVEN_LABS_VOICE_ID=your_voice_id
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
 ```
+After you make changes press ctr + s to save and ctr + x to cut the nano editor an back to the terminal
 
 **4. Build and Run with Docker**
 ```bash
