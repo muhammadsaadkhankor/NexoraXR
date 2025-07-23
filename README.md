@@ -62,7 +62,7 @@ Download and install Git from [Git for Windows](https://git-scm.com/downloads/wi
 4. Restart your computer if prompted (optional)
 5. Open Docker Desktop
 
-## Dtalk Installation for Windows
+## Dtalk Installation On Windows
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
@@ -71,14 +71,8 @@ We recommend using Docker as it ensures consistent behavior across different sys
 **1. Clone the Repository**
 ```bash
 git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-```
-
-> 🔐 **Authentication Note:** When cloning, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
-
-```bash
 cd dtalk
 ```
-
 **2. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
@@ -126,8 +120,8 @@ docker-compose up -d
 ```
 
 **5. Access the Application**
-- **Frontend:** http://localhost:5173
-- **Backend:** http://localhost:3000
+	- **Frontend:** http://localhost:5173
+	- **Backend:** http://localhost:3000
 
 **6. Stop the Application**
 ```bash
