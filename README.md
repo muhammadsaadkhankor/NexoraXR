@@ -47,125 +47,153 @@ The `.env` file is used to store API keys and configuration variables required f
 An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
 
 ## Prerequisites
-1. First ensure Git is installed on your system, if not you can install it from the link below:
-   - [Git for Windows](https://git-scm.com/downloads/win)
-   - For Linux: `sudo apt-get install git` (Ubuntu/Debian) or `sudo yum install git` (CentOS/RHEL)
 
-2. For Docker method:
-   - Docker and Docker Compose installed and running on your machine
-   - [Download Docker](https://www.docker.com/products/docker-desktop/)
+### 1. Git Installation
+First ensure Git is installed on your system:
 
-## Installation Instructions
+**Windows:**
+- Download and install from [Git for Windows](https://git-scm.com/downloads/win)
 
-There are two ways to install and run this project:
-
-### Method 1: Without Docker
-
-If you prefer to run the application without Docker, follow these steps:
-
-1. Open your terminal inside any directory you want to clone "dtalk" repository.
-   ```bash
-   git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
-   ```
-🔐 When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use the following:
-ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6
+**Linux:**
 ```bash
-cd dtalk
+# Ubuntu/Debian
+sudo apt-get install git
+
+# CentOS/RHEL
+sudo yum install git
 ```
-2. Backend Setup:
 
-   Linux
-      ```bash
-      # Extract the bin file
-      unzip backend/bin.zip -d backend/bin
-      
-      # Set up the .env file
-      cp backend/env.template.txt backend/.env
-      ```
-   Window
-      ```bash
-      # Extract the bin file
-      mkdir backend\bin
-      tar -xf backend\bin.zip -C backend\bin
-      
-      # Set up the .env file
-      copy backend\env.template.txt backend\.env
-      ```
+### 2. Docker Installation
 
-4. Then we need to install the dependencies
-   ```bash 
-   yarn install
-   ```
-    
-5. Start the Development Servers:
-   ```bash
-   yarn dev
-   ```
-### Method 2: Using Docker (Recommended)
+#### For Windows:
+1. Visit [Docker's official website](https://www.docker.com/)
+2. Download Docker Desktop for Windows
+3. Run the installer and follow the setup instructions
+4. Restart your computer if prompted
+
+#### For Linux (Ubuntu/Debian):
+
+**Step 1: Update the system**
+```bash
+sudo apt update 
+sudo apt upgrade -y
+```
+
+**Step 2: Install required dependencies**
+```bash
+sudo apt install -y ca-certificates curl gnupg lsb-release
+```
+
+**Step 3: Add Docker's official GPG key**
+```bash
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+```
+
+**Step 4: Set up the Docker repository**
+```bash
+echo \
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+```
+
+**Step 5: Install Docker Engine**
+```bash
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+**Step 6: Verify Docker installation**
+```bash
+docker --version
+```
+
+**Step 7: Start Docker service**
+```bash
+sudo systemctl start docker
+sudo systemctl enable docker
+```
+
+**Step 8: Add your user to Docker group (optional, to run Docker without sudo)**
+```bash
+sudo usermod -aG docker $USER
+# Log out and log back in for this to take effect
+```
+
+## Installation
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
-#### Steps:
+### Steps:
 
-1. Clone the Repository
+**1. Clone the Repository**
 ```bash
-   git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```
-🔐 When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use the following:
-ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6
+
+> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
+
 ```bash
 cd dtalk
 ```
 
-2. Backend Setup:
+**2. Backend Setup:**
 
-   Linux
-      ```bash
-      # Extract the bin file
-      unzip backend/bin.zip -d backend/bin
-      
-      # Set up the .env file
-      cp backend/env.template.txt backend/.env
-      ```
-   Window
-      ```bash
-      # Extract the bin file
-      mkdir backend\bin
-      tar -xf backend\bin.zip -C backend\bin
-      
-      # Set up the .env file
-      copy backend\env.template.txt backend\.env
-      ```
-   
-3. Edit the `.env` file with your API keys
-   ```bash
-   # Open the file in your favorite editor
-   # Add your API keys
-   OPENAI_API_KEY=your_key_here
-   ELEVEN_LABS_API_KEY=your_key_here
-   ELEVEN_LABS_VOICE_ID=your_voice_id
-   ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
-   
-   ```
+**For Linux/macOS:**
+```bash
+# Extract the bin file
+unzip backend/bin.zip -d backend/bin
 
-4. Build and Run with Docker
-   ```bash
-   # Build the Docker containers
-   docker-compose build
-   
-   # Run the application
-   docker-compose up
-   ```
-   
-5. Access the application
-   - Frontend: http://localhost:5173
-   - Backend: http://localhost:3000
+# Set up the .env file
+cp backend/env.template.txt backend/.env
+```
 
-6. To stop the application
-   ```bash
-   # Use Ctrl+C in the terminal or
-   docker-compose down
-   ```
+**For Windows:**
+```bash
+# Extract the bin file
+mkdir backend\bin
+tar -xf backend\bin.zip -C backend\bin
+
+# Set up the .env file
+copy backend\env.template.txt backend\.env
+```
+
+**3. Configure API Keys**
+
+Edit the `.env` file with your API keys:
+```bash
+# Open the file in your favorite editor and add your API keys
+vim backend/.env  # or use any text editor
+```
+
+Add the following to your `.env` file:
+```env
+OPENAI_API_KEY=your_key_here
+ELEVEN_LABS_API_KEY=your_key_here
+ELEVEN_LABS_VOICE_ID=your_voice_id
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+```
+
+**4. Build and Run with Docker**
+```bash
+# Build the Docker containers
+docker-compose build
+
+# Run the application
+docker-compose up
+```
+
+**5. Access the Application**
+- **Frontend:** http://localhost:5173
+- **Backend:** http://localhost:3000
+
+**6. Stop the Application**
+```bash
+# Use Ctrl+C in the terminal or run:
+docker-compose down
+```
 
 ## Updating the Project (Pull Latest Changes)
 
@@ -173,49 +201,55 @@ After the initial setup, if the Dtalk project receives updates (e.g., new featur
 
 ### Without Docker
 
-1. **Open your terminal in the directory of Dtalk which you previously cloned**
+1. **Navigate to your Dtalk directory**
+```bash
+cd path/to/dtalk
+```
 
-2. **Pull the Latest Changes from the Repository**
-   ```bash
-   # For main branch
-   git pull origin main
-   
-   # For our own Llama model
-   git pull origin llm
-   ```
+2. **Pull the latest changes from the repository**
+```bash
+# For main branch
+git pull origin main
 
-3. **Install New Dependencies (if any)**
-   ```bash
-   yarn install
-   ```
+# For our own Llama model
+git pull origin llm
+```
 
-4. **Start the Project**
-   ```bash
-   yarn dev
-   ```
+3. **Install new dependencies (if any)**
+```bash
+yarn install
+```
+
+4. **Start the project**
+```bash
+yarn dev
+```
 
 ### With Docker
 
-1. **Open your terminal in the directory of Dtalk which you previously cloned**
+1. **Navigate to your Dtalk directory**
+```bash
+cd path/to/dtalk
+```
 
-2. **Pull the Latest Changes from the Repository**
-   ```bash
-   # For main branch
-   git pull origin main
-   
-   # For our own Llama model
-   git pull origin llm
-   ```
+2. **Pull the latest changes from the repository**
+```bash
+# For main branch
+git pull origin main
 
-3. **Rebuild the Docker Images**
-   ```bash
-   docker-compose build
-   ```
+# For our own Llama model
+git pull origin llm
+```
 
-4. **Start or Restart the Containers**
-   ```bash
-   docker-compose up -d
-   ```
+3. **Rebuild the Docker images**
+```bash
+docker-compose build
+```
+
+4. **Start or restart the containers**
+```bash
+docker-compose up -d
+```
 
 ## Docker Configuration Details
 
@@ -233,28 +267,47 @@ This project uses Docker Compose to run both the frontend and backend services:
 
 ## Troubleshooting Docker Setup
 
-If you encounter issues with Docker mounting permissions:
+If you encounter issues with Docker setup:
 
-1. Check Docker file sharing settings
-   ```bash
-   # Fix directory permissions
-   sudo chown -R $USER:$USER .
-   sudo chmod -R 755 .
-   ```
+**1. Permission Issues:**
+```bash
+# Fix directory permissions
+sudo chown -R $USER:$USER .
+sudo chmod -R 755 .
+```
 
-2. If accessing a local LLaMA server, ensure the `host.docker.internal` setting is properly configured in `.env` file
+**2. Local LLaMA Server Connection:**
+- Ensure the `host.docker.internal` setting is properly configured in `.env` file
 
-3. For connectivity issues between containers:
-   ```bash
-   # Check container status
-   docker-compose ps
-   
-   # View container logs
-   docker-compose logs
-   ```
+**3. Container Connectivity Issues:**
+```bash
+# Check container status
+docker-compose ps
+
+# View container logs
+docker-compose logs
+
+# View logs for specific service
+docker-compose logs frontend
+docker-compose logs backend
+```
+
+**4. Port Conflicts:**
+- Ensure ports 3000 and 5173 are not being used by other applications
+- You can check with: `netstat -tulpn | grep :3000` or `netstat -tulpn | grep :5173`
+
+**5. Docker Service Issues (Linux):**
+```bash
+# Restart Docker service
+sudo systemctl restart docker
+
+# Check Docker service status
+sudo systemctl status docker
+```
 
 ## Development Notes
 
 - The system requires API keys for OpenAI and ElevenLabs to function properly
 - For local development, ensure proper ports are available (3000, 5173)
 - When modifying code in Docker development mode, changes are reflected immediately due to volume mounts
+- If you encounter any issues with Docker commands requiring sudo, make sure your user is added to the Docker group
