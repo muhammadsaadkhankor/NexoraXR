@@ -155,43 +155,38 @@ tar -xf backend\bin.zip -C backend\bin
 copy backend\env.template.txt backend\.env
 ```
 
-**3. Configure API Keys
-Edit the .env file with your API keys:
-For Linux/macOS:
-Since files starting with "." are hidden by default in the file manager, use a text editor from the terminal:
-bash# Open the .env file in nano editor
+**2. Configure API Keys **
+Edit the `.env` file with your API keys:
+**For Windows:**
+Open the `.env` file with any text editor (Notepad, VS Code, etc.):
+```bash
+# Navigate to the backend folder and open .env with any text editor
+notepad backend\.env
+```
+**For Ubuntu/Linux:**
+In Ubuntu, files starting with "." are hidden by default in the file manager, so use nano editor:
+```bash
+# Open the .env file in nano editor
 nano backend/.env
-
-# Alternative: use other text editors
-# vim backend/.env
-# code backend/.env  (VS Code)
-
-For Windows:
-You can edit the file directly through File Explorer or use a text editor:
-
-Navigate to the backend folder and open .env with any text editor
-Or use Command Prompt: notepad backend\.env
-
+```
 Add your API keys to the file:
+```env
 OPENAI_API_KEY=your_actual_openai_key_here
 ELEVEN_LABS_API_KEY=your_actual_elevenlabs_key_here
 ELEVEN_LABS_VOICE_ID=your_voice_id_here
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
-
+```
 Example with real values:
-envOPENAI_API_KEY=sk-1234567890abcdef...
+```env
+OPENAI_API_KEY=sk-1234567890abcdef...
 ELEVEN_LABS_API_KEY=a1b2c3d4e5f6...
 ELEVEN_LABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
-Saving the file:
-
-In nano: Press Ctrl + S to save, then Ctrl + X to exit
-In other editors: Use Ctrl + S (or Cmd + S on macOS) to save
-
-Important Notes:
-Replace the placeholder values with your actual API keys
-Keep your API keys secure and never share them publicly
-Make sure there are no extra spaces around the = sign
+```
+**Saving the file:**
+- **Windows:** Press `Ctrl + S` to save
+- **Ubuntu (nano):** Press `Ctrl + S` to save, then `Ctrl + X` to exit
+> **Important:** Replace the placeholder values with your actual API keys and keep them secure.
 
 **4. Build and Run with Docker**
 ```bash
