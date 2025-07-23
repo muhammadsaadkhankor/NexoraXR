@@ -46,15 +46,102 @@ The `.env` file is used to store API keys and configuration variables required f
 
 An example `.env` file (`env.template.txt`) is provided in the repository. During setup, this template should be copied and renamed to `.env` to ensure the APIs function properly.
 
-## Prerequisites
+---
+
+# Installation Guide for Windows
+
+## Prerequisites for Windows
 
 ### 1. Git Installation
-First ensure Git is installed on your system:
+Download and install Git from [Git for Windows](https://git-scm.com/downloads/win)
 
-**Windows:**
-- Download and install from [Git for Windows](https://git-scm.com/downloads/win)
+### 2. Docker Installation for Windows
+1. Visit [Docker's official website](https://www.docker.com/)
+2. Download Docker Desktop for Windows
+3. Run the installer and follow the setup instructions
+4. Restart your computer if prompted (optional)
+5. Open Docker Desktop
 
-**Linux:**
+## Dtalk Installation for Windows
+
+We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
+
+### Steps for Windows:
+
+**1. Clone the Repository**
+```bash
+git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+```
+
+> 🔐 **Authentication Note:** When cloning, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
+
+```bash
+cd dtalk
+```
+
+**2. Extract Files and Setup Environment**
+```bash
+# Extract the bin file
+mkdir backend\bin
+tar -xf backend\bin.zip -C backend\bin
+
+# Set up the .env file
+copy backend\env.template.txt backend\.env
+```
+
+**3. Configure API Keys**
+Open the `.env` file with any text editor (Notepad, VS Code, etc.):
+```bash
+# Navigate to the backend folder and open .env with any text editor
+notepad backend\.env
+```
+
+Add your API keys to the file:
+```env
+OPENAI_API_KEY=your_actual_openai_key_here
+ELEVEN_LABS_API_KEY=your_actual_elevenlabs_key_here
+ELEVEN_LABS_VOICE_ID=your_voice_id_here
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+```
+
+Example with real values:
+```env
+OPENAI_API_KEY=sk-1234567890abcdef...
+ELEVEN_LABS_API_KEY=a1b2c3d4e5f6...
+ELEVEN_LABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+```
+
+Press `Ctrl + S` to save the file.
+
+> **Important:** Replace the placeholder values with your actual API keys and keep them secure.
+
+**4. Build and Run with Docker**
+```bash
+# Build the Docker containers
+docker-compose build
+
+# Run the application
+docker-compose up -d
+```
+
+**5. Access the Application**
+- **Frontend:** http://localhost:5173
+- **Backend:** http://localhost:3000
+
+**6. Stop the Application**
+```bash
+# Use Ctrl+C in the terminal or run:
+docker-compose down
+```
+
+---
+
+# Installation Guide for Ubuntu/Linux
+
+## Prerequisites for Ubuntu/Linux
+
+### 1. Git Installation
 ```bash
 # Ubuntu/Debian
 sudo apt-get install git
@@ -63,15 +150,7 @@ sudo apt-get install git
 sudo yum install git
 ```
 
-### 2. Docker Installation
-
-#### For Windows:
-1. Visit [Docker's official website](https://www.docker.com/)
-2. Download Docker Desktop for Windows
-3. Run the installer and follow the setup instructions
-4. Restart your computer if prompted #optional
-5. open docker-desktop
-#### For Linux (Ubuntu/Debian):
+### 2. Docker Installation for Ubuntu/Linux
 
 **Step 1: Update the system**
 ```bash
@@ -116,11 +195,11 @@ sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
-## Dtalk Installation
+## Dtalk Installation for Ubuntu/Linux
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
-### Steps:
+### Steps for Ubuntu/Linux:
 
 **1. Clone the Repository**
 ```bash
@@ -132,7 +211,8 @@ git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```bash
 cd dtalk
 ```
-**For Linux/macOS:**
+
+**2. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
 unzip backend/bin.zip -d backend/bin
@@ -145,30 +225,14 @@ chmod +x rhubarb
 cd ../..
 cp backend/env.template.txt backend/.env
 ```
-**For Windows:**
-```bash
-# Extract the bin file
-mkdir backend\bin
-tar -xf backend\bin.zip -C backend\bin
 
-# Set up the .env file
-copy backend\env.template.txt backend\.env
-```
-
-**2. Configure API Keys **
-Edit the `.env` file with your API keys:
-**For Windows:**
-Open the `.env` file with any text editor (Notepad, VS Code, etc.):
-```bash
-# Navigate to the backend folder and open .env with any text editor
-notepad backend\.env
-```
-**For Ubuntu/Linux:**
+**3. Configure API Keys**
 In Ubuntu, files starting with "." are hidden by default in the file manager, so use nano editor:
 ```bash
 # Open the .env file in nano editor
 nano backend/.env
 ```
+
 Add your API keys to the file:
 ```env
 OPENAI_API_KEY=your_actual_openai_key_here
@@ -176,6 +240,7 @@ ELEVEN_LABS_API_KEY=your_actual_elevenlabs_key_here
 ELEVEN_LABS_VOICE_ID=your_voice_id_here
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
 ```
+
 Example with real values:
 ```env
 OPENAI_API_KEY=sk-1234567890abcdef...
@@ -183,9 +248,9 @@ ELEVEN_LABS_API_KEY=a1b2c3d4e5f6...
 ELEVEN_LABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
 ```
-**Saving the file:**
-- **Windows:** Press `Ctrl + S` to save
-- **Ubuntu (nano):** Press `Ctrl + S` to save, then `Ctrl + X` to exit
+
+Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
+
 > **Important:** Replace the placeholder values with your actual API keys and keep them secure.
 
 **4. Build and Run with Docker**
@@ -207,6 +272,10 @@ docker-compose up -d
 docker-compose down
 ```
 
+---
+
+# Common Operations (Both OS)
+
 ## Updating the Project (Pull Latest Changes)
 
 After the initial setup, if the Dtalk project receives updates (e.g., new features, bug fixes, or dependency changes), you don't need to repeat the entire installation process. Simply follow the steps below to stay up-to-date with the latest code:
@@ -215,6 +284,7 @@ After the initial setup, if the Dtalk project receives updates (e.g., new featur
 ```bash
 cd path/to/dtalk
 ```
+
 2. **Pull the latest changes from the repository**
 ```bash
 # For main branch
@@ -252,7 +322,7 @@ This project uses Docker Compose to run both the frontend and backend services:
 
 If you encounter issues with Docker setup:
 
-**1. Permission Issues:**
+**1. Permission Issues (Linux only):**
 ```bash
 # Fix directory permissions
 sudo chown -R $USER:$USER .
@@ -279,7 +349,7 @@ docker-compose logs backend
 - Ensure ports 3000 and 5173 are not being used by other applications
 - You can check with: `netstat -tulpn | grep :3000` or `netstat -tulpn | grep :5173`
 
-**5. Docker Service Issues (Linux):**
+**5. Docker Service Issues (Linux only):**
 ```bash
 # Restart Docker service
 sudo systemctl restart docker
