@@ -116,7 +116,7 @@ sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
-## Installation
+## Dtalk Installation
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
