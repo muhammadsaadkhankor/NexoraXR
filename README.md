@@ -155,23 +155,43 @@ tar -xf backend\bin.zip -C backend\bin
 copy backend\env.template.txt backend\.env
 ```
 
-**3. Configure API Keys**
+**3. Configure API Keys
+Edit the .env file with your API keys:
+For Linux/macOS:
+Since files starting with "." are hidden by default in the file manager, use a text editor from the terminal:
+bash# Open the .env file in nano editor
+nano backend/.env
 
-Edit the `.env` file with your API keys:
-in Ubuntu any file starting with "." will be hidden in user interface so you can make changes by opening .env file using nano the command is given below:
-```bash
-# Open the file in your favorite editor and add your API keys
-nano backend/.env  # or use any text editor
-```
+# Alternative: use other text editors
+# vim backend/.env
+# code backend/.env  (VS Code)
 
-Add the following to your `.env` file:
-```env
-OPENAI_API_KEY=your_key_here
-ELEVEN_LABS_API_KEY=your_key_here
-ELEVEN_LABS_VOICE_ID=your_voice_id
+For Windows:
+You can edit the file directly through File Explorer or use a text editor:
+
+Navigate to the backend folder and open .env with any text editor
+Or use Command Prompt: notepad backend\.env
+
+Add your API keys to the file:
+OPENAI_API_KEY=your_actual_openai_key_here
+ELEVEN_LABS_API_KEY=your_actual_elevenlabs_key_here
+ELEVEN_LABS_VOICE_ID=your_voice_id_here
 ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
-```
-After you make changes press ctr + s to save and ctr + x to cut the nano editor an back to the terminal
+
+Example with real values:
+envOPENAI_API_KEY=sk-1234567890abcdef...
+ELEVEN_LABS_API_KEY=a1b2c3d4e5f6...
+ELEVEN_LABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+Saving the file:
+
+In nano: Press Ctrl + S to save, then Ctrl + X to exit
+In other editors: Use Ctrl + S (or Cmd + S on macOS) to save
+
+Important Notes:
+Replace the placeholder values with your actual API keys
+Keep your API keys secure and never share them publicly
+Make sure there are no extra spaces around the = sign
 
 **4. Build and Run with Docker**
 ```bash
