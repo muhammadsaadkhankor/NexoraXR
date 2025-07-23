@@ -69,8 +69,8 @@ sudo yum install git
 1. Visit [Docker's official website](https://www.docker.com/)
 2. Download Docker Desktop for Windows
 3. Run the installer and follow the setup instructions
-4. Restart your computer if prompted
-
+4. Restart your computer if prompted #optional
+5. open docker-desktop
 #### For Linux (Ubuntu/Debian):
 
 **Step 1: Update the system**
@@ -114,12 +114,6 @@ docker --version
 ```bash
 sudo systemctl start docker
 sudo systemctl enable docker
-```
-
-**Step 8: Add your user to Docker group (optional, to run Docker without sudo)**
-```bash
-sudo usermod -aG docker $USER
-# Log out and log back in for this to take effect
 ```
 
 ## Installation
