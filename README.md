@@ -144,7 +144,113 @@ sudo apt-get install git
 sudo yum install git
 ```
 
-### 2. Docker Installation on Ubuntu/Linux
+## Method 1: Installation Without Docker (Native Setup)
+
+### Additional Prerequisites for Native Setup
+
+### 2. Node.js and npm Installation
+```bash
+# Install Node.js 18.x
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Verify installation
+node --version
+npm --version
+```
+
+### 3. Yarn Installation
+```bash
+# Install Yarn globally
+npm install -g yarn
+
+# Verify installation
+yarn --version
+```
+
+### 4. FFmpeg Installation
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+
+# Verify installation
+ffmpeg -version
+```
+
+### Steps for Ubuntu/Linux (Native):
+
+**1. Clone the Repository**
+```bash
+git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+```
+
+> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
+
+```bash
+cd dtalk
+```
+
+**2. Extract Files and Setup Environment**
+```bash
+# Extract the bin file
+unzip backend/bin.zip -d backend/bin
+
+# Set execute permissions for the rhubarb file
+cd backend/bin
+chmod +x rhubarb
+
+# Return to the project root and set up the .env file
+cd ../..
+cp backend/env.template.txt backend/.env
+```
+
+**3. Configure API Keys**
+```bash
+# Open the .env file in nano editor
+nano backend/.env
+```
+
+Add your API keys to the file:
+```env
+OPENAI_API_KEY=your_actual_openai_key_here
+ELEVEN_LABS_API_KEY=your_actual_elevenlabs_key_here
+ELEVEN_LABS_VOICE_ID=your_voice_id_here
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+```
+
+Example with real values:
+```env
+OPENAI_API_KEY=sk-1234567890abcdef...
+ELEVEN_LABS_API_KEY=a1b2c3d4e5f6...
+ELEVEN_LABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+ELEVEN_LABS_MODEL_ID=eleven_multilingual_v1
+```
+
+Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
+
+> **Important:** Replace the placeholder values with your actual API keys and keep them secure.
+
+**4. Install and Run Application**
+```bash
+# Install all dependencies (both frontend and backend)
+yarn install
+
+# Run the application (starts both frontend and backend)
+yarn dev
+```
+
+**5. Access the Application**
+- **Frontend:** http://localhost:5173
+- **Backend:** http://localhost:3000
+
+**6. Stop the Application**
+Use `Ctrl+C` in the terminal to stop the services.
+
+---
+
+## Method 2: Installation With Docker (Recommended)
+
+### Docker Installation Prerequisites
 
 **Step 1: Update the system**
 ```bash
@@ -189,11 +295,7 @@ sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
-## Dtalk Installation on Ubuntu/Linux
-
-We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
-
-### Steps for Ubuntu/Linux:
+### Steps for Ubuntu/Linux (Docker):
 
 **1. Clone the Repository**
 ```bash
@@ -221,7 +323,6 @@ cp backend/env.template.txt backend/.env
 ```
 
 **3. Configure API Keys**
-In Ubuntu, files starting with "." are hidden by default in the file manager, so use nano editor:
 ```bash
 # Open the .env file in nano editor
 nano backend/.env
@@ -257,14 +358,33 @@ docker-compose up -d
 ```
 
 **5. Access the Application**
- - **Frontend:** http://localhost:5173
- - **Backend:** http://localhost:3000
+- **Frontend:** http://localhost:5173
+- **Backend:** http://localhost:3000
 
 **6. Stop the Application**
 ```bash
 # Use Ctrl+C in the terminal or run:
 docker-compose down
 ```
+
+---
+
+## Which Method Should You Choose?
+
+### Use **Native Installation (Method 1)** if:
+- You prefer to have direct control over the development environment
+- You want to modify or debug the code more easily
+- You have limited disk space (Docker images can be large)
+- You're familiar with Node.js development environments
+
+### Use **Docker Installation (Method 2)** if:
+- You want a consistent environment across different systems
+- You prefer isolation from your host system
+- You want easier deployment and scaling options
+- You're working in a team where everyone needs the same environment
+- You want to avoid dependency conflicts
+
+> **Recommendation:** We suggest using Docker (Method 2) as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
 ---
 
@@ -353,7 +473,6 @@ sudo systemctl status docker
 ```
 
 ## Development Notes
-
 - The system requires API keys for OpenAI and ElevenLabs to function properly
 - For local development, ensure proper ports are available (3000, 5173)
 - When modifying code in Docker development mode, changes are reflected immediately due to volume mounts
