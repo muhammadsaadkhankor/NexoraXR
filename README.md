@@ -247,7 +247,7 @@ Use `Ctrl+C` in the terminal to stop the services.
 
 ---
 
-## Method 2: Installation With Docker (Recommended)
+## Method 2: Installation With Docker on Ubuntu
 
 ### 1: Docker Installation Prerequisites
 
