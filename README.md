@@ -143,20 +143,22 @@ sudo yum install git
 
 ## Method 1: Installation Without Docker (Native Setup)
 
-### Additional Prerequisites for Native Setup
-
-### 2. Node.js and npm Installation
+### 1.1. Node.js and npm Installation
 ```bash
 # Install Node.js 18.x
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
+sudo apt update
+sudo apt upgrade -y
+
+sudo apt install -y curl software-properties-common
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 
 # Verify installation
 node --version
 npm --version
 ```
 
-### 3. Yarn Installation
+### 1.2. Yarn Installation
 ```bash
 # Install Yarn globally
 npm install -g yarn
@@ -165,7 +167,7 @@ npm install -g yarn
 yarn --version
 ```
 
-### 4. FFmpeg Installation
+### 1.3. FFmpeg Installation
 ```bash
 sudo apt update
 sudo apt install -y ffmpeg
@@ -176,7 +178,7 @@ ffmpeg -version
 
 ### Steps for Ubuntu/Linux (Native):
 
-**1. Clone the Repository**
+**2. Clone the Repository**
 ```bash
 git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```
@@ -187,7 +189,7 @@ git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 cd dtalk
 ```
 
-**2. Extract Files and Setup Environment**
+**2.1. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
 unzip backend/bin.zip -d backend/bin
@@ -201,7 +203,7 @@ cd ../..
 cp backend/env.template.txt backend/.env
 ```
 
-**3. Configure API Keys**
+**2.2. Configure API Keys**
 ```bash
 # Open the .env file in nano editor
 nano backend/.env
@@ -227,7 +229,7 @@ Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
 
 > **Important:** Replace the placeholder values with your actual API keys and keep them secure.
 
-**4. Install and Run Application**
+**2.3. Install and Run Application**
 ```bash
 # Install all dependencies (both frontend and backend)
 yarn install
@@ -236,7 +238,7 @@ yarn install
 yarn dev
 ```
 
-**5. Access the Application**
+**3. Access the Application**
 - **Frontend:** http://localhost:5173
 - **Backend:** http://localhost:3000
 
@@ -247,27 +249,27 @@ Use `Ctrl+C` in the terminal to stop the services.
 
 ## Method 2: Installation With Docker (Recommended)
 
-### Docker Installation Prerequisites
+### 1: Docker Installation Prerequisites
 
-**Step 1: Update the system**
+**Step 1.1: Update the system**
 ```bash
 sudo apt update 
 sudo apt upgrade -y
 ```
 
-**Step 2: Install required dependencies**
+**Step 1.2: Install required dependencies**
 ```bash
 sudo apt install -y ca-certificates curl gnupg lsb-release
 ```
 
-**Step 3: Add Docker's official GPG key**
+**Step 1.3: Add Docker's official GPG key**
 ```bash
 sudo mkdir -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
 sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 ```
 
-**Step 4: Set up the Docker repository**
+**Step 1.4: Set up the Docker repository**
 ```bash
 echo \
 "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
@@ -275,18 +277,18 @@ https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
 sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
 
-**Step 5: Install Docker Engine**
+**Step 1.5: Install Docker Engine**
 ```bash
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-**Step 6: Verify Docker installation**
+**Step 1.6: Verify Docker installation**
 ```bash
 docker --version
 ```
 
-**Step 7: Start Docker service**
+**Step 1.7: Start Docker service**
 ```bash
 sudo systemctl start docker
 sudo systemctl enable docker
@@ -294,7 +296,7 @@ sudo systemctl enable docker
 
 ### Steps for Ubuntu/Linux (Docker):
 
-**1. Clone the Repository**
+**2. Clone the Repository**
 ```bash
 git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```
@@ -305,7 +307,7 @@ git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 cd dtalk
 ```
 
-**2. Extract Files and Setup Environment**
+**2.1. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
 unzip backend/bin.zip -d backend/bin
@@ -319,7 +321,7 @@ cd ../..
 cp backend/env.template.txt backend/.env
 ```
 
-**3. Configure API Keys**
+**2.2. Configure API Keys**
 ```bash
 # Open the .env file in nano editor
 nano backend/.env
@@ -345,7 +347,7 @@ Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
 
 > **Important:** Replace the placeholder values with your actual API keys and keep them secure.
 
-**4. Build and Run with Docker**
+**2.3. Build and Run with Docker**
 ```bash
 # Build the Docker containers
 docker-compose build
@@ -354,7 +356,7 @@ docker-compose build
 docker-compose up -d
 ```
 
-**5. Access the Application**
+**2.4. Access the Application**
 - **Frontend:** http://localhost:5173
 - **Backend:** http://localhost:3000
 
