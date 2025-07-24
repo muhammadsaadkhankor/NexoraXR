@@ -298,7 +298,7 @@ sudo systemctl enable docker
 
 **2. Clone the Repository**
 ```bash
-git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+git clone <repo>
 ```
 
 > 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `your own password for bitbucket`
