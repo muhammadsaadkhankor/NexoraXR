@@ -62,11 +62,11 @@ Download and install Git from [Git for Windows](https://git-scm.com/downloads/wi
 4. Restart your computer if prompted (optional)
 5. Open Docker Desktop
 
-## Dtalk Installation On Windows
+### 3. Dtalk Installation On Windows
 
 We recommend using Docker as it ensures consistent behavior across different systems and eliminates compatibility issues.
 
-### Steps for Windows:
+### 3.1. Steps for Windows:
 
 **1. Clone the Repository**
 ```bash
@@ -116,6 +116,7 @@ docker-compose up -d
 ```
 
 **5. Access the Application**
+You can access the development server on these ports:
 	- **Frontend:** http://localhost:5173
 	- **Backend:** http://localhost:3000
 
