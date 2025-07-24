@@ -180,10 +180,10 @@ ffmpeg -version
 
 **2. Clone the Repository**
 ```bash
-git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
+git clone <repo link>
 ```
 
-> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
+> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `your own password for bitbucket`
 
 ```bash
 cd dtalk
@@ -301,7 +301,7 @@ sudo systemctl enable docker
 git clone https://msaad007@bitbucket.org/inspiratio/dtalk.git
 ```
 
-> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `ATBBfqwjpXcfWSahpgRkyYN9KU8d25BCF6E6`
+> 🔐 **Authentication Note:** When cloning in Ubuntu or WSL, Bitbucket will prompt you for a password. Please use: `your own password for bitbucket`
 
 ```bash
 cd dtalk
