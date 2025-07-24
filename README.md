@@ -84,11 +84,7 @@ copy backend\env.template.txt backend\.env
 ```
 
 **3. Configure API Keys**
-Open the `.env` file with any text editor (Notepad, VS Code, etc.):
-```bash
-# Navigate to the backend folder and open .env with any text editor
-notepad backend\.env
-```
+Open the .env file with any text editor (Notepad, VS Code, etc.) and add your API keys to the file:d backend\.env
 
 Add your API keys to the file:
 ```env
