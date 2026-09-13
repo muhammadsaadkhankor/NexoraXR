@@ -158,16 +158,7 @@ node --version
 npm --version
 ```
 
-### 1.2. Yarn Installation
-```bash
-# Install Yarn globally
-npm install -g yarn
-
-# Verify installation
-yarn --version
-```
-
-### 1.3. FFmpeg Installation
+### 1.2. FFmpeg Installation
 ```bash
 sudo apt update
 sudo apt install -y ffmpeg
@@ -231,11 +222,20 @@ Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
 
 **2.3. Install and Run Application**
 ```bash
-# Install all dependencies (both frontend and backend)
-yarn install
+# Install dependencies for each component separately
+npm install                 # root (dev tooling: concurrently)
+npm install --prefix backend
+npm install --prefix frontend
+
+# Shortcut for both components
+npm run install:all
 
 # Run the application (starts both frontend and backend)
-yarn dev
+npm run dev
+
+# Or run them individually in separate terminals
+npm run dev:backend
+npm run dev:frontend
 ```
 
 **3. Access the Application**

@@ -2,7 +2,7 @@ import { useGLTF } from "@react-three/drei";
 import React, { useEffect } from "react";
 
 export function CheckSkeleton() {
-  const { nodes } = useGLTF("/models/ProfAbed_updated.glb");
+  const { nodes } = useGLTF("/assets/avatar/ProfAbed_suit.glb");
 
   useEffect(() => {
     // Function to recursively print the skeleton hierarchy
@@ -28,4 +28,4 @@ export function CheckSkeleton() {
   return null; // This component only performs logging and doesn't render anything
 }
 
-useGLTF.preload("/models/ProfAbed_updated.glb");
+useGLTF.preload("/assets/avatar/ProfAbed_suit.glb");

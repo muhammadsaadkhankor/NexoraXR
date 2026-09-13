@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useGLTF, useAnimations } from '@react-three/drei';
 import { useFrame } from "@react-three/fiber";
 import { button, useControls } from "leva";
@@ -8,7 +8,7 @@ import facialExpressions from "../constants/facialExpressions";
 import visemesMapping from "../constants/visemesMapping";
 import morphTargets from "../constants/morphTargets";
 
-const DEFAULT_AVATAR_PATH = '/models/ProfAbed_suit.glb';
+const DEFAULT_AVATAR_PATH = '/assets/avatar/ProfAbed_suit.glb';
 const ANIMATIONS_PATH = '/models/animations.glb';
 
 export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
@@ -25,14 +25,20 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     }
   }, [modelPath]);
 
-  const { nodes, materials } = useGLTF(modelPath);
-  const { animations } = useGLTF(ANIMATIONS_PATH);
+  const { nodes, materials, scene } = useGLTF(modelPath);
+  const { animations: sourceAnimations } = useGLTF(ANIMATIONS_PATH);
+
+  const animations = useMemo(() => {
+    if (!sourceAnimations) return [];
+    return sourceAnimations.map((clip) => clip.clone());
+  }, [sourceAnimations]);
+
   const { actions, mixer } = useAnimations(animations, group);
   const { message, onMessagePlayed } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
   const [setupMode, setSetupMode] = useState(false);
-  const [animation, setAnimation] = useState(animations.find((a) => a.name === "Idle") ? "Idle" : animations[0].name);
+  const [animation, setAnimation] = useState("Idle");
   const [blink, setBlink] = useState(false);
   const [facialExpression, setFacialExpression] = useState("");
   const [audio, setAudio] = useState();
@@ -75,7 +81,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         }
       };
     }
-  }, [animation]);
+  }, [animation, actions, mixer]);
 
   useEffect(() => {
     let blinkTimeout;
@@ -93,6 +99,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, []);
 
   useFrame(() => {
+    if (actions[animation]) actions[animation].play().setEffectiveWeight(1);
     if (!setupMode) {
       morphTargets.forEach((key) => {
         const mapping = facialExpressions[facialExpression];

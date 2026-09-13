@@ -1,139 +1,67 @@
-// import { useRef } from "react";
-// import { useSpeech } from "../hooks/useSpeech";
-
-// export const ChatInterface = ({ hidden, ...props }) => {
-//   const input = useRef();
-//   const { tts, loading, message, startRecording, stopRecording, recording } = useSpeech();
-
-//   const sendMessage = async () => {
-//     const text = input.current.value;
-//     if (!loading && !message) {
-//       try {
-//         await tts(text);
-//         input.current.value = "";
-//       } catch (error) {
-//         console.error('Error sending message:', error);
-//         // Handle error in UI if needed
-//       }
-//     }
-//   };
-//   if (hidden) {
-//     return null;
-//   }
-
-//   return (
-//     <div className="fixed top-0 left-0 right-0 bottom-0 z-10 flex justify-between p-4 flex-col pointer-events-none">
-//       <div className="self-start backdrop-blur-md bg-white bg-opacity-50 p-4 rounded-lg">
-//         <h1 className="font-black text-xl text-gray-700">Digital Twin</h1>
-//         <p className="text-gray-600">
-//           {loading ? "Loading..." : "Type a message and press enter to chat with the AI."}
-//         </p>
-//       </div>
-//       <div className="w-full flex flex-col items-end justify-center gap-4"></div>
-//       <div className="flex items-center gap-2 pointer-events-auto max-w-screen-sm w-full mx-auto">
-//         <button
-//           onClick={recording ? stopRecording : startRecording}
-//           className={`bg-gray-500 hover:bg-gray-600 text-white p-4 px-4 font-semibold uppercase rounded-md ${
-//             recording ? "bg-red-500 hover:bg-red-600" : ""
-//           } ${loading || message ? "cursor-not-allowed opacity-30" : ""}`}
-//         >
-//           <svg
-//             xmlns="http://www.w3.org/2000/svg"
-//             fill="none"
-//             viewBox="0 0 24 24"
-//             strokeWidth={1.5}
-//             stroke="currentColor"
-//             className="w-6 h-6"
-//           >
-//             <path
-//               strokeLinecap="round"
-//               strokeLinejoin="round"
-//               d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
-//             />
-//           </svg>
-//         </button>
-
-//         <input
-//           className="w-full placeholder:text-gray-800 placeholder:italic p-4 rounded-md bg-opacity-50 bg-white backdrop-blur-md"
-//           placeholder="Type a message..."
-//           ref={input}
-//           onKeyDown={(e) => {
-//             if (e.key === "Enter") {
-//               sendMessage();
-//             }
-//           }}
-//         />
-//         <button
-//           disabled={loading || message}
-//           onClick={sendMessage}
-//           className={`bg-gray-500 hover:bg-gray-600 text-white p-4 px-10 font-semibold uppercase rounded-md ${
-//             loading || message ? "cursor-not-allowed opacity-30" : ""
-//           }`}
-//         >
-//           Send
-//         </button>
-//       </div>
-//     </div>
-//   );
-// };
-
-
 import { useRef, useState, useEffect } from "react";
 import { useSpeech } from "../hooks/useSpeech";
+import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening } = useSpeech();
-  // Remove autoSend state since it's not needed
+  const [chatHistory, setChatHistory] = useState([
+    {
+      role: "assistant",
+      text: "Hello! I'm LeProf, your Multimedia course assistant. How can I help you today?",
+      time: new Date(),
+    },
+  ]);
   const [isPressed, setIsPressed] = useState(false);
   const currentTranscriptionRef = useRef(null);
+
+  const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening } = useSpeech();
+
+  useEffect(() => {
+    if (!message || !message.text) return;
+    setChatHistory((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant" && last.text === message.text) return prev;
+      return [...prev, { role: "assistant", text: message.text, time: new Date() }];
+    });
+  }, [message]);
 
   const sendMessage = async () => {
     const text = input.current.value;
     if (!loading && !message && text.trim()) {
+      setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
+      input.current.value = "";
       try {
         await tts(text);
-        input.current.value = "";
       } catch (error) {
-        console.error('Error sending message:', error);
+        console.error("Error sending message:", error);
       }
     }
   };
 
   const handleMicPress = async () => {
     if (!loading && !message && speechSupported && !isPressed) {
-      console.log('Mic pressed - starting recording');
       setIsPressed(true);
       setIsTranscribing(true);
       startRecording();
-      
-      // Start transcription process
       currentTranscriptionRef.current = transcribeAudio();
     }
   };
 
   const handleMicRelease = async () => {
     if (isPressed) {
-      console.log('Mic released - stopping recording');
       setIsPressed(false);
       stopRecording();
-      
+
       try {
-        // Wait for the transcription to complete
         const transcript = await currentTranscriptionRef.current;
         setIsTranscribing(false);
-        
-        console.log('Received transcript:', transcript);
-        
+
         if (transcript && transcript.trim() && input.current) {
           input.current.value = transcript;
-          input.current.focus();
-          
-          // Remove auto-send functionality
         }
       } catch (error) {
-        console.error('Transcription error:', error);
+        console.error("Transcription error:", error);
         setIsTranscribing(false);
       } finally {
         currentTranscriptionRef.current = null;
@@ -141,7 +69,6 @@ export const ChatInterface = ({ hidden, ...props }) => {
     }
   };
 
-  // Handle mouse events
   const handleMouseDown = (e) => {
     e.preventDefault();
     handleMicPress();
@@ -153,13 +80,11 @@ export const ChatInterface = ({ hidden, ...props }) => {
   };
 
   const handleMouseLeave = (e) => {
-    // Stop recording if mouse leaves the button while pressed
     if (isPressed) {
       handleMicRelease();
     }
   };
 
-  // Handle touch events for mobile
   const handleTouchStart = (e) => {
     e.preventDefault();
     handleMicPress();
@@ -170,32 +95,22 @@ export const ChatInterface = ({ hidden, ...props }) => {
     handleMicRelease();
   };
 
-  // Handle keyboard events (spacebar)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.code === 'Space' && !isPressed && !loading && !message && speechSupported) {
-        e.preventDefault();
-        handleMicPress();
-      }
+      // Space is reserved for the user avatar jump
     };
 
-    const handleKeyUp = (e) => {
-      if (e.code === 'Space' && isPressed) {
-        e.preventDefault();
-        handleMicRelease();
-      }
-    };
+    const handleKeyUp = (e) => {};
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
     };
   }, [isPressed, loading, message, speechSupported]);
 
-  // Cleanup if component unmounts while recording
   useEffect(() => {
     return () => {
       if (isPressed) {
@@ -204,87 +119,141 @@ export const ChatInterface = ({ hidden, ...props }) => {
     };
   }, []);
 
-  if (hidden) {
-    return null;
-  }
+  const formatTime = (date) =>
+    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="fixed top-0 left-0 right-0 bottom-0 z-10 flex justify-between p-4 flex-col pointer-events-none">
-      <div className="self-start backdrop-blur-md bg-white bg-opacity-50 p-4 rounded-lg">
-        <h1 className="font-black text-xl text-gray-700">Digital Twin</h1>
-        <p className="text-gray-600">
-          {loading 
-            ? "Loading..." 
-            : isTranscribing || isListening 
-              ? "Listening... (Release to stop)" 
-              : "Type a message or hold the mic button to record."
-          }
-        </p>
-        {!speechSupported && (
-          <p className="text-red-600 text-sm mt-1">
-            Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.
-          </p>
-        )}
-        {/* Remove the auto-send toggle section */}
-        <div className="mt-2 text-xs text-gray-500">
-          💡 Tip: Hold Spacebar to record from anywhere
-        </div>
-      </div>
-      
-      <div className="w-full flex flex-col items-end justify-center gap-4"></div>
-      <div className="flex items-center gap-2 pointer-events-auto max-w-screen-sm w-full mx-auto">
-        <button
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          className={`mic-button bg-gray-500 hover:bg-gray-600 text-white p-4 px-4 font-semibold uppercase rounded-md transition-colors select-none ${
-            isPressed || isTranscribing || isListening ? "bg-red-500 hover:bg-red-600 animate-pulse scale-110" : ""
-          } ${loading || message || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
-          disabled={loading || message || !speechSupported}
-          style={{ 
-            userSelect: 'none',
-            WebkitUserSelect: 'none',
-            MozUserSelect: 'none',
-            msUserSelect: 'none'
-          }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="w-6 h-6"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"
-            />
-          </svg>
-        </button>
+    <div
+      className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-300 ease-out ${
+        hidden
+          ? "translate-y-full opacity-0 pointer-events-none"
+          : "translate-y-0 opacity-100 pointer-events-auto"
+      }`}
+      {...props}
+    >
+      <div className="mx-auto w-full max-w-5xl bg-slate-900/95 rounded-t-3xl shadow-2xl flex flex-col max-h-[60vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white">
+              <Bot size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-semibold text-white text-lg">LeProf</h1>
+                <span className="w-2 h-2 rounded-full bg-green-500" />
+              </div>
+              <p className="text-xs text-slate-400">Multimedia Course Assistant</p>
+            </div>
+          </div>
 
-        <input
-          className="w-full placeholder:text-gray-800 placeholder:italic p-4 rounded-md bg-opacity-50 bg-white backdrop-blur-md"
-          placeholder="Type a message or hold mic to record..."
-          ref={input}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              sendMessage();
-            }
-          }}
-        />
-        <button
-          disabled={loading || message}
-          onClick={sendMessage}
-          className={`bg-gray-500 hover:bg-gray-600 text-white p-4 px-10 font-semibold uppercase rounded-md ${
-            loading || message ? "cursor-not-allowed opacity-30" : ""
-          }`}
-        >
-          Send
-        </button>
+          <div className="flex items-center gap-1 text-slate-400">
+            <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors" title="Clear chat" onClick={() => setChatHistory([])}>
+              <Trash2 size={18} />
+            </button>
+            <button className="p-2 hover:bg-slate-800 rounded-lg transition-colors" title="Maximize">
+              <Maximize2 size={18} />
+            </button>
+            <button onClick={onMinimize} className="p-2 hover:bg-slate-800 rounded-lg transition-colors" title="Minimize">
+              <Minus size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {chatHistory.map((msg, i) => (
+            <div
+              key={i}
+              className={`flex items-end gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
+            >
+              {msg.role === "assistant" && (
+                <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
+                  <Bot size={14} />
+                </div>
+              )}
+              {msg.role === "user" && (
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex-shrink-0 flex items-center justify-center text-white">
+                  <User size={14} />
+                </div>
+              )}
+
+              <div
+                className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-blue-600 text-white rounded-tr-none"
+                    : "bg-slate-800 text-slate-100 rounded-tl-none"
+                }`}
+              >
+                {msg.text}
+                <div
+                  className={`text-[10px] mt-1 ${
+                    msg.role === "user" ? "text-blue-200" : "text-slate-500"
+                  }`}
+                >
+                  {formatTime(msg.time)}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {(loading || isTranscribing || isListening) && (
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white">
+                <Bot size={14} />
+              </div>
+              <div className="bg-slate-800 text-slate-300 p-3 rounded-2xl rounded-tl-none text-sm">
+                {isListening || isTranscribing ? "Listening..." : "LeProf is thinking..."}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-slate-700/50">
+          <div className="flex items-center gap-2 bg-slate-800 rounded-full px-2 py-2">
+            <button
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-colors select-none ${
+                isPressed || isTranscribing || isListening
+                  ? "bg-red-500 hover:bg-red-600 animate-pulse"
+                  : "bg-slate-700 hover:bg-slate-600"
+              } ${loading || message || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
+              disabled={loading || message || !speechSupported}
+              style={{
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            >
+              <Mic size={18} />
+            </button>
+
+            <input
+              className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm px-2 outline-none"
+              placeholder="Type your message to LeProf..."
+              ref={input}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  sendMessage();
+                }
+              }}
+            />
+
+            <button
+              disabled={loading || message}
+              onClick={sendMessage}
+              className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-colors ${
+                loading || message ? "bg-slate-700 cursor-not-allowed opacity-30" : "bg-blue-600 hover:bg-blue-500"
+              }`}
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
