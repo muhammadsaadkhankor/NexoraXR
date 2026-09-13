@@ -24,6 +24,13 @@ const PRESETS = {
   },
 };
 
+function ReadyGate({ onReady }) {
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
+  return null;
+}
+
 function AuraZone({ ringY }) {
   const ringMat = {
     color: 0x38bdf8,
@@ -46,7 +53,7 @@ function AuraZone({ ringY }) {
   );
 }
 
-export const Scenario = ({ currentAvatarPath, cameraPreset = "third-person", setCameraPreset, onInRangeChange }) => {
+export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravatar/UserAvatar.glb', showUserAvatar = true, cameraPreset = "third-person", setCameraPreset, onInRangeChange, onReady }) => {
   const cameraControls = useRef();
   const userAvatarRef = useRef();
   const lastPreset = useRef(null);
@@ -133,8 +140,9 @@ export const Scenario = ({ currentAvatarPath, cameraPreset = "third-person", set
       <Environment preset="sunset" />
       <primitive object={scene} />
       <AuraZone ringY={ringY} />
-      <UserAvatar ref={userAvatarRef} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} cameraPreset={cameraPreset} floorScene={scene} avatarYawRef={avatarYawRef} />
+      <UserAvatar ref={userAvatarRef} modelPath={userAvatarPath} visible={showUserAvatar} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} cameraPreset={cameraPreset} floorScene={scene} avatarYawRef={avatarYawRef} />
       <Avatar modelPath={currentAvatarPath} position={[0, 1.0, -6]} />
+      <ReadyGate onReady={onReady} />
     </>
   );
 };

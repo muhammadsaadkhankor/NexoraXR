@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useGLTF, useAnimations } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-const USER_AVATAR_PATH = "/assets/useravatar/UserAvatar.glb";
 
-const ANIMATION_URLS = [
+
+export const ANIMATION_URLS = [
   "/assets/animations/idle.glb",
   "/assets/animations/walk.glb",
   "/assets/animations/walkBack.glb",
@@ -39,9 +39,9 @@ const RAY_OFFSET = 0.35;
 const RAY_HEIGHT = 2.0;
 const MOUSE_SENSITIVITY = 0.005;
 
-export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, ...props }, ref) => {
+export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, modelPath = '/assets/useravatar/UserAvatar.glb', visible = true, ...props }, ref) => {
   const group = useRef();
-  const { scene } = useGLTF(USER_AVATAR_PATH);
+  const { scene } = useGLTF(modelPath);
   const { gl } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
   const isDragging = useRef(false);
@@ -77,8 +77,8 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
         child.visible = false;
       }
     });
-    scene.visible = cameraPreset !== "first-person";
-  }, [scene, cameraPreset]);
+    scene.visible = visible && cameraPreset !== "first-person";
+  }, [scene, cameraPreset, visible]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -144,6 +144,35 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
       };
     }
   }, [animation, actions, mixer]);
+
+  useLayoutEffect(() => {
+    if (!group.current || !floorScene) return;
+
+    const pos = group.current.position;
+    const raycaster = new THREE.Raycaster();
+    const rayDir = new THREE.Vector3(0, -1, 0);
+    const originY = pos.y + RAY_HEIGHT;
+    const forward = new THREE.Vector3(Math.sin(avatarYawRef.current), 0, Math.cos(avatarYawRef.current));
+    const forwardOffset = forward.clone().multiplyScalar(RAY_OFFSET);
+
+    const origins = [
+      new THREE.Vector3(pos.x, originY, pos.z),
+      new THREE.Vector3(pos.x + forwardOffset.x, originY, pos.z + forwardOffset.z),
+    ];
+
+    const heights = [];
+    for (const origin of origins) {
+      raycaster.set(origin, rayDir);
+      const hits = raycaster.intersectObject(floorScene, true);
+      if (hits.length > 0) {
+        heights.push(hits[0].point.y);
+      }
+    }
+
+    if (heights.length > 0) {
+      pos.y = heights.reduce((a, b) => a + b, 0) / heights.length + FOOT_OFFSET;
+    }
+  }, [floorScene]);
 
   useFrame((state, delta) => {
     if (!group.current) return;
@@ -240,4 +269,4 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
 
 UserAvatar.displayName = "UserAvatar";
 
-useGLTF.preload(USER_AVATAR_PATH);
+

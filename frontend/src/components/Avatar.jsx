@@ -1,7 +1,6 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useLayoutEffect, useEffect, useState, useMemo } from 'react';
 import { useGLTF, useAnimations } from '@react-three/drei';
 import { useFrame } from "@react-three/fiber";
-import { button, useControls } from "leva";
 import * as THREE from "three";
 import { useSpeech } from "../hooks/useSpeech";
 import facialExpressions from "../constants/facialExpressions";
@@ -37,7 +36,6 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const { message, onMessagePlayed } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
-  const [setupMode, setSetupMode] = useState(false);
   const [animation, setAnimation] = useState("Idle");
   const [blink, setBlink] = useState(false);
   const [facialExpression, setFacialExpression] = useState("");
@@ -83,6 +81,17 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     }
   }, [animation, actions, mixer]);
 
+  useLayoutEffect(() => {
+    if (group.current) {
+      const { position, rotation } = props;
+      if (position) group.current.position.set(position[0], position[1], position[2]);
+      if (rotation) group.current.rotation.set(rotation[0], rotation[1], rotation[2]);
+    }
+    if (actions[animation]) {
+      actions[animation].reset().play().setEffectiveWeight(1);
+    }
+  }, [group, actions, animation, props.position, props.rotation]);
+
   useEffect(() => {
     let blinkTimeout;
     const nextBlink = () => {
@@ -100,8 +109,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
 
   useFrame(() => {
     if (actions[animation]) actions[animation].play().setEffectiveWeight(1);
-    if (!setupMode) {
-      morphTargets.forEach((key) => {
+    morphTargets.forEach((key) => {
         const mapping = facialExpressions[facialExpression];
         if (key === "eyeBlinkLeft" || key === "eyeBlinkRight") {
           return;
@@ -135,39 +143,6 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         }
         lerpMorphTarget(value, 0, 0.1);
       });
-    }
-  });
-
-  useControls("FacialExpressions", {
-    animation: {
-      value: animation,
-      options: animations.map((a) => a.name),
-      onChange: (value) => setAnimation(value),
-    },
-    facialExpression: {
-      options: Object.keys(facialExpressions),
-      onChange: (value) => setFacialExpression(value),
-    },
-    setupMode: button(() => {
-      setSetupMode(!setupMode);
-    }),
-    logMorphTargetValues: button(() => {
-      const emotionValues = {};
-      Object.values(nodes).forEach((node) => {
-        if (node.morphTargetInfluences && node.morphTargetDictionary) {
-          morphTargets.forEach((key) => {
-            if (key === "eyeBlinkLeft" || key === "eyeBlinkRight") {
-              return;
-            }
-            const value = node.morphTargetInfluences[node.morphTargetDictionary[key]];
-            if (value > 0.01) {
-              emotionValues[key] = value;
-            }
-          });
-        }
-      });
-      console.log(JSON.stringify(emotionValues, null, 2));
-    }),
   });
 
   const renderMeshes = (nodes, materials) => {

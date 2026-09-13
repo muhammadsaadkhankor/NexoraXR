@@ -6,13 +6,23 @@
   --leva-sizes-rootWidth: 340px;
 }
 
+html,
+body,
 #root {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  min-height: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 body {
   margin: 0;
-  background-color: #060606;
-  background-image: linear-gradient(19deg, #060606 0%, #ddd6f3 100%);
+  background-color: #03060d;
+  color: #f8fafc;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
