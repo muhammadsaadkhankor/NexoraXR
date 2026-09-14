@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
+import { RemoteAvatar } from "./RemoteAvatar";
 
 const HEAD_HEIGHT = 1.6;
 const TP_DISTANCE = 4.0;
@@ -53,7 +54,7 @@ function AuraZone({ ringY }) {
   );
 }
 
-export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravatar/UserAvatar.glb', showUserAvatar = true, cameraPreset = "third-person", setCameraPreset, onInRangeChange, onReady }) => {
+export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravatar/UserAvatar.glb', showUserAvatar = true, onUserState, remotePlayers = [], joystick, cameraPreset = "third-person", setCameraPreset, onInRangeChange, onReady }) => {
   const cameraControls = useRef();
   const userAvatarRef = useRef();
   const lastPreset = useRef(null);
@@ -140,7 +141,10 @@ export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravat
       <Environment preset="sunset" />
       <primitive object={scene} />
       <AuraZone ringY={ringY} />
-      <UserAvatar ref={userAvatarRef} modelPath={userAvatarPath} visible={showUserAvatar} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} cameraPreset={cameraPreset} floorScene={scene} avatarYawRef={avatarYawRef} />
+      <UserAvatar ref={userAvatarRef} modelPath={userAvatarPath} visible={showUserAvatar} onStateUpdate={onUserState} joystick={joystick} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} cameraPreset={cameraPreset} floorScene={scene} avatarYawRef={avatarYawRef} />
+      {remotePlayers.map((p) => (
+        <RemoteAvatar key={p.userId} state={p} />
+      ))}
       <Avatar modelPath={currentAvatarPath} position={[0, 1.0, -6]} />
       <ReadyGate onReady={onReady} />
     </>

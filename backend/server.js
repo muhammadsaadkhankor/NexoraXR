@@ -452,6 +452,8 @@ import { lipSync } from "./modules/lip-sync.mjs";
 import { sendDefaultMessages, defaultResponse } from "./modules/defaultMessages.mjs";
 // import { convertAudioToText } from "./modules/whisper.mjs";
 import { voice, initializeElevenLabs } from "./modules/elevenLabs.mjs";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
 dotenv.config();
 
@@ -691,6 +693,77 @@ app.get("/voices", async (req, res) => {
   }
 });
 
-app.listen(port, () => {
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+const rooms = {};
+const socketRoom = new Map();
+
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+
+  socket.on('join', (data) => {
+    const roomId = data.roomId || 'default';
+    socket.join(roomId);
+    socketRoom.set(socket.id, roomId);
+
+    if (!rooms[roomId]) rooms[roomId] = {};
+
+    const user = {
+      userId: socket.id,
+      roomId,
+      name: data.name || 'User ' + socket.id.slice(-4),
+      avatar: data.avatar || '/assets/useravatar/avatars/UserAvatar.glb',
+      position: data.position || [0, 0, 0],
+      rotation: data.rotation || [0, 0, 0],
+      animation: data.animation || 'Idle',
+      timestamp: Date.now()
+    };
+
+    rooms[roomId][socket.id] = user;
+    const members = Object.keys(rooms[roomId]);
+    console.log(`[server] join: ${socket.id} joined room '${roomId}' (members: ${members.length})`);
+
+    socket.broadcast.to(roomId).emit('user-joined', user);
+    socket.emit('room-state', Object.values(rooms[roomId]));
+  });
+
+  socket.on('state-update', (data) => {
+    const roomId = socketRoom.get(socket.id);
+    if (!roomId || !rooms[roomId]?.[socket.id]) return;
+
+    const user = rooms[roomId][socket.id];
+    user.position = data.position;
+    user.rotation = data.rotation;
+    user.animation = data.animation;
+    user.timestamp = Date.now();
+
+    socket.broadcast.to(roomId).emit('state-update', user);
+  });
+
+  socket.on('chat', (data) => {
+    const roomId = socketRoom.get(socket.id);
+    if (roomId) socket.broadcast.to(roomId).emit('chat', { from: data.name || socket.id, text: data.text });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    const roomId = socketRoom.get(socket.id);
+    if (roomId && rooms[roomId]) {
+      delete rooms[roomId][socket.id];
+      const members = Object.keys(rooms[roomId]);
+      console.log(`[server] disconnect: ${socket.id} left room '${roomId}' (members: ${members.length})`);
+      socket.broadcast.to(roomId).emit('user-left', { userId: socket.id });
+      socketRoom.delete(socket.id);
+    }
+  });
+});
+
+httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Professor Abed is listening on port ${port}`);
 });

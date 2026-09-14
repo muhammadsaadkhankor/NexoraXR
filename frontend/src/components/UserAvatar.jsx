@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useGLTF, useAnimations } from "@react-three/drei";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -18,7 +18,7 @@ export const ANIMATION_URLS = [
   "/assets/animations/runRight.glb",
 ];
 
-const ANIMATION_NAMES = [
+export const ANIMATION_NAMES = [
   "Idle",
   "walk_forward",
   "walk_back",
@@ -38,8 +38,9 @@ const MAX_STEP_DELTA = 0.18;
 const RAY_OFFSET = 0.35;
 const RAY_HEIGHT = 2.0;
 const MOUSE_SENSITIVITY = 0.005;
+export const DEFAULT_AVATAR_PATH = '/assets/useravatar/UserAvatar.glb';
 
-export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, modelPath = '/assets/useravatar/UserAvatar.glb', visible = true, ...props }, ref) => {
+export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, modelPath = DEFAULT_AVATAR_PATH, visible = true, onStateUpdate, joystick, ...props }, ref) => {
   const group = useRef();
   const { scene } = useGLTF(modelPath);
   const { gl } = useThree();
@@ -48,12 +49,15 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   const lastX = useRef(0);
 
   const animGltfs = useLoader(GLTFLoader, ANIMATION_URLS);
-  const allAnimations = animGltfs.flatMap((gltf, i) =>
-    gltf.animations.map((clip) => {
-      const clone = clip.clone();
-      clone.name = ANIMATION_NAMES[i];
-      return clone;
-    })
+  const allAnimations = useMemo(() =>
+    animGltfs.flatMap((gltf, i) =>
+      gltf.animations.map((clip) => {
+        const clone = clip.clone();
+        clone.name = ANIMATION_NAMES[i];
+        return clone;
+      })
+    ),
+    [animGltfs]
   );
 
   const { actions, mixer } = useAnimations(allAnimations, group);
@@ -61,6 +65,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   const [animation, setAnimation] = useState("Idle");
   const animationRef = useRef("Idle");
   const keys = useRef({});
+  const lastEmit = useRef(0);
 
   const setGroup = (node) => {
     group.current = node;
@@ -197,6 +202,12 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     if (k["a"] || k["arrowleft"]) moveDir.sub(right);
     if (k["d"] || k["arrowright"]) moveDir.add(right);
 
+    if (joystick && joystick.current && (joystick.current.x !== 0 || joystick.current.y !== 0)) {
+      const jx = joystick.current.x;
+      const jy = joystick.current.y;
+      moveDir.add(forward.clone().multiplyScalar(-jy).add(right.clone().multiplyScalar(jx)));
+    }
+
     let nextAnim = "Idle";
     if (moveDir.lengthSq() > 0) {
       moveDir.normalize();
@@ -257,6 +268,15 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     if (animationRef.current !== nextAnim) {
       animationRef.current = nextAnim;
       setAnimation(nextAnim);
+    }
+
+    if (onStateUpdate && Date.now() - lastEmit.current > 100) {
+      lastEmit.current = Date.now();
+      onStateUpdate({
+        position: [pos.x, pos.y, pos.z],
+        rotation: avatarYaw,
+        animation: animationRef.current
+      });
     }
   });
 

@@ -2,9 +2,11 @@ import { Suspense, useState, useCallback, useRef, useEffect, useMemo, useLayoutE
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { io } from 'socket.io-client';
 import { Camera, User, Users, Play, Search, ArrowRight, Box, Globe, Star, Bot, Code, Brain, Monitor } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
+import { Joystick } from './components/Joystick';
 import SettingsPanel from './components/SettingsPanel';
 import ContinuousRecorder from './components/ContinuousRecorder';
 
@@ -81,7 +83,7 @@ function LandingPage({ onEnter }) {
             </p>
 
             <div className='mt-8 flex flex-wrap items-center justify-center gap-4'>
-              <button onClick={onEnter} className='group inline-flex h-12 items-center gap-2 rounded-full bg-cyan-500 px-6 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 hover:shadow-cyan-400/40'>
+              <button onClick={() => onEnter('ELC5121')} className='group inline-flex h-12 items-center gap-2 rounded-full bg-cyan-500 px-6 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 hover:shadow-cyan-400/40'>
                 <Box className='h-5 w-5' />
                 <span>Enter 3D Classroom</span>
                 <ArrowRight className='h-4 w-4 transition group-hover:translate-x-1' />
@@ -146,7 +148,7 @@ function LandingPage({ onEnter }) {
                       <span className='font-medium text-slate-300'>{course.rating}</span>
                       <span className='text-slate-500'>({course.students})</span>
                     </div>
-                    <button onClick={course.id === 'ELC5121' ? onEnter : undefined} className={'mt-auto ml-auto flex h-9 w-9 items-center justify-center rounded-full transition ' + (course.id === 'ELC5121' ? 'bg-cyan-500 text-slate-950 hover:bg-cyan-400' : 'bg-slate-800 text-slate-300')}>
+                    <button onClick={() => onEnter(course.id)} className={'mt-auto ml-auto flex h-9 w-9 items-center justify-center rounded-full transition bg-cyan-500 text-slate-950 hover:bg-cyan-400'}>
                       <ArrowRight className='h-4 w-4' />
                     </button>
                   </div>
@@ -270,17 +272,105 @@ function App() {
     return USER_AVATARS[i].path;
   });
   const [view, setView] = useState('landing');
+  const [roomId, setRoomId] = useState('ELC5121');
   const [cameraPreset, setCameraPreset] = useState('third-person');
   const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [inRange, setInRange] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [showUserAvatar, setShowUserAvatar] = useState(true);
+  const [myId, setMyId] = useState(null);
+  const [remotePlayers, setRemotePlayers] = useState({});
   const canvasRef = useRef(null);
+  const socketRef = useRef(null);
+  const joinedRef = useRef(false);
+  const joystick = useRef({ x: 0, y: 0 });
+  const [showJoystick, setShowJoystick] = useState(false);
+
+  useEffect(() => {
+    const detect = () => {
+      const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isMobileViewport = window.innerWidth < 1024;
+      setShowJoystick(isTouch && isMobileViewport);
+    };
+    detect();
+    window.addEventListener('resize', detect);
+    return () => window.removeEventListener('resize', detect);
+  }, []);
 
   useEffect(() => {
     setChatOpen(inRange);
   }, [inRange]);
+
+  useEffect(() => {
+    if (view !== 'landing' && !socketRef.current) {
+      const socket = io({ transports: ['websocket', 'polling'] });
+      socketRef.current = socket;
+
+      socket.on('connect', () => {
+        setMyId(socket.id);
+        console.log('[client] socket connected, id:', socket.id);
+      });
+
+      socket.on('room-state', (players) => {
+        console.log('[client] room-state received', players.length, players.map(p => p.userId));
+        const map = {};
+        for (const p of players) map[p.userId] = p;
+        setRemotePlayers(map);
+      });
+
+      socket.on('state-update', (player) => {
+        setRemotePlayers((prev) => ({ ...prev, [player.userId]: player }));
+      });
+
+      socket.on('user-joined', (player) => {
+        console.log('[client] user-joined', player.userId, player.roomId || roomId);
+        setRemotePlayers((prev) => ({ ...prev, [player.userId]: player }));
+      });
+
+      socket.on('user-left', ({ userId }) => {
+        console.log('[client] user-left', userId);
+        setRemotePlayers((prev) => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
+      });
+
+      socket.on('disconnect', () => {
+        setMyId(null);
+        joinedRef.current = false;
+      });
+    }
+  }, [view, roomId]);
+
+  useEffect(() => {
+    if (view === 'scene' && myId && !joinedRef.current && socketRef.current?.connected) {
+      console.log('[client] emitting join:', roomId, 'for', myId);
+      joinedRef.current = true;
+      socketRef.current.emit('join', { roomId, name: 'Player', avatar: userAvatarPath, position: [0, 0, 0], rotation: 0, animation: 'Idle' });
+    }
+  }, [view, myId, roomId, userAvatarPath]);
+
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, []);
+
+  const onSceneReady = useCallback(() => {
+    console.log('[client] scene ready, setting view to scene');
+    setView('scene');
+  }, []);
+
+  const emitUserState = useCallback((data) => {
+    socketRef.current?.emit('state-update', data);
+  }, []);
+
+  const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
 
   const handleAvatarChange = useCallback((newPath) => {
     console.log('Setting new avatar path:', newPath);
@@ -307,7 +397,7 @@ function App() {
 
   return (
     <>
-      {view === 'landing' && <LandingPage onEnter={() => setView('loading')} />}
+      {view === 'landing' && <LandingPage onEnter={(room) => { setRoomId(room); setView('loading'); }} />}
 
       {(view === 'loading' || view === 'scene') && (
         <div className='relative h-screen w-screen'>
@@ -326,6 +416,8 @@ function App() {
                 hidden={!chatOpen}
                 onMinimize={() => setChatOpen(false)}
               />
+
+              <Joystick joystick={joystick} hidden={!showJoystick} />
 
               <div className='relative z-20'>
                 <SettingsPanel />
@@ -397,10 +489,13 @@ function App() {
                 currentAvatarPath={currentAvatarPath}
                 userAvatarPath={userAvatarPath}
                 showUserAvatar={showUserAvatar}
+                remotePlayers={others}
+                onUserState={emitUserState}
+                joystick={joystick}
                 cameraPreset={cameraPreset}
                 setCameraPreset={setCameraPreset}
                 onInRangeChange={setInRange}
-                onReady={() => setView('scene')}
+                onReady={onSceneReady}
               />
             </Suspense>
           </Canvas>
