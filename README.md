@@ -475,4 +475,4 @@ sudo systemctl status docker
 - The system requires API keys for OpenAI and ElevenLabs to function properly
 - For local development, ensure proper ports are available (3000, 5173)
 - When modifying code in Docker development mode, changes are reflected immediately due to volume mounts
-- If you encounter any issues with Docker commands requiring sudo, make sure your user is added to the Docker group
+- If you encounter any issues with Docker commands requiring sudo, make sure your user is added to the Docker group# NexoraXR
