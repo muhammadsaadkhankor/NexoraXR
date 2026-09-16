@@ -26,9 +26,6 @@ export default function Navbar() {
         </nav>
         <div className="navbar__actions">
           <a href="#" className="btn btn-ghost">Sign In</a>
-          {import.meta.env.DEV && (
-            <a href="/editor.html?scene=ELG5121" className="btn btn-primary btn-sm navbar__cta">Scene Editor</a>
-          )}
           <button
             className="navbar__toggle"
             onClick={() => setOpen((v) => !v)}
