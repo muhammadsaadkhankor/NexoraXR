@@ -730,7 +730,9 @@ io.on('connection', (socket) => {
     console.log(`[server] join: ${socket.id} joined room '${roomId}' (members: ${members.length})`);
 
     socket.broadcast.to(roomId).emit('user-joined', user);
+    console.log(`[server] emitted 'user-joined' for ${socket.id} to room ${roomId}`);
     socket.emit('room-state', Object.values(rooms[roomId]));
+    console.log(`[server] emitted 'room-state' to ${socket.id}:`, Object.values(rooms[roomId]).map((p) => p.userId));
   });
 
   socket.on('state-update', (data) => {
@@ -744,6 +746,14 @@ io.on('connection', (socket) => {
     user.timestamp = Date.now();
 
     socket.broadcast.to(roomId).emit('state-update', user);
+    console.log(`[server] broadcast 'state-update' from ${socket.id} to room ${roomId}:`, data);
+  });
+
+  socket.on('professor-speak', (data) => {
+    const roomId = socketRoom.get(socket.id);
+    if (!roomId) return;
+    console.log(`[server] professor-speak from ${socket.id} to room ${roomId}:`, data?.text);
+    io.to(roomId).emit('professor-speak', data);
   });
 
   socket.on('chat', (data) => {
