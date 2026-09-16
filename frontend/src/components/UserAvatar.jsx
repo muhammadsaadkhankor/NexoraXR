@@ -37,6 +37,7 @@ const SMOOTH_RATE = 12.0;
 const MAX_STEP_DELTA = 0.18;
 const RAY_OFFSET = 0.35;
 const RAY_HEIGHT = 2.0;
+const WALL_MARGIN = 0.3;
 const MOUSE_SENSITIVITY = 0.005;
 export const DEFAULT_AVATAR_PATH = '/assets/useravatar/UserAvatar.glb';
 
@@ -45,6 +46,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   const { scene } = useGLTF(modelPath);
   const { gl } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
+  const wallRaycaster = useRef(new THREE.Raycaster());
   const isDragging = useRef(false);
   const lastX = useRef(0);
 
@@ -212,7 +214,19 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     if (moveDir.lengthSq() > 0) {
       moveDir.normalize();
       const speed = isShift ? RUN_SPEED : WALK_SPEED;
-      const move = moveDir.clone().multiplyScalar(speed * delta);
+      let move = moveDir.clone().multiplyScalar(speed * delta);
+
+      if (floorScene) {
+        const wallOrigin = new THREE.Vector3(pos.x, pos.y + 0.8, pos.z);
+        wallRaycaster.current.set(wallOrigin, moveDir);
+        wallRaycaster.current.far = move.length() + WALL_MARGIN;
+        const hits = wallRaycaster.current.intersectObject(floorScene, true);
+        if (hits.length > 0 && hits[0].distance < move.length() + WALL_MARGIN) {
+          const allowed = Math.max(0, hits[0].distance - WALL_MARGIN);
+          move = moveDir.clone().multiplyScalar(allowed);
+        }
+      }
+
       group.current.position.add(move);
 
       const fDot = moveDir.dot(forward);

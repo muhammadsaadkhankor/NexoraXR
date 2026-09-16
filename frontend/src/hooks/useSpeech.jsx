@@ -143,7 +143,7 @@
 
 
 
-import { createContext, useContext, useEffect, useState, useRef } from "react";
+import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
 
 const backendUrl = "http://localhost:3000";
 
@@ -263,6 +263,15 @@ export const SpeechProvider = ({ children }) => {
     return transcriptPromiseRef.current;
   };
 
+  const pushMessage = useCallback((msg, fromRemote = false) => {
+    const id = msg.id || (Math.random().toString(36).slice(2) + Date.now().toString(36));
+    const messageWithMeta = { ...msg, id, fromRemote };
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === id)) return prev;
+      return [...prev, messageWithMeta];
+    });
+  }, []);
+
   const sendAudioData = async (audioBlob) => {
     const reader = new FileReader();
     reader.readAsDataURL(audioBlob);
@@ -278,7 +287,7 @@ export const SpeechProvider = ({ children }) => {
           body: JSON.stringify({ audio: base64Audio }),
         });
         const response = (await data.json()).messages;
-        setMessages((messages) => [...messages, ...response]);
+        response.forEach((msg) => pushMessage(msg, false));
       } catch (error) {
         console.error(error);
       } finally {
@@ -351,7 +360,7 @@ export const SpeechProvider = ({ children }) => {
         body: JSON.stringify({ message }),
       });
       const response = (await data.json()).messages;
-      setMessages((messages) => [...messages, ...response]);
+      response.forEach((msg) => pushMessage(msg, false));
     } catch (error) {
       console.error(error);
     } finally {
@@ -379,6 +388,7 @@ export const SpeechProvider = ({ children }) => {
         recording,
         tts,
         message,
+        pushMessage,
         onMessagePlayed,
         loading,
         transcribeAudio,

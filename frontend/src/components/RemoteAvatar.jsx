@@ -10,9 +10,11 @@ const INTERP_DURATION = 100; // ms over which to blend between the last two rece
 export function RemoteAvatar({ state }) {
   const group = useRef();
 
-  // Same body and animation library as the local UserAvatar — this is the "known-correct scale" setup
-  const { scene } = useGLTF(DEFAULT_AVATAR_PATH);
-  const model = useMemo(() => scene.clone(), [scene]);
+  // Load the same avatar model the remote user selected, and a unique GLTF instance
+  // so skinned meshes/animations bind to their own bones
+  const avatarUrl = state?.avatar || DEFAULT_AVATAR_PATH;
+  const uniqueUrl = `${avatarUrl}?_=${state?.userId || 'remote'}`;
+  const { scene } = useGLTF(uniqueUrl);
 
   const animGltfs = useLoader(GLTFLoader, ANIMATION_URLS);
   const allAnimations = useMemo(() =>
@@ -40,26 +42,26 @@ export function RemoteAvatar({ state }) {
   const pos = useMemo(() => new THREE.Vector3(), []);
 
   useEffect(() => {
-    const box = new THREE.Box3().setFromObject(model);
+    const box = new THREE.Box3().setFromObject(scene);
     const size = new THREE.Vector3();
     box.getSize(size);
     const max = Math.max(size.x, size.y, size.z);
     if (max === 0 || !isFinite(max)) {
-      console.warn('[RemoteAvatar] body mesh is empty', state?.userId, DEFAULT_AVATAR_PATH, 'children:', model.children.length);
+      console.warn('[RemoteAvatar] body mesh is empty', state?.userId, DEFAULT_AVATAR_PATH, 'children:', scene.children.length);
     } else {
-      console.log('[RemoteAvatar] body ready', state?.userId, DEFAULT_AVATAR_PATH, 'children:', model.children.length, 'box:', size.toArray());
+      console.log('[RemoteAvatar] body ready', state?.userId, DEFAULT_AVATAR_PATH, 'children:', scene.children.length, 'box:', size.toArray());
     }
-    model.position.set(0, 0, 0);
-    model.scale.set(1, 1, 1);
-    model.visible = true;
-    model.traverse((child) => {
+    scene.position.set(0, 0, 0);
+    scene.scale.set(1, 1, 1);
+    scene.visible = true;
+    scene.traverse((child) => {
       if (child.isLine || child.isLineSegments || child.isLineLoop) {
         child.visible = false;
       } else if (child.isMesh || child.isSkinnedMesh || child.isGroup) {
         child.visible = true;
       }
     });
-  }, [model, state?.userId]);
+  }, [scene, state?.userId]);
 
   useEffect(() => {
     if (!state) return;
@@ -111,7 +113,7 @@ export function RemoteAvatar({ state }) {
 
   return (
     <group ref={group} dispose={null}>
-      <primitive object={model} />
+      <primitive object={scene} />
       <Html position={[0, 1.9, 0]} center className='pointer-events-none'>
         <div className='rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-cyan-300 ring-1 ring-cyan-500/50'>
           {state?.name || 'User'}

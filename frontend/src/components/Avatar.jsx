@@ -15,9 +15,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const previousModelPath = useRef(modelPath);
 
   useEffect(() => {
-    console.log('Model path changed:', modelPath);
     if (previousModelPath.current !== modelPath) {
-      console.log('Loading new model...');
       useGLTF.preload(modelPath);
       useGLTF.dispose(previousModelPath.current);
       previousModelPath.current = modelPath;
@@ -27,10 +25,24 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const { nodes, materials, scene } = useGLTF(modelPath);
   const { animations: sourceAnimations } = useGLTF(ANIMATIONS_PATH);
 
+  const hasMatchingSkeleton = useMemo(() => {
+    if (!sourceAnimations || !nodes) return false;
+    const trackNodes = new Set();
+    for (const clip of sourceAnimations) {
+      for (const track of clip.tracks) {
+        trackNodes.add(track.name.split('.')[0]);
+      }
+    }
+    for (const name of trackNodes) {
+      if (nodes[name]) return true;
+    }
+    return false;
+  }, [sourceAnimations, nodes]);
+
   const animations = useMemo(() => {
-    if (!sourceAnimations) return [];
+    if (!hasMatchingSkeleton) return [];
     return sourceAnimations.map((clip) => clip.clone());
-  }, [sourceAnimations]);
+  }, [hasMatchingSkeleton, sourceAnimations]);
 
   const { actions, mixer } = useAnimations(animations, group);
   const { message, onMessagePlayed } = useSpeech();

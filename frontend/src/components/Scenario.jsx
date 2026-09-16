@@ -5,12 +5,12 @@ import * as THREE from "three";
 import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
 import { RemoteAvatar } from "./RemoteAvatar";
+import { SCENE_CONFIG } from "../sceneConfig";
 
 const HEAD_HEIGHT = 1.6;
 const TP_DISTANCE = 4.0;
 const TP_HEIGHT = 0.8;
 const TALK_RADIUS = 2.0;
-const ASSISTANT_POS = new THREE.Vector3(0, 0, -6);
 
 const PRESETS = {
   "third-person": {
@@ -54,17 +54,37 @@ function AuraZone({ ringY }) {
   );
 }
 
-export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravatar/UserAvatar.glb', showUserAvatar = true, onUserState, remotePlayers = [], joystick, cameraPreset = "third-person", setCameraPreset, onInRangeChange, onReady }) => {
+export const Scenario = ({
+  currentAvatarPath,
+  userAvatarPath = '/assets/useravatar/UserAvatar.glb',
+  showUserAvatar = true,
+  onUserState,
+  remotePlayers = [],
+  joystick,
+  cameraPreset = "third-person",
+  setCameraPreset,
+  onInRangeChange,
+  onReady,
+  modelUrl = '/assets/scene/scene.glb',
+  environmentPreset = 'sunset',
+  userStart = { position: [0, 0, 0], rotation: [0, Math.PI, 0], scale: [1, 1, 1] },
+  professorStart = { position: [0, 1.0, -6], rotation: [0, 0, 0], scale: [1, 1, 1] },
+  cameraBounds = { min: [-20, 0, -20], max: [20, 10, 20] },
+  defaultLookAt = [0, 0, 0],
+  modelTransform = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+}) => {
   const cameraControls = useRef();
   const userAvatarRef = useRef();
   const lastPreset = useRef(null);
-  const avatarYawRef = useRef(Math.PI);
+  const avatarYawRef = useRef(Math.atan2(defaultLookAt[0] - userStart.position[0], defaultLookAt[2] - userStart.position[2]));
   const inRangeRef = useRef(false);
+  const boundarySet = useRef(false);
   const [ringY, setRingY] = useState(0.05);
-  const { scene } = useGLTF('/assets/scene/scene.glb');
+  const { scene } = useGLTF(modelUrl);
 
   useEffect(() => {
     if (!scene) return;
+    const box = new THREE.Box3().setFromObject(scene);
     const raycaster = new THREE.Raycaster();
     const origin = new THREE.Vector3(0, 10, -6);
     const dir = new THREE.Vector3(0, -1, 0);
@@ -87,6 +107,17 @@ export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravat
 
   useFrame((_, delta) => {
     if (!cameraControls.current || !userAvatarRef.current) return;
+
+    if (!boundarySet.current) {
+      const min = new THREE.Vector3(...cameraBounds.min);
+      const max = new THREE.Vector3(...cameraBounds.max);
+      cameraControls.current.setBoundary(new THREE.Box3(min, max));
+      cameraControls.current.boundaryEnclosesCamera = true;
+      cameraControls.current.boundaryFriction = 0;
+      cameraControls.current.minPolarAngle = 0.1;
+      cameraControls.current.maxPolarAngle = Math.PI - 0.1;
+      boundarySet.current = true;
+    }
 
     const preset = PRESETS[cameraPreset] || PRESETS["third-person"];
 
@@ -127,7 +158,8 @@ export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravat
 
     cameraControls.current.update(delta);
 
-    const horizontalDist = new THREE.Vector3(userPos.x, 0, userPos.z).distanceTo(ASSISTANT_POS);
+    const assistantPos = new THREE.Vector3(professorStart.position[0], 0, professorStart.position[2]);
+    const horizontalDist = new THREE.Vector3(userPos.x, 0, userPos.z).distanceTo(assistantPos);
     const inRange = horizontalDist <= TALK_RADIUS;
     if (inRange !== inRangeRef.current) {
       inRangeRef.current = inRange;
@@ -138,17 +170,34 @@ export const Scenario = ({ currentAvatarPath, userAvatarPath = '/assets/useravat
   return (
     <>
       <CameraControls ref={cameraControls} enabled={false} />
-      <Environment preset="sunset" />
-      <primitive object={scene} />
+      <Environment preset={environmentPreset} />
+      <group position={modelTransform.position} rotation={modelTransform.rotation} scale={modelTransform.scale}>
+        <primitive object={scene} />
+      </group>
       <AuraZone ringY={ringY} />
-      <UserAvatar ref={userAvatarRef} modelPath={userAvatarPath} visible={showUserAvatar} onStateUpdate={onUserState} joystick={joystick} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} cameraPreset={cameraPreset} floorScene={scene} avatarYawRef={avatarYawRef} />
+      <UserAvatar
+        ref={userAvatarRef}
+        modelPath={userAvatarPath}
+        visible={showUserAvatar}
+        onStateUpdate={onUserState}
+        joystick={joystick}
+        position={userStart.position}
+        rotation={userStart.rotation}
+        scale={userStart.scale}
+        cameraPreset={cameraPreset}
+        floorScene={scene}
+        avatarYawRef={avatarYawRef}
+      />
+      {console.log('[Scenario] rendering remote players:', remotePlayers.length, remotePlayers.map((p) => p.userId))}
       {remotePlayers.map((p) => (
         <RemoteAvatar key={p.userId} state={p} />
       ))}
-      <Avatar modelPath={currentAvatarPath} position={[0, 1.0, -6]} />
+      <Avatar modelPath={currentAvatarPath} position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale} />
       <ReadyGate onReady={onReady} />
     </>
   );
 };
 
-useGLTF.preload('/assets/scene/scene.glb');
+Object.values(SCENE_CONFIG).forEach(({ modelUrl }) => {
+  if (modelUrl) useGLTF.preload(modelUrl);
+});
