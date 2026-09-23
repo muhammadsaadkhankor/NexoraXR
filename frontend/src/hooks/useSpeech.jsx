@@ -158,6 +158,7 @@ export const SpeechProvider = ({ children }) => {
   const [micPermissionGranted, setMicPermissionGranted] = useState(false);
   const chunksRef = useRef([]);
   const latestAudioBlobRef = useRef(null);
+  const hasRequestedMicRef = useRef(false);
   const recognitionRef = useRef(null);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -296,31 +297,32 @@ export const SpeechProvider = ({ children }) => {
     };
   };
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((stream) => {
-          setMicPermissionGranted(true);
-          const newMediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'audio/webm;codecs=opus'
-          });
-          newMediaRecorder.onstart = initiateRecording;
-          newMediaRecorder.ondataavailable = onDataAvailable;
-          newMediaRecorder.onstop = async () => {
-            if (chunksRef.current.length > 0) {
-              const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
-              latestAudioBlobRef.current = audioBlob;
-            }
-          };
-          setMediaRecorder(newMediaRecorder);
-        })
-        .catch((err) => {
-          console.error("Error accessing microphone:", err);
-          alert("Please allow microphone access to use this feature");
-        });
+  const requestMicrophoneAccess = async () => {
+    if (typeof window === "undefined" || hasRequestedMicRef.current) return;
+
+    hasRequestedMicRef.current = true;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicPermissionGranted(true);
+      const newMediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+      newMediaRecorder.onstart = initiateRecording;
+      newMediaRecorder.ondataavailable = onDataAvailable;
+      newMediaRecorder.onstop = async () => {
+        if (chunksRef.current.length > 0) {
+          const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+          latestAudioBlobRef.current = audioBlob;
+        }
+      };
+      setMediaRecorder(newMediaRecorder);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("Please allow microphone access to use this feature");
+      throw err;
     }
-  }, []);
+  };
 
   const startRecording = () => {
     console.log('Starting recording...');
@@ -395,6 +397,7 @@ export const SpeechProvider = ({ children }) => {
         micPermissionGranted,
         speechSupported,
         isListening,
+        requestMicrophoneAccess,
       }}
     >
       {children}

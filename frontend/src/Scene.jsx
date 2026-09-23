@@ -3,13 +3,14 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Camera, User, Users } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
 import SettingsPanel from './components/SettingsPanel';
 import ContinuousRecorder from './components/ContinuousRecorder';
+
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 
@@ -35,7 +36,7 @@ function LoadingOverlay({ visible }) {
       }`}
     >
       <div className='h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400' />
-      <p className='mt-4 text-lg font-medium text-slate-300'>Loading scene...</p>
+      <p className='mt-4 text-lg font-medium text-slate-300'>Preparing assets in scene...</p>
     </div>
   );
 }
@@ -113,13 +114,21 @@ function AvatarPicker({ avatars, onPick }) {
   );
 }
 
-function CourseInfo({ config }) {
+function CourseInfo({ config, onStartClass, showStart }) {
   if (!config) return null;
   return (
     <div className='fixed left-4 top-4 z-40 max-w-xs rounded-xl border border-slate-700/50 bg-slate-900/80 p-4 text-white shadow-2xl backdrop-blur'>
       <h2 className='text-lg font-bold text-cyan-400'>{config.title}</h2>
       <p className='text-sm text-slate-300'>{config.category}</p>
       <p className='mt-2 text-sm leading-relaxed text-slate-200'>{config.courseContent}</p>
+      {showStart && (
+        <button
+          onClick={onStartClass}
+          className='mt-4 w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400'
+        >
+          Start Class
+        </button>
+      )}
     </div>
   );
 }
@@ -144,6 +153,9 @@ function NotFound({ sceneName }) {
 
 export default function Scene() {
   const { sceneName } = useParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const lectureId = searchParams.get('lecture');
   const baseConfig = SCENE_CONFIG[sceneName];
 
   if (!baseConfig) {
@@ -235,10 +247,30 @@ export default function Scene() {
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  const { message, pushMessage } = useSpeech();
+  const { message, pushMessage, requestMicrophoneAccess } = useSpeech();
   const lastEmittedMessageIdRef = useRef(new Set());
   const joystick = useRef({ x: 0, y: 0 });
   const [showJoystick, setShowJoystick] = useState(false);
+  const isMultimedia = sceneName === 'Multimedia';
+
+  const handleLectureSelect = async (lectureId) => {
+    try {
+      const res = await fetch(`http://localhost:3000/api/lecture/summary/${lectureId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Summary not ready');
+      const audioUrl = data.audioUrl ? `http://localhost:3000${data.audioUrl}` : null;
+      if (!audioUrl) throw new Error('Audio not ready yet. Run prep_tts.py first.');
+      pushMessage({
+        text: data.text,
+        audioUrl,
+        animation: data.animation || 'explain',
+        facialExpression: data.facialExpression || 'smile',
+        lipsync: data.lipsync,
+      });
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   useEffect(() => {
     const detect = () => {
@@ -260,7 +292,7 @@ export default function Scene() {
 
   useEffect(() => {
     if (socketRef.current) return;
-    const socket = io({
+    const socket = io('http://localhost:3000', {
       transports: ['websocket', 'polling'],
       reconnection: !import.meta.env.DEV,
       reconnectionAttempts: 2,
@@ -343,8 +375,13 @@ export default function Scene() {
     setSceneReady(true);
   }, []);
 
+  useEffect(() => {
+    if (sceneReady) {
+      requestMicrophoneAccess().catch(() => {});
+    }
+  }, [sceneReady, requestMicrophoneAccess]);
+
   const emitUserState = useCallback((data) => {
-    console.log('[client] emit state-update:', data);
     socketRef.current?.emit('state-update', data);
   }, []);
 
@@ -388,7 +425,11 @@ export default function Scene() {
 
       {sceneReady && (
         <>
-          <CourseInfo config={config} />
+          <CourseInfo
+            config={config}
+            showStart={isMultimedia && !!lectureId}
+            onStartClass={() => lectureId && handleLectureSelect(lectureId)}
+          />
 
           <ChatInterface hidden={!chatOpen} onMinimize={() => setChatOpen(false)} />
 
@@ -446,7 +487,8 @@ export default function Scene() {
 
       <Canvas
         ref={canvasRef}
-        shadows
+        dpr={[1, 1]}
+        gl={{ antialias: false, powerPreference: 'high-performance' }}
         camera={{ position: [0, 0, 0], fov: 35 }}
         className='fixed left-0 top-0 transition-opacity duration-500 ease-out'
         style={{
@@ -454,6 +496,15 @@ export default function Scene() {
           height: '100vh',
           opacity: sceneReady ? 1 : 0,
           pointerEvents: sceneReady ? 'auto' : 'none',
+        }}
+        onCreated={({ gl }) => {
+          gl.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            console.error('[Canvas] WebGL context lost', e);
+          });
+          gl.domElement.addEventListener('webglcontextrestored', () => {
+            console.log('[Canvas] WebGL context restored');
+          });
         }}
       >
         <Suspense fallback={null}>
@@ -475,6 +526,7 @@ export default function Scene() {
             cameraBounds={config.cameraBounds}
             defaultLookAt={config.defaultLookAt}
             modelTransform={config.modelTransform}
+            lectureId={lectureId}
           />
         </Suspense>
       </Canvas>

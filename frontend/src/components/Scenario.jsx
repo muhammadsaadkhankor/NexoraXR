@@ -1,11 +1,30 @@
-import { CameraControls, Environment, useGLTF } from "@react-three/drei";
-import { useEffect, useRef, useState } from "react";
+import { CameraControls, Environment, useGLTF, useTexture } from "@react-three/drei";
+import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
 import { RemoteAvatar } from "./RemoteAvatar";
 import { SCENE_CONFIG } from "../sceneConfig";
+
+function LectureSlide({ lectureId, position, quaternion, scale }) {
+  const texture = useTexture(`http://localhost:3000/api/lecture/pdf_image/${lectureId}`);
+
+  useEffect(() => {
+    if (texture) {
+      texture.flipY = false;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+    }
+  }, [texture]);
+
+  return (
+    <mesh position={position} quaternion={quaternion} scale={scale}>
+      <planeGeometry args={[1, 1]} />
+      <meshBasicMaterial map={texture} side={THREE.DoubleSide} toneMapped={false} transparent />
+    </mesh>
+  );
+}
 
 const HEAD_HEIGHT = 1.6;
 const TP_DISTANCE = 4.0;
@@ -72,6 +91,7 @@ export const Scenario = ({
   cameraBounds = { min: [-20, 0, -20], max: [20, 10, 20] },
   defaultLookAt = [0, 0, 0],
   modelTransform = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+  lectureId = null,
 }) => {
   const cameraControls = useRef();
   const userAvatarRef = useRef();
@@ -80,7 +100,7 @@ export const Scenario = ({
   const inRangeRef = useRef(false);
   const boundarySet = useRef(false);
   const [ringY, setRingY] = useState(0.05);
-  const { scene } = useGLTF(modelUrl);
+  const { scene, nodes } = useGLTF(modelUrl);
 
   useEffect(() => {
     if (!scene) return;
@@ -167,6 +187,22 @@ export const Scenario = ({
     }
   });
 
+  const slideTransform = useMemo(() => {
+    const screenNode = nodes?.screen1 || nodes?.screen2;
+    if (screenNode) {
+      const p = new THREE.Vector3();
+      const q = new THREE.Quaternion();
+      screenNode.getWorldPosition(p);
+      screenNode.getWorldQuaternion(q);
+      return { position: p.toArray(), quaternion: q.toArray(), scale: [2.2, 1.4, 1] };
+    }
+    return {
+      position: [professorStart.position[0] - 1.2, professorStart.position[1] + 0.5, professorStart.position[2]],
+      quaternion: [0, 0, 0, 1],
+      scale: [2.2, 1.4, 1],
+    };
+  }, [nodes, professorStart.position]);
+
   return (
     <>
       <CameraControls ref={cameraControls} enabled={false} />
@@ -188,11 +224,17 @@ export const Scenario = ({
         floorScene={scene}
         avatarYawRef={avatarYawRef}
       />
-      {console.log('[Scenario] rendering remote players:', remotePlayers.length, remotePlayers.map((p) => p.userId))}
       {remotePlayers.map((p) => (
         <RemoteAvatar key={p.userId} state={p} />
       ))}
-      <Avatar modelPath={currentAvatarPath} position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale} />
+      <group position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale}>
+        <Avatar modelPath={currentAvatarPath} />
+      </group>
+      {lectureId && (
+        <Suspense fallback={null}>
+          <LectureSlide lectureId={lectureId} {...slideTransform} />
+        </Suspense>
+      )}
       <ReadyGate onReady={onReady} />
     </>
   );

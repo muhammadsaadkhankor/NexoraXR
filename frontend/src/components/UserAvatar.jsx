@@ -68,6 +68,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   const animationRef = useRef("Idle");
   const keys = useRef({});
   const lastEmit = useRef(0);
+  const lastEmittedState = useRef(null);
 
   const setGroup = (node) => {
     group.current = node;
@@ -284,13 +285,31 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
       setAnimation(nextAnim);
     }
 
-    if (onStateUpdate && Date.now() - lastEmit.current > 100) {
-      lastEmit.current = Date.now();
-      onStateUpdate({
-        position: [pos.x, pos.y, pos.z],
-        rotation: avatarYaw,
-        animation: animationRef.current
-      });
+    const nextState = {
+      position: [pos.x, pos.y, pos.z],
+      rotation: avatarYaw,
+      animation: animationRef.current,
+    };
+
+    const now = Date.now();
+
+    // Establish the first emitted state without sending it, so we don't spam
+    // state-update on mount or after the component re-mounts (e.g. WebGL restore).
+    if (!lastEmittedState.current) {
+      lastEmittedState.current = nextState;
+      lastEmit.current = now;
+    } else if (now - lastEmit.current > 250) {
+      const p1 = lastEmittedState.current.position;
+      const p2 = nextState.position;
+      const posSame = p1.every((v, i) => Math.abs(v - p2[i]) < 0.05);
+      const rotSame = Math.abs(lastEmittedState.current.rotation - nextState.rotation) < 0.05;
+      const animSame = lastEmittedState.current.animation === nextState.animation;
+
+      if (!posSame || !rotSame || !animSame) {
+        lastEmit.current = now;
+        lastEmittedState.current = nextState;
+        onStateUpdate?.(nextState);
+      }
     }
   });
 

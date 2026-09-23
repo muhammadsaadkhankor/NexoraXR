@@ -1,6 +1,7 @@
 import { ArrowUpRight } from 'lucide-react'
 
 const experiences = [
+  { title: 'Multimedia', category: 'Multimedia Computing' },
   { title: 'ELG 5121', category: 'Engineering' },
   { title: 'CS 401', category: 'Computer Science' },
   { title: 'MED 320', category: 'Healthcare' },

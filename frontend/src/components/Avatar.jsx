@@ -8,7 +8,28 @@ import visemesMapping from "../constants/visemesMapping";
 import morphTargets from "../constants/morphTargets";
 
 const DEFAULT_AVATAR_PATH = '/assets/avatar/ProfAbed_suit.glb';
-const ANIMATIONS_PATH = '/models/animations.glb';
+const EXTRA_ANIMATIONS_URL = '/models/animations.glb';
+
+const ANIMATION_MAP = {
+  explain: 'TalkingOne',
+  explain2: 'TalkingTwo',
+  explain3: 'TalkingThree',
+  idle: 'Idle',
+  Idle: 'Idle',
+  happy: 'HappyIdle',
+  sad: 'SadIdle',
+  angry: 'Angry',
+  surprised: 'Surprised',
+  think: 'ThoughtfulHeadShake',
+  dismiss: 'DismissingGesture',
+};
+
+function resolveAnimation(name, actions) {
+  const mapped = ANIMATION_MAP[name] ?? name;
+  if (actions && actions[mapped]) return mapped;
+  if (actions && actions['Idle']) return 'Idle';
+  return null;
+}
 
 export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const group = useRef();
@@ -22,27 +43,23 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     }
   }, [modelPath]);
 
-  const { nodes, materials, scene } = useGLTF(modelPath);
-  const { animations: sourceAnimations } = useGLTF(ANIMATIONS_PATH);
-
-  const hasMatchingSkeleton = useMemo(() => {
-    if (!sourceAnimations || !nodes) return false;
-    const trackNodes = new Set();
-    for (const clip of sourceAnimations) {
-      for (const track of clip.tracks) {
-        trackNodes.add(track.name.split('.')[0]);
-      }
-    }
-    for (const name of trackNodes) {
-      if (nodes[name]) return true;
-    }
-    return false;
-  }, [sourceAnimations, nodes]);
+  const { scene, nodes, animations: avatarAnimations } = useGLTF(modelPath);
+  const { animations: extraAnimations } = useGLTF(EXTRA_ANIMATIONS_URL);
 
   const animations = useMemo(() => {
-    if (!hasMatchingSkeleton) return [];
-    return sourceAnimations.map((clip) => clip.clone());
-  }, [hasMatchingSkeleton, sourceAnimations]);
+    const clips = [];
+    if (avatarAnimations) clips.push(...avatarAnimations.map((clip) => clip.clone()));
+    if (extraAnimations) clips.push(...extraAnimations.map((clip) => clip.clone()));
+    const nodeNames = new Set(Object.keys(nodes || {}));
+    clips.forEach((clip) => {
+      clip.tracks = clip.tracks.filter((track) => {
+        const dot = track.name.lastIndexOf('.');
+        const nodeName = dot > 0 ? track.name.substring(0, dot) : track.name;
+        return nodeNames.has(nodeName);
+      });
+    });
+    return clips;
+  }, [avatarAnimations, extraAnimations, nodes]);
 
   const { actions, mixer } = useAnimations(animations, group);
   const { message, onMessagePlayed } = useSpeech();
@@ -70,24 +87,30 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       setAnimation("Idle");
       return;
     }
-    setAnimation(message.animation);
+    const resolved = resolveAnimation(message.animation, actions);
+    setAnimation(resolved || "Idle");
     setFacialExpression(message.facialExpression);
     setLipsync(message.lipsync);
-    const audio = new Audio("data:audio/mp3;base64," + message.audio);
-    audio.play();
-    setAudio(audio);
-    audio.onended = onMessagePlayed;
+    const nextAudio = message.audio
+      ? new Audio("data:audio/mp3;base64," + message.audio)
+      : new Audio(message.audioUrl);
+    nextAudio.play();
+    setAudio(nextAudio);
+    nextAudio.onended = onMessagePlayed;
   }, [message]);
 
   useEffect(() => {
-    if (actions[animation]) {
-      actions[animation]
+    const target = resolveAnimation(animation, actions);
+    if (!target) return;
+    const action = actions[target];
+    if (action) {
+      action
         .reset()
         .fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5)
         .play();
       return () => {
-        if (actions[animation]) {
-          actions[animation].fadeOut(0.5);
+        if (actions[target]) {
+          actions[target].fadeOut(0.5);
         }
       };
     }
@@ -95,14 +118,16 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
 
   useLayoutEffect(() => {
     if (group.current) {
-      const { position, rotation } = props;
+      const { position, rotation, scale } = props;
       if (position) group.current.position.set(position[0], position[1], position[2]);
       if (rotation) group.current.rotation.set(rotation[0], rotation[1], rotation[2]);
+      if (scale) group.current.scale.set(scale[0], scale[1], scale[2]);
     }
-    if (actions[animation]) {
-      actions[animation].reset().play().setEffectiveWeight(1);
+    const target = resolveAnimation(animation, actions);
+    if (target && actions[target]) {
+      actions[target].reset().play().setEffectiveWeight(1);
     }
-  }, [group, actions, animation, props.position, props.rotation]);
+  }, [group, actions, animation, props.position, props.rotation, props.scale]);
 
   useEffect(() => {
     let blinkTimeout;
@@ -120,7 +145,8 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, []);
 
   useFrame(() => {
-    if (actions[animation]) actions[animation].play().setEffectiveWeight(1);
+    const target = resolveAnimation(animation, actions);
+    if (target && actions[target]) actions[target].play().setEffectiveWeight(1);
     morphTargets.forEach((key) => {
         const mapping = facialExpressions[facialExpression];
         if (key === "eyeBlinkLeft" || key === "eyeBlinkRight") {
@@ -157,30 +183,12 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       });
   });
 
-  const renderMeshes = (nodes, materials) => {
-    return Object.values(nodes).map((node) => {
-      if (node.isMesh || node.isSkinnedMesh) {
-        return (
-          <skinnedMesh
-            key={node.uuid}
-            geometry={node.geometry}
-            material={materials[node.material.name]}
-            skeleton={node.skeleton}
-            morphTargetDictionary={node.morphTargetDictionary}
-            morphTargetInfluences={node.morphTargetInfluences}
-          />
-        );
-      }
-      return null;
-    });
-  };
-
   return (
     <group ref={group} {...props} dispose={null}>
-      {nodes && nodes.Hips && <primitive object={nodes.Hips} />}
-      {nodes && materials && renderMeshes(nodes, materials)}
+      {scene && <primitive object={scene} />}
     </group>
   );
 }
 
 useGLTF.preload(DEFAULT_AVATAR_PATH);
+useGLTF.preload(EXTRA_ANIMATIONS_URL);

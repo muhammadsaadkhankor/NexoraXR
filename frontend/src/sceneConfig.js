@@ -1,4 +1,21 @@
 export const SCENE_CONFIG = {
+  Multimedia: {
+    title: 'Multimedia',
+    category: 'Multimedia Computing',
+    modelUrl: '/assets/scene/scene.glb',
+    environmentPreset: 'sunset',
+    userStart: {
+      position: [0, 0, 0],
+      rotation: [0, Math.PI, 0],
+      animation: 'Idle',
+    },
+    assistant: {
+      position: [0, 1.0, -6],
+      animation: 'Idle',
+    },
+    courseContent:
+      'Multimedia computing course with AI-generated lecture explanations.',
+  },
   ELG5121: {
     title: 'ELG 5121',
     category: 'Engineering',

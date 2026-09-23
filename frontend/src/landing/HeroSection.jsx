@@ -1,5 +1,6 @@
 
 export default function HeroSection() {
+
   return (
     <section id="home" className="hero">
       <div className="container hero__inner">

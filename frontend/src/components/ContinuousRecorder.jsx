@@ -746,7 +746,7 @@ const ContinuousRecorder = () => {
 
   // Auto start/stop recording based on message presence
   useEffect(() => {
-    if (message && !isRecording) {
+    if (message?.audio && !isRecording) {
       startRecording();
     } else if (!message && isRecording) {
       stopRecording();
@@ -762,6 +762,7 @@ const ContinuousRecorder = () => {
       }
   
       const playMessage = async () => {
+        if (!message?.audio) return;
         try {
           const audioElement = new Audio("data:audio/mp3;base64," + message.audio);
           currentAudioRef.current = audioElement;

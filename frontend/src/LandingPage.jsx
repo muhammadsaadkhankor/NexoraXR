@@ -12,7 +12,7 @@ export default function LandingPage() {
 
   const handleEnter = (room) => {
     const code = room.replace(/\s+/g, '');
-    navigate(`/scene/${code}`);
+    navigate(`/course/${code}`);
   };
 
   return (

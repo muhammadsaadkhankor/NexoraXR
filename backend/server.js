@@ -454,6 +454,7 @@ import { sendDefaultMessages, defaultResponse } from "./modules/defaultMessages.
 import { voice, initializeElevenLabs } from "./modules/elevenLabs.mjs";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import lectureRouter from "./lectureRoutes.mjs";
 
 dotenv.config();
 
@@ -692,6 +693,8 @@ app.get("/voices", async (req, res) => {
     res.status(500).json({ error: 'Failed to get voices' });
   }
 });
+
+app.use('/api', lectureRouter);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
