@@ -15,17 +15,18 @@ const router = express.Router();
 const LECTURE_DATA = path.join(__dirname, 'data', 'multimediaLectures.json');
 const CACHE_DIR = path.join(__dirname, 'lecture_cache');
 const PROFBRAIN_DIR = path.join(__dirname, '..', '..', 'profbrain', 'lectures');
-const PDFS_DIR = path.join(__dirname, '..', '..', 'profbrain', 'raw_pdfs');
+const PDFS_BASE = path.join(__dirname, '..', '..', 'scripts', 'assets', 'courses');
 
-function findLecturePdf(lectureId) {
+function findLecturePdf(lectureId, course = 'Multimedia') {
   const n = Number(lectureId.replace(/\D/g, ''));
-  if (!existsSync(PDFS_DIR)) return null;
-  const files = readdirSync(PDFS_DIR);
+  const pdfDir = path.join(PDFS_BASE, course);
+  if (!existsSync(pdfDir)) return null;
+  const files = readdirSync(pdfDir);
   const match = files.find((f) => {
     const lower = f.toLowerCase();
     return lower.endsWith('.pdf') && (lower.includes(`lecture${n}`) || lower.includes(`lecture_${n}`));
   });
-  return match ? path.join(PDFS_DIR, match) : null;
+  return match ? path.join(pdfDir, match) : null;
 }
 
 let lecturesCache = null;
@@ -240,9 +241,11 @@ router.get('/lecture/summary_audio/:lectureId', async (req, res) => {
 
 router.get('/lecture/pdf/:lectureId', (req, res) => {
   const { lectureId } = req.params;
-  const pdfPath = findLecturePdf(lectureId);
+  const course = req.query.course || 'Multimedia';
+  const pdfPath = findLecturePdf(lectureId, course);
   if (!pdfPath || !existsSync(pdfPath)) {
-    return res.status(404).json({ error: 'PDF not found' });
+    console.log(`[lecture/pdf] Missing PDF for lectureId=${lectureId} course=${course}`);
+    return res.status(404).json({ error: `PDF not found for ${lectureId}` });
   }
   res.set('Content-Type', 'application/pdf');
   res.sendFile(pdfPath, { root: '/' });
@@ -250,14 +253,15 @@ router.get('/lecture/pdf/:lectureId', (req, res) => {
 
 router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   const { lectureId } = req.params;
-  const pdfPath = findLecturePdf(lectureId);
+  const course = req.query.course || 'Multimedia';
+  const pdfPath = findLecturePdf(lectureId, course);
   if (!pdfPath || !existsSync(pdfPath)) {
-    console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} (looked in ${PDFS_DIR})`);
+    console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} course=${course}`);
     return res.status(404).json({ error: `PDF not found for ${lectureId}` });
   }
 
   await ensureCacheDir();
-  const outBase = path.join(CACHE_DIR, `${lectureId}_slide`);
+  const outBase = path.join(CACHE_DIR, `${course}_${lectureId}_slide`);
   const outPng = `${outBase}.png`;
 
   if (!existsSync(outPng)) {
