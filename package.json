@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "install:all": "npm install --prefix backend && npm install --prefix frontend",
-    "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm --prefix frontend run dev\" \"npm --prefix backend run dev\"",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "npm --prefix backend run dev",
-    "build": "npm --prefix frontend run build",
-    "start": "npm --prefix backend run start"
+    "install:all": "npm install --prefix src/backend && npm install --prefix src/frontend",
+    "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm --prefix src/frontend run dev\" \"npm --prefix src/backend run dev\"",
+    "dev:frontend": "npm --prefix src/frontend run dev",
+    "dev:backend": "npm --prefix src/backend run dev",
+    "dev:client_ui": "npm --prefix src/client_ui run dev",
+    "build:frontend": "npm --prefix src/frontend run build",
+    "build:client_ui": "npm --prefix src/client_ui run build",
+    "start": "npm --prefix src/backend run start"
   },
   "devDependencies": {
     "concurrently": "^8.0.0"

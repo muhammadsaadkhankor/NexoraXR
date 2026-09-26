@@ -3,8 +3,8 @@
 node_modules/
 
 # Large asset source folders — kept locally, hosted separately
-/Assets/
-/Client/
+/scripts/assets/
+/src/client_ui/dist/
 
 # OS / package files
 *.deb
