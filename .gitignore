@@ -4,6 +4,8 @@ node_modules/
 
 # Large asset source folders — kept locally, hosted separately
 /scripts/assets/
+/profbrain/raw_pdfs/
+/profbrain/lectures/
 /src/client_ui/dist/
 
 # OS / package files
