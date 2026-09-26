@@ -335,6 +335,7 @@ export default function Scene() {
     socket.on('disconnect', () => {
       console.log('[client] socket disconnected');
       setMyId(null);
+      setRemotePlayers({});
       joinedRef.current = false;
     });
 

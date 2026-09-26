@@ -734,7 +734,7 @@ io.on('connection', (socket) => {
 
     socket.broadcast.to(roomId).emit('user-joined', user);
     console.log(`[server] emitted 'user-joined' for ${socket.id} to room ${roomId}`);
-    socket.emit('room-state', Object.values(rooms[roomId]));
+    socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== socket.id));
     console.log(`[server] emitted 'room-state' to ${socket.id}:`, Object.values(rooms[roomId]).map((p) => p.userId));
   });
 
