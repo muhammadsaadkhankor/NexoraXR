@@ -10,7 +10,7 @@ node_modules/
 # Large external / model / audio data — kept locally, hosted separately
 /CosyVoice/
 /profbrain/
-/scripts/assets/
+/src/assets/
 
 # Backend runtime binaries and data
 /src/backend/bin.zip

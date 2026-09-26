@@ -15,7 +15,7 @@ const router = express.Router();
 const LECTURE_DATA = path.join(__dirname, 'data', 'multimediaLectures.json');
 const CACHE_DIR = path.join(__dirname, 'lecture_cache');
 const PROFBRAIN_DIR = path.join(__dirname, '..', '..', 'profbrain', 'lectures');
-const PDFS_BASE = path.join(__dirname, '..', '..', 'scripts', 'assets', 'courses');
+const PDFS_BASE = path.join(__dirname, '..', 'assets', 'courses');
 
 function findLecturePdf(lectureId, course = 'Multimedia') {
   const n = Number(lectureId.replace(/\D/g, ''));
