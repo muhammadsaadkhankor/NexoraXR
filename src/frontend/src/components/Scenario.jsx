@@ -1,5 +1,5 @@
-import { CameraControls, Environment, useGLTF, useTexture } from "@react-three/drei";
-import { Suspense, useEffect, useRef, useState, useMemo } from "react";
+import { CameraControls, Environment, Html, useGLTF, useTexture } from "@react-three/drei";
+import { Component, Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Avatar } from "./Avatar";
@@ -7,8 +7,57 @@ import { UserAvatar } from "./UserAvatar";
 import { RemoteAvatar } from "./RemoteAvatar";
 import { SCENE_CONFIG } from "../sceneConfig";
 
+const SLIDE_API_BASE = 'http://localhost:3000/api/lecture/pdf_image';
+
+function isValidLectureId(id) {
+  return typeof id === 'string' && id.trim().length > 0 && id.trim().toLowerCase() !== 'undefined';
+}
+
+function SlidePlaceholder({ position, quaternion, scale }) {
+  return (
+    <group position={position} quaternion={quaternion} scale={scale}>
+      <mesh>
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial color="#ff4444" side={THREE.DoubleSide} toneMapped={false} transparent opacity={0.9} />
+      </mesh>
+      <Html center className="pointer-events-none" distanceFactor={10}>
+        <div style={{ color: 'white', fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap' }}>
+          Slide unavailable
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+class SlideErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[LectureSlide] Error loading slide texture:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const { position, quaternion, scale } = this.props;
+      return <SlidePlaceholder position={position} quaternion={quaternion} scale={scale} />;
+    }
+    return this.props.children;
+  }
+}
+
 function LectureSlide({ lectureId, position, quaternion, scale }) {
-  const texture = useTexture(`http://localhost:3000/api/lecture/pdf_image/${lectureId}`);
+  if (!isValidLectureId(lectureId)) {
+    return null;
+  }
+
+  const texture = useTexture(`${SLIDE_API_BASE}/${lectureId}`);
 
   useEffect(() => {
     if (texture) {
@@ -230,10 +279,12 @@ export const Scenario = ({
       <group position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale}>
         <Avatar modelPath={currentAvatarPath} />
       </group>
-      {lectureId && (
-        <Suspense fallback={null}>
-          <LectureSlide lectureId={lectureId} {...slideTransform} />
-        </Suspense>
+      {isValidLectureId(lectureId) && (
+        <SlideErrorBoundary {...slideTransform}>
+          <Suspense fallback={null}>
+            <LectureSlide lectureId={lectureId} {...slideTransform} />
+          </Suspense>
+        </SlideErrorBoundary>
       )}
       <ReadyGate onReady={onReady} />
     </>

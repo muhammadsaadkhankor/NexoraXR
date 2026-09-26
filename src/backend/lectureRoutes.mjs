@@ -252,7 +252,8 @@ router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   const { lectureId } = req.params;
   const pdfPath = findLecturePdf(lectureId);
   if (!pdfPath || !existsSync(pdfPath)) {
-    return res.status(404).json({ error: 'PDF not found' });
+    console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} (looked in ${PDFS_DIR})`);
+    return res.status(404).json({ error: `PDF not found for ${lectureId}` });
   }
 
   await ensureCacheDir();
