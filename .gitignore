@@ -2,10 +2,38 @@
 .codegpt
 node_modules/
 
-# Large asset source folders — kept locally, hosted separately
+# Workspace / runtime files
+/.run_pids
+/logs/
+/Course_content/
+
+# Large external / model / audio data — kept locally, hosted separately
+/CosyVoice/
 /scripts/assets/
 /profbrain/raw_pdfs/
 /profbrain/lectures/
+
+# Backend runtime binaries and data
+/src/backend/bin.zip
+/src/backend/rhubarb
+/src/backend/lib/
+/src/backend/include/
+/src/backend/res/
+/src/backend/extras/
+/src/backend/tests/
+/src/backend/lecture_cache/
+/src/backend/CHANGELOG.md
+/src/backend/LICENSE.md
+/src/backend/README.adoc
+
+# Frontend build output and large assets
+/src/frontend/dist/
+/src/frontend/public/assets/
+/src/frontend/public/models/
+/src/frontend/public/animations/
+/src/frontend/public/animatio.glb
+
+# Client UI build output
 /src/client_ui/dist/
 
 # OS / package files
