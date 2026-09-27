@@ -62,7 +62,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, [avatarAnimations, extraAnimations, nodes]);
 
   const { actions, mixer } = useAnimations(animations, group);
-  const { message, onMessagePlayed } = useSpeech();
+  const { message, onMessagePlayed, audioElementRef } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
   const [animation, setAnimation] = useState("Idle");
@@ -85,6 +85,14 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   useEffect(() => {
     if (!message) {
       setAnimation("Idle");
+      setFacialExpression("");
+      setLipsync(undefined);
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+      setAudio(undefined);
+      if (audioElementRef) audioElementRef.current = null;
       return;
     }
     const resolved = resolveAnimation(message.animation, actions);
@@ -93,10 +101,33 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     setLipsync(message.lipsync);
     const nextAudio = message.audio
       ? new Audio("data:audio/mp3;base64," + message.audio)
-      : new Audio(message.audioUrl);
-    nextAudio.play();
+      : message.audioUrl
+      ? new Audio(message.audioUrl)
+      : null;
+    if (nextAudio) {
+      if (typeof message.resumeAt === 'number' && message.resumeAt > 0) {
+        nextAudio.currentTime = message.resumeAt;
+        delete message.resumeAt;
+      }
+      nextAudio.onended = onMessagePlayed;
+      nextAudio.onerror = () => {
+        console.error('[Avatar] audio error:', nextAudio.src);
+        onMessagePlayed?.();
+      };
+      nextAudio.play().catch((err) => console.error('[Avatar] audio play error:', err));
+    } else {
+      onMessagePlayed?.();
+    }
     setAudio(nextAudio);
-    nextAudio.onended = onMessagePlayed;
+    if (audioElementRef) audioElementRef.current = nextAudio;
+    return () => {
+      if (nextAudio) {
+        nextAudio.onended = null;
+        nextAudio.onerror = null;
+        nextAudio.pause();
+        nextAudio.currentTime = 0;
+      }
+    };
   }, [message]);
 
   useEffect(() => {

@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from "react";
 import { useSpeech } from "../hooks/useSpeech";
+import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([
@@ -15,10 +16,16 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
   const [isPressed, setIsPressed] = useState(false);
   const currentTranscriptionRef = useRef(null);
 
-  const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening } = useSpeech();
+  const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef, askQuestion } = useSpeech();
+  const [lectureLine, setLectureLine] = useState(null);
+  const messagesEndRef = useRef(null);
 
   useEffect(() => {
     if (!message || !message.text) return;
+    if (message.type === 'lecture') {
+      setLectureLine({ id: message.id, text: message.text, time: new Date() });
+      return;
+    }
     setChatHistory((prev) => {
       const last = prev[prev.length - 1];
       if (last && last.role === "assistant" && last.text === message.text) return prev;
@@ -26,13 +33,24 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
     });
   }, [message]);
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, lectureLine]);
+
   const sendMessage = async () => {
     const text = input.current.value;
-    if (!loading && !message && text.trim()) {
+    // Questions are allowed while a lecture segment is playing (they pause it);
+    // while an answer is playing, wait for it to finish.
+    const interruptingLecture = message?.type === 'lecture';
+    if (!loading && text.trim() && (!message || interruptingLecture)) {
       setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
       input.current.value = "";
       try {
-        await tts(text);
+        if (interruptingLecture) {
+          await askQuestion(text, lectureId);
+        } else {
+          await tts(text);
+        }
       } catch (error) {
         console.error("Error sending message:", error);
       }
@@ -40,7 +58,7 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
   };
 
   const handleMicPress = async () => {
-    if (!loading && !message && speechSupported && !isPressed) {
+    if (!loading && (!message || message.type === 'lecture') && speechSupported && !isPressed) {
       setIsPressed(true);
       setIsTranscribing(true);
       startRecording();
@@ -131,7 +149,7 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
       }`}
       {...props}
     >
-      <div className="mx-auto w-full max-w-5xl bg-slate-900/95 rounded-t-3xl shadow-2xl flex flex-col max-h-[60vh]">
+      <div className="mx-auto w-full max-w-5xl bg-slate-900/95 rounded-t-3xl shadow-2xl flex flex-col max-h-[30vh]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
           <div className="flex items-center gap-3">
@@ -197,6 +215,27 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
             </div>
           ))}
 
+          {lectureLine && (!message || message.type === 'lecture') && (
+            <div className="flex items-end gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
+                <Bot size={14} />
+              </div>
+              <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-slate-800 text-slate-100 ring-1 ring-cyan-500/40">
+                <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
+                  Now speaking
+                </div>
+                <SpeakingTranscript
+                  key={lectureLine.id}
+                  text={lectureLine.text}
+                  audioRef={audioElementRef}
+                />
+                <div className="text-[10px] mt-1 text-slate-500">
+                  {formatTime(lectureLine.time)}
+                </div>
+              </div>
+            </div>
+          )}
+
           {(loading || isTranscribing || isListening) && (
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-white">
@@ -207,6 +246,7 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}
@@ -222,8 +262,8 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
                 isPressed || isTranscribing || isListening
                   ? "bg-red-500 hover:bg-red-600 animate-pulse"
                   : "bg-slate-700 hover:bg-slate-600"
-              } ${loading || message || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
-              disabled={loading || message || !speechSupported}
+              } ${loading || (message && message.type !== 'lecture') || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
+              disabled={loading || (message && message.type !== 'lecture') || !speechSupported}
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -244,10 +284,10 @@ export const ChatInterface = ({ hidden, onMinimize, ...props }) => {
             />
 
             <button
-              disabled={loading || message}
+              disabled={loading || (message && message.type !== 'lecture')}
               onClick={sendMessage}
               className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-colors ${
-                loading || message ? "bg-slate-700 cursor-not-allowed opacity-30" : "bg-blue-600 hover:bg-blue-500"
+                loading || (message && message.type !== 'lecture') ? "bg-slate-700 cursor-not-allowed opacity-30" : "bg-blue-600 hover:bg-blue-500"
               }`}
             >
               <Send size={18} />

@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, User, Users } from 'lucide-react';
+import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -114,20 +114,121 @@ function AvatarPicker({ avatars, onPick }) {
   );
 }
 
-function CourseInfo({ config, onStartClass, showStart }) {
-  if (!config) return null;
+function ClassroomPanel({
+  course,
+  lectureId,
+  lectureTitle,
+  state,
+  error,
+  onStart,
+  onCamera,
+  onChat,
+  chatOpen,
+  onSettings,
+  settingsOpen,
+  onUserAvatar,
+  onOutfits,
+  outfitsOpen,
+  outfits,
+  currentOutfit,
+  onPickOutfit,
+}) {
+  const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
+  const canStart = state === 'idle' || state === 'completed' || state === 'error';
+
+  let buttonLabel = 'Start Class';
+  let ButtonIcon = Play;
+  if (state === 'loading') { buttonLabel = 'Loading Lecture...'; ButtonIcon = Loader2; }
+  else if (state === 'teaching') { buttonLabel = 'Class in Progress'; ButtonIcon = Play; }
+  else if (state === 'completed') { buttonLabel = 'Replay Lecture'; ButtonIcon = RotateCcw; }
+  else if (state === 'error') { buttonLabel = 'Retry Class'; ButtonIcon = RotateCcw; }
+
   return (
-    <div className='fixed left-4 top-4 z-40 max-w-xs rounded-xl border border-slate-700/50 bg-slate-900/80 p-4 text-white shadow-2xl backdrop-blur'>
-      <h2 className='text-lg font-bold text-cyan-400'>{config.title}</h2>
-      <p className='text-sm text-slate-300'>{config.category}</p>
-      <p className='mt-2 text-sm leading-relaxed text-slate-200'>{config.courseContent}</p>
-      {showStart && (
+    <div className='fixed right-4 top-4 z-50 flex w-64 flex-col gap-3 rounded-2xl border border-slate-700/50 bg-slate-900/85 p-4 text-white shadow-2xl backdrop-blur'>
+      <div className='border-b border-slate-700/50 pb-3'>
+        <h2 className='text-base font-bold text-cyan-400'>{course?.title || course?.category}</h2>
+        <p className='text-xs text-slate-400'>{course?.category}</p>
+      </div>
+
+      <div className='-mt-1'>
+        <p className='text-xs font-semibold uppercase tracking-wide text-slate-500'>Lecture</p>
+        <p className='text-sm font-medium text-slate-200'>{lectureTitle || `Lecture ${number}`}</p>
+      </div>
+
+      <button
+        onClick={onStart}
+        disabled={!canStart}
+        className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+          state === 'teaching' || state === 'loading'
+            ? 'cursor-not-allowed bg-slate-700 text-slate-300'
+            : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+        }`}
+      >
+        <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+        {buttonLabel}
+      </button>
+
+      {error && (
+        <div className='flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-200'>
+          <AlertCircle size={14} className='mt-0.5 flex-shrink-0' />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className='mt-1 grid grid-cols-2 gap-2'>
         <button
-          onClick={onStartClass}
-          className='mt-4 w-full rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400'
+          onClick={onOutfits}
+          className={`flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800 ${outfitsOpen ? 'ring-1 ring-cyan-400' : ''}`}
         >
-          Start Class
+          <User size={18} />
+          <span>Avatar</span>
         </button>
+        <button
+          onClick={onUserAvatar}
+          className='flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800'
+        >
+          <Users size={18} />
+          <span>My Avatar</span>
+        </button>
+        <button
+          onClick={onCamera}
+          className='flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800'
+        >
+          <Camera size={18} />
+          <span>Camera</span>
+        </button>
+        <button
+          onClick={onChat}
+          className={`flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800 ${chatOpen ? 'ring-1 ring-cyan-400' : ''}`}
+        >
+          <MessageSquare size={18} />
+          <span>Chat</span>
+        </button>
+      </div>
+
+      <button
+        onClick={onSettings}
+        className={`mt-1 flex w-full items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-xs transition hover:bg-slate-800 ${settingsOpen ? 'ring-1 ring-cyan-400' : ''}`}
+      >
+        <Settings size={16} />
+        <span>Settings</span>
+        <ChevronDown size={14} className={`ml-auto transition ${settingsOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {outfitsOpen && (
+        <div className='-mt-1 rounded-xl border border-slate-700 bg-slate-800/90 p-2 text-xs'>
+          {outfits.map((o) => (
+            <button
+              key={o.path}
+              onClick={() => onPickOutfit(o.path)}
+              className={`w-full rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-700 ${
+                o.path === currentOutfit ? 'text-cyan-400' : 'text-slate-200'
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -236,7 +337,6 @@ export default function Scene() {
     return USER_AVATARS[i].path;
   });
   const [cameraPreset, setCameraPreset] = useState('third-person');
-  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [inRange, setInRange] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -247,30 +347,78 @@ export default function Scene() {
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
   const joinedRef = useRef(false);
-  const { message, pushMessage, requestMicrophoneAccess } = useSpeech();
   const lastEmittedMessageIdRef = useRef(new Set());
   const joystick = useRef({ x: 0, y: 0 });
   const [showJoystick, setShowJoystick] = useState(false);
-  const isMultimedia = sceneName === 'Multimedia';
+  const [showSettings, setShowSettings] = useState(false);
+  const [showOutfitList, setShowOutfitList] = useState(false);
+  const [lectureStatus, setLectureStatus] = useState('idle');
 
-  const handleLectureSelect = async (lectureId) => {
+  const [lectureError, setLectureError] = useState(null);
+  const [lectureTitle, setLectureTitle] = useState(null);
+
+
+  const { message, messages, pushMessage, clearMessages, requestMicrophoneAccess } = useSpeech();
+
+  const canStartClass =
+    !!lectureId && (lectureStatus === 'idle' || lectureStatus === 'completed' || lectureStatus === 'error');
+
+  useEffect(() => {
+    setLectureStatus('idle');
+    setLectureError(null);
+    setLectureTitle(null);
+    clearMessages();
+  }, [lectureId]);
+
+  useEffect(() => {
+    return () => {
+      clearMessages();
+      setLectureStatus('idle');
+      setLectureError(null);
+    };
+  }, [clearMessages]);
+
+  const handleStartClass = async () => {
+    if (!lectureId || !canStartClass) return;
+
+    clearMessages();
+    setLectureStatus('loading');
+    setLectureError(null);
+
     try {
-      const res = await fetch(`http://localhost:3000/api/lecture/summary/${lectureId}`);
+      const res = await fetch(`http://localhost:3000/api/lecture/segments/${lectureId}`);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Summary not ready');
-      const audioUrl = data.audioUrl ? `http://localhost:3000${data.audioUrl}` : null;
-      if (!audioUrl) throw new Error('Audio not ready yet. Run prep_tts.py first.');
-      pushMessage({
-        text: data.text,
-        audioUrl,
-        animation: data.animation || 'explain',
-        facialExpression: data.facialExpression || 'smile',
-        lipsync: data.lipsync,
+      if (!res.ok) throw new Error(data.error || 'Lecture not available');
+      if (!data.segments || data.segments.length === 0) {
+        throw new Error('No segments found for this lecture');
+      }
+
+      setLectureTitle(data.title);
+      data.segments.forEach((seg, i) => {
+        pushMessage({
+          id: `${lectureId}_seg_${seg.id}`,
+          type: 'lecture',
+          text: seg.text,
+          audioUrl: seg.audioUrl ? `http://localhost:3000${seg.audioUrl}` : null,
+          animation: seg.animation || 'explain',
+          facialExpression: seg.facialExpression || 'smile',
+          lipsync: seg.lipsync,
+        });
       });
+      setLectureStatus('teaching');
+      setChatOpen(true);
     } catch (err) {
-      alert(err.message);
+      console.error('[handleStartClass]', err);
+      setLectureStatus('error');
+      setLectureError(err.message || 'Failed to load lecture');
     }
   };
+
+  useEffect(() => {
+    if (lectureStatus === 'teaching' && messages.length === 0) {
+      setLectureStatus('completed');
+    }
+  }, [messages, lectureStatus]);
 
   useEffect(() => {
     const detect = () => {
@@ -388,10 +536,6 @@ export default function Scene() {
 
   const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
 
-  const handleAvatarChange = useCallback((newPath) => {
-    setCurrentAvatarPath(newPath);
-  }, []);
-
   const toggleCamera = useCallback(() => {
     setCameraPreset((prev) => (prev === 'third-person' ? 'first-person' : 'third-person'));
   }, []);
@@ -404,11 +548,6 @@ export default function Scene() {
     { path: '/assets/avatar/ProfAbed_VR.glb', label: 'VR' },
     { path: '/assets/avatar/ProfRalf.glb', label: 'Prof Ralf' },
   ];
-
-  const onPickAvatar = useCallback((path) => {
-    handleAvatarChange(path);
-    setShowAvatarMenu(false);
-  }, [handleAvatarChange]);
 
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
@@ -426,62 +565,36 @@ export default function Scene() {
 
       {sceneReady && (
         <>
-          <CourseInfo
-            config={config}
-            showStart={isMultimedia && !!lectureId}
-            onStartClass={() => lectureId && handleLectureSelect(lectureId)}
+          <ClassroomPanel
+            course={config}
+            lectureId={lectureId}
+            lectureTitle={lectureTitle}
+            state={lectureStatus}
+            error={lectureError}
+            onStart={handleStartClass}
+            onCamera={toggleCamera}
+            onChat={() => setChatOpen((v) => !v)}
+            chatOpen={chatOpen}
+            onSettings={() => setShowSettings((v) => !v)}
+            settingsOpen={showSettings}
+            onUserAvatar={() => setShowAvatarPicker(true)}
+            onOutfits={() => setShowOutfitList((v) => !v)}
+            outfitsOpen={showOutfitList}
+            outfits={OUTFITS}
+            currentOutfit={currentAvatarPath}
+            onPickOutfit={(path) => {
+              setCurrentAvatarPath(path);
+              setShowOutfitList(false);
+            }}
           />
 
-          <ChatInterface hidden={!chatOpen} onMinimize={() => setChatOpen(false)} />
+          <ChatInterface hidden={!chatOpen} onMinimize={() => setChatOpen(false)} lectureId={lectureId} />
 
           <Joystick joystick={joystick} hidden={!showJoystick} />
 
           <div className='relative z-20'>
-            <SettingsPanel />
+            <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
             <ContinuousRecorder />
-          </div>
-
-          <div className='fixed right-4 top-4 z-50 flex items-center gap-2'>
-            <button
-              onClick={() => setShowAvatarPicker(true)}
-              className='flex h-10 w-10 items-center justify-center rounded-full bg-slate-700 text-white shadow-lg transition hover:bg-slate-600'
-              title='Change user avatar'
-            >
-              <Users size={18} />
-            </button>
-
-            <div className='relative'>
-              <button
-                onClick={() => setShowAvatarMenu((v) => !v)}
-                className='flex h-10 w-10 items-center justify-center rounded-full bg-slate-700 text-white shadow-lg transition hover:bg-slate-600'
-                title='Change professor avatar'
-              >
-                <User size={18} />
-              </button>
-
-              {showAvatarMenu && (
-                <div className='absolute right-0 top-12 w-48 rounded-xl bg-slate-800/95 py-2 text-sm text-white shadow-2xl ring-1 ring-slate-600/50 backdrop-blur'>
-                  {OUTFITS.map((o) => (
-                    <button
-                      key={o.path}
-                      onClick={() => onPickAvatar(o.path)}
-                      className={`w-full px-4 py-2 text-left transition hover:bg-slate-700 ${
-                        o.path === currentAvatarPath ? 'text-cyan-400' : ''
-                      }`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={toggleCamera}
-              className='flex h-10 w-10 items-center justify-center rounded-full bg-slate-700 text-white shadow-lg transition hover:bg-slate-600'
-              title='Toggle camera'
-            >
-              <Camera size={18} />
-            </button>
           </div>
         </>
       )}

@@ -138,8 +138,17 @@
 
 import React, { useState, useEffect } from 'react';
 
-const SettingsPanel = () => {
-  const [isOpen, setIsOpen] = useState(false);
+const SettingsPanel = ({ open, onClose }) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const setIsOpen = (value) => {
+    if (open === undefined) {
+      setInternalOpen(value);
+    }
+    if (!value) {
+      onClose?.();
+    }
+  };
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState({
     openaiModel: '',
@@ -238,6 +247,7 @@ const SettingsPanel = () => {
 
   return (
     <div className="fixed bottom-4 left-4 z-20">
+      {open === undefined && (
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="bg-white bg-opacity-50 backdrop-blur-md p-4 rounded-lg hover:bg-opacity-70 transition-all duration-200"
@@ -247,6 +257,7 @@ const SettingsPanel = () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       </button>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">

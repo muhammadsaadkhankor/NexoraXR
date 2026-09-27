@@ -166,6 +166,8 @@ export const Scenario = ({
 
   useEffect(() => {
     const onKeyDown = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key.toLowerCase() === 'c' && setCameraPreset) {
         setCameraPreset((prev) => (prev === "third-person" ? "first-person" : "third-person"));
       }

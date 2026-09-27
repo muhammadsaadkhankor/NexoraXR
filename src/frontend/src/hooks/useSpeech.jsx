@@ -163,6 +163,7 @@ export const SpeechProvider = ({ children }) => {
   const [speechSupported, setSpeechSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const transcriptPromiseRef = useRef(null);
+  const audioElementRef = useRef(null);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -374,6 +375,56 @@ export const SpeechProvider = ({ children }) => {
     setMessages((messages) => messages.slice(1));
   };
 
+  const prependMessages = useCallback((msgs) => {
+    const prepared = (msgs || []).map((m) => ({
+      ...m,
+      id: m.id || (Math.random().toString(36).slice(2) + Date.now().toString(36)),
+      fromRemote: false,
+    }));
+    setMessages((prev) => [...prepared, ...prev]);
+  }, []);
+
+  // Interrupt the currently-playing lecture segment with a question.
+  // Pauses the audio, stamps resumeAt on the lecture message so the
+  // segment restarts from the same point, then prepends the answer
+  // ahead of the remaining lecture queue.
+  const askQuestion = async (question, lectureId) => {
+    if (!question || question.trim() === "") return;
+    const audio = audioElementRef.current;
+    const current = message;
+    if (current?.type === 'lecture' && audio) {
+      current.resumeAt = audio.currentTime;
+      audio.pause();
+    }
+    setLoading(true);
+    try {
+      const data = await fetch(`${backendUrl}/api/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, lectureId }),
+      });
+      const response = (await data.json()).messages;
+      if (!response || response.length === 0) {
+        throw new Error('Empty answer');
+      }
+      prependMessages(response.map((m) => ({
+        ...m,
+        audioUrl: m.audioUrl && m.audioUrl.startsWith('/') ? `${backendUrl}${m.audioUrl}` : m.audioUrl,
+      })));
+    } catch (error) {
+      console.error(error);
+      if (current) delete current.resumeAt;
+      if (audio && audio.paused) audio.play().catch(() => {});
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setMessage(null);
+  }, []);
+
   useEffect(() => {
     if (messages.length > 0) {
       setMessage(messages[0]);
@@ -390,14 +441,18 @@ export const SpeechProvider = ({ children }) => {
         recording,
         tts,
         message,
+        messages,
         pushMessage,
         onMessagePlayed,
+        clearMessages,
         loading,
         transcribeAudio,
         micPermissionGranted,
         speechSupported,
         isListening,
         requestMicrophoneAccess,
+        audioElementRef,
+        askQuestion,
       }}
     >
       {children}

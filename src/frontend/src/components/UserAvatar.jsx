@@ -125,6 +125,8 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
 
   useEffect(() => {
     const onKeyDown = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       keys.current[e.key.toLowerCase()] = true;
       if (e.key === "Shift") keys.current.shift = true;
     };
@@ -200,10 +202,10 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     const right = forward.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
 
     const moveDir = new THREE.Vector3(0, 0, 0);
-    if (k["w"] || k["arrowup"]) moveDir.add(forward);
-    if (k["s"] || k["arrowdown"]) moveDir.sub(forward);
-    if (k["a"] || k["arrowleft"]) moveDir.sub(right);
-    if (k["d"] || k["arrowright"]) moveDir.add(right);
+    if (k["arrowup"]) moveDir.add(forward);
+    if (k["arrowdown"]) moveDir.sub(forward);
+    if (k["arrowleft"]) moveDir.sub(right);
+    if (k["arrowright"]) moveDir.add(right);
 
     if (joystick && joystick.current && (joystick.current.x !== 0 || joystick.current.y !== 0)) {
       const jx = joystick.current.x;
