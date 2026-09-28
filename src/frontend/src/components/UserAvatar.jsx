@@ -300,7 +300,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     if (!lastEmittedState.current) {
       lastEmittedState.current = nextState;
       lastEmit.current = now;
-    } else if (now - lastEmit.current > 250) {
+    } else if (now - lastEmit.current > 90) {
       const p1 = lastEmittedState.current.position;
       const p2 = nextState.position;
       const posSame = p1.every((v, i) => Math.abs(v - p2[i]) < 0.05);

@@ -164,6 +164,9 @@ export const SpeechProvider = ({ children }) => {
   const [isListening, setIsListening] = useState(false);
   const transcriptPromiseRef = useRef(null);
   const audioElementRef = useRef(null);
+  const messageRef = useRef(null);
+  messageRef.current = message;
+  const floorPausedRef = useRef(false);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -379,9 +382,35 @@ export const SpeechProvider = ({ children }) => {
     const prepared = (msgs || []).map((m) => ({
       ...m,
       id: m.id || (Math.random().toString(36).slice(2) + Date.now().toString(36)),
-      fromRemote: false,
+      fromRemote: m.fromRemote ?? false,
     }));
-    setMessages((prev) => [...prepared, ...prev]);
+    setMessages((prev) => {
+      const existing = new Set(prev.map((m) => m.id));
+      return [...prepared.filter((m) => !existing.has(m.id)), ...prev];
+    });
+  }, []);
+
+  // Pause the currently-playing lecture segment in place for the floor owner.
+  // Stamps resumeAt on the lecture message so it can restart from the same
+  // point after the floor is released or an answer finishes playing.
+  const pauseLectureForFloor = useCallback(() => {
+    const audio = audioElementRef.current;
+    const current = messageRef.current;
+    if (current?.type === 'lecture' && audio) {
+      floorPausedRef.current = true;
+      if (typeof current.resumeAt !== 'number') current.resumeAt = audio.currentTime;
+      audio.pause();
+    }
+  }, []);
+
+  // Resume a floor-paused lecture segment from its paused position.
+  const resumeLecture = useCallback(() => {
+    floorPausedRef.current = false;
+    const audio = audioElementRef.current;
+    const current = messageRef.current;
+    if (current?.type === 'lecture' && audio && audio.paused) {
+      audio.play().catch(() => {});
+    }
   }, []);
 
   // Interrupt the currently-playing lecture segment with a question.
@@ -453,6 +482,10 @@ export const SpeechProvider = ({ children }) => {
         requestMicrophoneAccess,
         audioElementRef,
         askQuestion,
+        prependMessages,
+        pauseLectureForFloor,
+        resumeLecture,
+        floorPausedRef,
       }}
     >
       {children}

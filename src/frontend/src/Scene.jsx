@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown } from 'lucide-react';
+import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -27,6 +27,54 @@ const USER_AVATARS = [
   { path: '/assets/useravatar/avatars/anim_male_3.glb', name: 'Omar' },
   { path: '/assets/useravatar/avatars/anim_male_4.glb', name: 'Kian' },
 ];
+
+const DISPLAY_NAME_KEY = 'nexoraxr_display_name';
+const MAX_NAME_LENGTH = 30;
+
+function NameEntryModal({ onSubmit }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState(null);
+
+  const submit = () => {
+    const name = value.trim().slice(0, MAX_NAME_LENGTH);
+    if (!name) {
+      setError('Please enter a display name.');
+      return;
+    }
+    onSubmit(name);
+  };
+
+  return (
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 text-white backdrop-blur-sm'>
+      <div className='w-full max-w-sm rounded-3xl border border-slate-700/50 bg-slate-900/70 p-6 shadow-2xl sm:p-8'>
+        <h2 className='text-center text-2xl font-bold text-white'>Enter your display name</h2>
+        <p className='mt-2 text-center text-sm text-slate-400'>Other participants will see this name.</p>
+        <input
+          autoFocus
+          type='text'
+          value={value}
+          maxLength={MAX_NAME_LENGTH}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+          placeholder='e.g. Saad'
+          className='mt-6 w-full rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-cyan-500/60'
+        />
+        {error && <p className='mt-2 text-xs text-red-300'>{error}</p>}
+        <button
+          onClick={submit}
+          className='mt-4 w-full rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400'
+        >
+          Join Class
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function LoadingOverlay({ visible }) {
   return (
@@ -132,6 +180,13 @@ function ClassroomPanel({
   outfits,
   currentOutfit,
   onPickOutfit,
+  displayName,
+  floorQueue,
+  activeSpeaker,
+  handRaised,
+  isActiveSpeaker,
+  onToggleHand,
+  onGrantFloor,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
@@ -148,6 +203,7 @@ function ClassroomPanel({
       <div className='border-b border-slate-700/50 pb-3'>
         <h2 className='text-base font-bold text-cyan-400'>{course?.title || course?.category}</h2>
         <p className='text-xs text-slate-400'>{course?.category}</p>
+        {displayName && <p className='mt-1 text-xs text-slate-500'>You: {displayName}</p>}
       </div>
 
       <div className='-mt-1'>
@@ -204,6 +260,54 @@ function ClassroomPanel({
           <MessageSquare size={18} />
           <span>Chat</span>
         </button>
+      </div>
+
+      <button
+        onClick={onToggleHand}
+        className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold transition ${
+          isActiveSpeaker
+            ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-200 hover:bg-emerald-400/30'
+            : handRaised
+              ? 'border-amber-400/50 bg-amber-400/20 text-amber-200 hover:bg-amber-400/30'
+              : 'border-slate-700 bg-slate-800/50 text-slate-200 hover:bg-slate-800'
+        }`}
+      >
+        <Hand size={14} />
+        {isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand'}
+      </button>
+
+      <div className='rounded-xl border border-slate-700/50 bg-slate-800/40 px-3 py-2'>
+        <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Active Speaker</p>
+        <p className={`mt-1 text-xs font-medium ${activeSpeaker ? 'text-emerald-300' : 'text-slate-500'}`}>
+          {activeSpeaker ? activeSpeaker.name : 'None'}
+        </p>
+      </div>
+
+      <button
+        onClick={onGrantFloor}
+        disabled={activeSpeaker !== null || floorQueue.length === 0}
+        className={`w-full rounded-xl border px-4 py-2 text-xs font-semibold transition ${
+          activeSpeaker === null && floorQueue.length > 0
+            ? 'border-cyan-500/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+            : 'cursor-not-allowed border-slate-700/50 bg-slate-800/30 text-slate-600'
+        }`}
+      >
+        Grant Next
+      </button>
+
+      <div className='rounded-xl border border-slate-700/50 bg-slate-800/40 px-3 py-2'>
+        <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Waiting</p>
+        {floorQueue.length === 0 ? (
+          <p className='mt-1 text-xs text-slate-500'>No requests</p>
+        ) : (
+          <ol className='mt-1 space-y-0.5 text-xs text-slate-200'>
+            {floorQueue.map((p, i) => (
+              <li key={p.userId}>
+                {i + 1}. {p.name}
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
 
       <button
@@ -342,7 +446,15 @@ export default function Scene() {
   const [chatOpen, setChatOpen] = useState(false);
   const [showUserAvatar] = useState(true);
   const [myId, setMyId] = useState(null);
+  const [displayName, setDisplayName] = useState(() => {
+    const stored = sessionStorage.getItem(DISPLAY_NAME_KEY);
+    return stored && stored.trim() ? stored.trim() : null;
+  });
   const [remotePlayers, setRemotePlayers] = useState({});
+  const [floorQueue, setFloorQueue] = useState([]);
+  const [activeSpeaker, setActiveSpeaker] = useState(null);
+  const [floorAnswering, setFloorAnswering] = useState(false);
+  const [floorError, setFloorError] = useState(null);
   const [sceneReady, setSceneReady] = useState(false);
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
@@ -358,7 +470,9 @@ export default function Scene() {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, requestMicrophoneAccess } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture } = useSpeech();
+  const speechCtlRef = useRef({});
+  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture };
 
   const canStartClass =
     !!lectureId && (lectureStatus === 'idle' || lectureStatus === 'completed' || lectureStatus === 'error');
@@ -462,7 +576,6 @@ export default function Scene() {
     });
 
     socket.on('state-update', (player) => {
-      console.log('[client] state-update received:', player.userId, player.position, player.animation);
       setRemotePlayers((prev) => ({ ...prev, [player.userId]: player }));
     });
 
@@ -480,16 +593,57 @@ export default function Scene() {
       });
     });
 
+    socket.on('floor-state', (data) => {
+      console.log('[client] floor-state received:', data);
+      setFloorQueue(data?.floorQueue || []);
+      setActiveSpeaker(data?.activeSpeaker || null);
+    });
+
+    socket.on('join-error', (data) => {
+      console.warn('[client] join rejected:', data?.error);
+      joinedRef.current = false;
+      sessionStorage.removeItem(DISPLAY_NAME_KEY);
+      setDisplayName(null);
+    });
+
     socket.on('disconnect', () => {
       console.log('[client] socket disconnected');
       setMyId(null);
       setRemotePlayers({});
+      setFloorQueue([]);
+      setActiveSpeaker(null);
       joinedRef.current = false;
     });
 
     socket.on('professor-speak', (data) => {
       console.log('[client] professor-speak received:', data?.text);
-      pushMessage(data, true);
+      if (data?.floorAnswer) {
+        setFloorAnswering(false);
+        speechCtlRef.current.prependMessages([{ ...data, fromRemote: true }]);
+      } else {
+        pushMessage(data, true);
+      }
+    });
+
+    socket.on('lecture-control', (data) => {
+      console.log('[client] lecture-control received:', data?.action);
+      if (data?.action === 'pause-for-floor') {
+        speechCtlRef.current.pauseLectureForFloor();
+      } else if (data?.action === 'resume') {
+        setFloorAnswering(false);
+        speechCtlRef.current.resumeLecture();
+      } else if (data?.action === 'answering') {
+        setFloorAnswering(true);
+        setFloorError(null);
+      } else if (data?.action === 'answer-error') {
+        setFloorAnswering(false);
+      }
+    });
+
+    socket.on('floor-question-error', (data) => {
+      console.warn('[client] floor-question-error:', data?.error);
+      setFloorAnswering(false);
+      setFloorError(data?.error || 'Question failed.');
     });
 
     return () => {
@@ -507,18 +661,18 @@ export default function Scene() {
   }, [message]);
 
   useEffect(() => {
-    if (myId && !joinedRef.current && socketRef.current?.connected) {
+    if (myId && displayName && !joinedRef.current && socketRef.current?.connected) {
       joinedRef.current = true;
       socketRef.current.emit('join', {
         roomId: sceneName,
-        name: 'Player',
+        name: displayName,
         avatar: userAvatarPath,
         position: config.userStart.position,
         rotation: config.userStart.rotation[1] ?? Math.PI,
         animation: config.userStart.animation,
       });
     }
-  }, [myId, sceneName, userAvatarPath, config]);
+  }, [myId, displayName, sceneName, userAvatarPath, config]);
 
   const onSceneReady = useCallback(() => {
     setSceneReady(true);
@@ -536,6 +690,24 @@ export default function Scene() {
 
   const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
 
+  const handRaised = useMemo(() => !!myId && floorQueue.some((p) => p.userId === myId), [floorQueue, myId]);
+
+  const isActiveSpeaker = !!myId && activeSpeaker?.userId === myId;
+
+  const toggleHand = useCallback(() => {
+    if (isActiveSpeaker) {
+      socketRef.current?.emit('release-floor');
+    } else {
+      socketRef.current?.emit(handRaised ? 'cancel-floor-request' : 'request-floor');
+    }
+  }, [handRaised, isActiveSpeaker]);
+
+  const grantFloor = useCallback(() => {
+    socketRef.current?.emit('grant-floor');
+  }, []);
+
+  const raisedHands = useMemo(() => new Set(floorQueue.map((p) => p.userId)), [floorQueue]);
+
   const toggleCamera = useCallback(() => {
     setCameraPreset((prev) => (prev === 'third-person' ? 'first-person' : 'third-person'));
   }, []);
@@ -552,6 +724,15 @@ export default function Scene() {
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
       <LoadingOverlay visible={!sceneReady} />
+
+      {!displayName && (
+        <NameEntryModal
+          onSubmit={(name) => {
+            sessionStorage.setItem(DISPLAY_NAME_KEY, name);
+            setDisplayName(name);
+          }}
+        />
+      )}
 
       {showAvatarPicker && (
         <AvatarPicker
@@ -582,13 +763,32 @@ export default function Scene() {
             outfitsOpen={showOutfitList}
             outfits={OUTFITS}
             currentOutfit={currentAvatarPath}
+            displayName={displayName}
+            floorQueue={floorQueue}
+            activeSpeaker={activeSpeaker}
+            handRaised={handRaised}
+            isActiveSpeaker={isActiveSpeaker}
+            onToggleHand={toggleHand}
+            onGrantFloor={grantFloor}
             onPickOutfit={(path) => {
               setCurrentAvatarPath(path);
               setShowOutfitList(false);
             }}
           />
 
-          <ChatInterface hidden={!chatOpen} onMinimize={() => setChatOpen(false)} lectureId={lectureId} />
+          <ChatInterface
+            hidden={!chatOpen}
+            onMinimize={() => setChatOpen(false)}
+            lectureId={lectureId}
+            floorHolder={activeSpeaker}
+            isFloorHolder={isActiveSpeaker}
+            floorAnswering={floorAnswering}
+            floorError={floorError}
+            onFloorQuestion={(text) => {
+              setFloorError(null);
+              socketRef.current?.emit('ask-floor-question', { question: text, lectureId });
+            }}
+          />
 
           <Joystick joystick={joystick} hidden={!showJoystick} />
 
@@ -627,6 +827,7 @@ export default function Scene() {
             userAvatarPath={userAvatarPath}
             showUserAvatar={showUserAvatar}
             remotePlayers={others}
+            raisedHands={raisedHands}
             onUserState={emitUserState}
             joystick={joystick}
             cameraPreset={cameraPreset}

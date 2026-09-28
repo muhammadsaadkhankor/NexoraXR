@@ -128,6 +128,7 @@ export const Scenario = ({
   showUserAvatar = true,
   onUserState,
   remotePlayers = [],
+  raisedHands = null,
   joystick,
   cameraPreset = "third-person",
   setCameraPreset,
@@ -276,7 +277,7 @@ export const Scenario = ({
         avatarYawRef={avatarYawRef}
       />
       {remotePlayers.map((p) => (
-        <RemoteAvatar key={p.userId} state={p} />
+        <RemoteAvatar key={p.userId} state={p} handRaised={raisedHands?.has(p.userId)} />
       ))}
       <group position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale}>
         <Avatar modelPath={currentAvatarPath} />

@@ -1,8 +1,8 @@
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:1.5b';
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
 
 export async function generate(prompt, opts = {}) {
-  const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+  const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

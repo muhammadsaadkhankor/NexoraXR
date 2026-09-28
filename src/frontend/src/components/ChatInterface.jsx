@@ -3,7 +3,7 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([
@@ -39,10 +39,22 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
 
   const sendMessage = async () => {
     const text = input.current.value;
+    if (!text.trim()) return;
+
+    // While the floor is held, only the active speaker may submit the shared
+    // classroom question (server also validates via socket.id).
+    if (floorHolder) {
+      if (!isFloorHolder || floorAnswering || loading) return;
+      setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
+      input.current.value = "";
+      onFloorQuestion?.(text);
+      return;
+    }
+
     // Questions are allowed while a lecture segment is playing (they pause it);
     // while an answer is playing, wait for it to finish.
     const interruptingLecture = message?.type === 'lecture';
-    if (!loading && text.trim() && (!message || interruptingLecture)) {
+    if (!loading && (!message || interruptingLecture)) {
       setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
       input.current.value = "";
       try {
@@ -136,6 +148,9 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
       }
     };
   }, []);
+
+  const floorBlocked = !!floorHolder && !isFloorHolder;
+  const floorSendBlocked = !!floorHolder && (!isFloorHolder || floorAnswering || loading);
 
   const formatTime = (date) =>
     date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -251,6 +266,16 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
 
         {/* Input */}
         <div className="p-4 border-t border-slate-700/50">
+          {floorHolder && (
+            <p className="mb-2 text-xs text-slate-400">
+              {isFloorHolder
+                ? floorAnswering
+                  ? "Professor is preparing an answer..."
+                  : "You have the floor — ask your question."
+                : `${floorHolder.name} has the floor`}
+            </p>
+          )}
+          {floorError && <p className="mb-2 text-xs text-red-300">{floorError}</p>}
           <div className="flex items-center gap-2 bg-slate-800 rounded-full px-2 py-2">
             <button
               onMouseDown={handleMouseDown}
@@ -262,8 +287,8 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
                 isPressed || isTranscribing || isListening
                   ? "bg-red-500 hover:bg-red-600 animate-pulse"
                   : "bg-slate-700 hover:bg-slate-600"
-              } ${loading || (message && message.type !== 'lecture') || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
-              disabled={loading || (message && message.type !== 'lecture') || !speechSupported}
+              } ${floorSendBlocked || loading || (message && message.type !== 'lecture') || !speechSupported ? "cursor-not-allowed opacity-30" : "cursor-pointer"}`}
+              disabled={floorSendBlocked || loading || (message && message.type !== 'lecture') || !speechSupported}
               style={{
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -273,8 +298,9 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
             </button>
 
             <input
-              className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm px-2 outline-none"
-              placeholder="Type your message to LeProf..."
+              className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm px-2 outline-none disabled:opacity-50"
+              placeholder={floorBlocked ? `${floorHolder.name} has the floor...` : "Type your message to LeProf..."}
+              disabled={floorBlocked}
               ref={input}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -284,10 +310,10 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, ...props }) => {
             />
 
             <button
-              disabled={loading || (message && message.type !== 'lecture')}
+              disabled={floorSendBlocked || loading || (message && message.type !== 'lecture')}
               onClick={sendMessage}
               className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-colors ${
-                loading || (message && message.type !== 'lecture') ? "bg-slate-700 cursor-not-allowed opacity-30" : "bg-blue-600 hover:bg-blue-500"
+                floorSendBlocked || loading || (message && message.type !== 'lecture') ? "bg-slate-700 cursor-not-allowed opacity-30" : "bg-blue-600 hover:bg-blue-500"
               }`}
             >
               <Send size={18} />

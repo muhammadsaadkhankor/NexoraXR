@@ -62,7 +62,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, [avatarAnimations, extraAnimations, nodes]);
 
   const { actions, mixer } = useAnimations(animations, group);
-  const { message, onMessagePlayed, audioElementRef } = useSpeech();
+  const { message, onMessagePlayed, audioElementRef, floorPausedRef } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
   const [animation, setAnimation] = useState("Idle");
@@ -114,7 +114,13 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         console.error('[Avatar] audio error:', nextAudio.src);
         onMessagePlayed?.();
       };
-      nextAudio.play().catch((err) => console.error('[Avatar] audio play error:', err));
+      // A lecture segment resumed while the floor is held stays paused until
+      // the shared resume (release-floor) arrives.
+      if (message.type === 'lecture' && floorPausedRef?.current) {
+        nextAudio.pause();
+      } else {
+        nextAudio.play().catch((err) => console.error('[Avatar] audio play error:', err));
+      }
     } else {
       onMessagePlayed?.();
     }

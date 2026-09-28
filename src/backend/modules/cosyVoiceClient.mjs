@@ -1,16 +1,17 @@
 import { pcm16ToWav } from './audioUtils.mjs';
 
-const COSYVOICE_URL = process.env.COSYVOICE_URL || 'http://localhost:5000';
+const COSYVOICE_BASE_URL = process.env.COSYVOICE_BASE_URL || process.env.COSYVOICE_URL || 'http://localhost:5000';
+const COSYVOICE_VOICE_ID = process.env.COSYVOICE_VOICE_ID || 'abed101';
 
 export async function listVoices() {
-  const res = await fetch(`${COSYVOICE_URL}/voices`);
+  const res = await fetch(`${COSYVOICE_BASE_URL}/voices`);
   if (!res.ok) return [];
   const data = await res.json();
   const voices = Array.isArray(data) ? data : data.voices;
   return voices || [];
 }
 
-export async function getDefaultVoice(preferred = 'prof') {
+export async function getDefaultVoice(preferred = COSYVOICE_VOICE_ID) {
   const voices = await listVoices();
   if (!voices.length) return null;
   if (typeof voices[0] === 'string') {
@@ -26,7 +27,7 @@ export async function synthesize(text, voiceId) {
   form.append('voice_id', voiceId);
   form.append('stream', 'false');
 
-  const res = await fetch(`${COSYVOICE_URL}/synthesize`, {
+  const res = await fetch(`${COSYVOICE_BASE_URL}/synthesize`, {
     method: 'POST',
     body: form,
   });

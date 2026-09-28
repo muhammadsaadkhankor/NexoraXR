@@ -170,7 +170,7 @@ async function generateSegmentAudio(lectureId, index, text) {
     return { audioPath, lipsync: null };
   }
 
-  const voiceId = await getDefaultVoice('abed101');
+  const voiceId = await getDefaultVoice();
   if (!voiceId) {
     throw new Error('No professor voice configured');
   }
@@ -384,7 +384,7 @@ router.get('/lecture/summary/:lectureId', async (req, res) => {
 
   if (!existsSync(audioPath)) {
     try {
-      const voiceId = await getDefaultVoice('abed101');
+      const voiceId = await getDefaultVoice();
       if (!voiceId) {
         throw new Error('No professor voice configured');
       }
@@ -549,7 +549,7 @@ Student question: ${question}`;
       if (!existsSync(ANSWERS_DIR)) {
         await fs.mkdir(ANSWERS_DIR, { recursive: true });
       }
-      const voiceId = await getDefaultVoice('abed101');
+      const voiceId = await getDefaultVoice();
       if (!voiceId) {
         throw new Error('No professor voice configured');
       }
