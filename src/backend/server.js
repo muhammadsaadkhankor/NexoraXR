@@ -424,6 +424,15 @@ io.on('connection', (socket) => {
     if (roomId) socket.broadcast.to(roomId).emit('chat', { from: data.name || socket.id, text: data.text });
   });
 
+  // WebRTC signaling relay for peer voice chat: forwards offers, answers and
+  // ICE candidates to a specific room member. Media flows peer-to-peer; the
+  // server only shuttles SDP/ICE.
+  socket.on('webrtc-signal', ({ to, data }) => {
+    const roomId = socketRoom.get(socket.id);
+    if (!roomId || !to || !data || !rooms[roomId]?.[to]) return;
+    io.to(to).emit('webrtc-signal', { from: socket.id, data });
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     const roomId = socketRoom.get(socket.id);

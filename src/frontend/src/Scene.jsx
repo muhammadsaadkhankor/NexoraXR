@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand, Globe, X } from 'lucide-react';
+import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -13,6 +13,7 @@ import ContinuousRecorder from './components/ContinuousRecorder';
 
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
+import { useVoiceChat } from './hooks/useVoiceChat';
 import { API_URL } from './config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
@@ -196,6 +197,8 @@ function ClassroomPanel({
   isActiveSpeaker,
   onToggleHand,
   onGrantFloor,
+  onVoice,
+  voiceOn,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
@@ -407,6 +410,20 @@ function ClassroomPanel({
           </button>
 
           <button
+            onClick={onVoice}
+            title={voiceOn ? 'Leave voice chat' : 'Join voice chat (proximity audio)'}
+            className={`${pillBase} ${voiceOn ? 'bg-slate-800/80 ring-1 ring-emerald-400/50' : ''}`}
+          >
+            {voiceOn
+              ? <Mic size={20} className='text-emerald-300' />
+              : <MicOff size={20} className='text-slate-300' />}
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>Voice</p>
+              <p className='text-[11px] text-slate-400'>{voiceOn ? 'On' : 'Off'}</p>
+            </div>
+          </button>
+
+          <button
             onClick={onSettings}
             className={`${pillBase} ${settingsOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
           >
@@ -583,6 +600,11 @@ function SceneRoom({ sceneName, baseConfig }) {
   const speechCtlRef = useRef({});
   speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture };
 
+  // Peer voice chat (WebRTC mesh + positional audio on remote avatars)
+  const voiceChat = useVoiceChat();
+  const voiceChatRef = useRef(voiceChat);
+  voiceChatRef.current = voiceChat;
+
   const canStartClass =
     !!lectureId && (lectureStatus === 'idle' || lectureStatus === 'completed' || lectureStatus === 'error');
 
@@ -671,6 +693,7 @@ function SceneRoom({ sceneName, baseConfig }) {
       timeout: 5000,
     });
     socketRef.current = socket;
+    voiceChatRef.current.attachSocket(socket);
 
     socket.on('connect', () => {
       console.log('[client] socket connected, id:', socket.id);
@@ -799,6 +822,12 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
 
+  // Keep the voice hook aware of who's in the room so voice can be enabled
+  // after joining and still connect to existing members.
+  useEffect(() => {
+    voiceChat.setRemotePlayers(others);
+  }, [others, voiceChat.setRemotePlayers]);
+
   const handRaised = useMemo(() => !!myId && floorQueue.some((p) => p.userId === myId), [floorQueue, myId]);
 
   const isActiveSpeaker = !!myId && activeSpeaker?.userId === myId;
@@ -881,6 +910,8 @@ function SceneRoom({ sceneName, baseConfig }) {
             isActiveSpeaker={isActiveSpeaker}
             onToggleHand={toggleHand}
             onGrantFloor={grantFloor}
+            onVoice={voiceChat.toggleVoice}
+            voiceOn={voiceChat.voiceOn}
             onPickOutfit={(path) => {
               setCurrentAvatarPath(path);
               setShowOutfitList(false);
@@ -954,6 +985,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             defaultLookAt={config.defaultLookAt}
             modelTransform={config.modelTransform}
             lectureId={lectureId}
+            remoteStreams={voiceChat.remoteStreams}
           />
         </Suspense>
       </Canvas>

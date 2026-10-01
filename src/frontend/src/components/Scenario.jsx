@@ -1,6 +1,6 @@
 import { CameraControls, Environment, Html, useGLTF, useTexture } from "@react-three/drei";
 import { Component, Suspense, useEffect, useRef, useState, useMemo } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
@@ -145,6 +145,7 @@ export const Scenario = ({
   defaultLookAt = [0, 0, 0],
   modelTransform = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
   lectureId = null,
+  remoteStreams = {},
 }) => {
   const cameraControls = useRef();
   const userAvatarRef = useRef();
@@ -154,6 +155,15 @@ export const Scenario = ({
   const boundarySet = useRef(false);
   const [ringY, setRingY] = useState(0.05);
   const { scene, nodes } = useGLTF(modelUrl);
+  const { camera } = useThree();
+
+  // Shared WebAudio listener bound to the camera — drives spatial panning and
+  // distance attenuation for remote users' voice streams.
+  const [audioListener] = useState(() => new THREE.AudioListener());
+  useEffect(() => {
+    camera.add(audioListener);
+    return () => { camera.remove(audioListener); };
+  }, [camera, audioListener]);
 
   useEffect(() => {
     if (!scene) return;
@@ -275,7 +285,13 @@ export const Scenario = ({
         avatarYawRef={avatarYawRef}
       />
       {remotePlayers.map((p) => (
-        <RemoteAvatar key={p.userId} state={p} handRaised={raisedHands?.has(p.userId)} />
+        <RemoteAvatar
+          key={p.userId}
+          state={p}
+          handRaised={raisedHands?.has(p.userId)}
+          audioStream={remoteStreams[p.userId]}
+          audioListener={audioListener}
+        />
       ))}
       <group position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale}>
         <Avatar modelPath={currentAvatarPath} />

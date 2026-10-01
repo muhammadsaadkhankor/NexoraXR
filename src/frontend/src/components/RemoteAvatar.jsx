@@ -7,9 +7,16 @@ import { DEFAULT_AVATAR_PATH, ANIMATION_URLS, ANIMATION_NAMES } from './UserAvat
 
 const MIN_INTERP_MS = 60;
 const MAX_INTERP_MS = 400;
+const _listenerPos = new THREE.Vector3();
+const _localPos = new THREE.Vector3();
 
-export function RemoteAvatar({ state, handRaised }) {
+const VOICE_REF_DIST = 1.5;   // full volume within this radius (meters)
+const VOICE_MAX_DIST = 15;    // silent beyond this distance
+const VOICE_ROLLOFF = 1.8;
+
+export function RemoteAvatar({ state, handRaised, audioStream, audioListener }) {
   const group = useRef();
+  const voiceRef = useRef(null); // { source, panner, gain }
 
   // Load the same avatar model the remote user selected, and a unique GLTF instance
   // so skinned meshes/animations bind to their own bones
@@ -132,7 +139,43 @@ export function RemoteAvatar({ state, handRaised }) {
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     group.current.rotation.y = cur.prevYaw + diff * t;
+
+    // Distance-based voice volume: fade the remote stream with proximity and
+    // pan it to the avatar's side relative to the listener (camera).
+    if (voiceRef.current && audioListener) {
+      _listenerPos.setFromMatrixPosition(audioListener.matrixWorld);
+      const dist = pos.distanceTo(_listenerPos);
+      const volume = dist >= VOICE_MAX_DIST
+        ? 0
+        : Math.min(1, Math.pow(Math.max(dist, 0.05) / VOICE_REF_DIST, -VOICE_ROLLOFF));
+      voiceRef.current.gain.gain.value = volume;
+      _localPos.copy(pos);
+      audioListener.worldToLocal(_localPos);
+      voiceRef.current.panner.pan.value = THREE.MathUtils.clamp(_localPos.x * 0.35, -1, 1);
+    }
   });
+
+  // Proximity voice: route the remote user's WebRTC stream through a
+  // gain/stereo-pan chain whose volume is driven per-frame by avatar distance.
+  useEffect(() => {
+    if (!audioStream || !audioListener) return;
+    const ctx = audioListener.context;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const source = ctx.createMediaStreamSource(audioStream);
+    const panner = ctx.createStereoPanner();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    source.connect(panner);
+    panner.connect(gain);
+    gain.connect(audioListener.getInput());
+    voiceRef.current = { source, panner, gain };
+    return () => {
+      voiceRef.current = null;
+      try { source.disconnect(); } catch {}
+      try { panner.disconnect(); } catch {}
+      try { gain.disconnect(); } catch {}
+    };
+  }, [audioStream, audioListener]);
 
   return (
     <group ref={group} dispose={null}>
