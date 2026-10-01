@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand } from 'lucide-react';
+import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand, Globe, X } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -13,6 +13,7 @@ import ContinuousRecorder from './components/ContinuousRecorder';
 
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
+import { API_URL } from './config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
 
@@ -137,10 +138,17 @@ function AvatarPreview({ path }) {
   );
 }
 
-function AvatarPicker({ avatars, onPick }) {
+function AvatarPicker({ avatars, onPick, onClose }) {
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 text-white backdrop-blur-sm'>
-      <div className='w-full max-w-2xl rounded-3xl border border-slate-700/50 bg-slate-900/70 p-6 shadow-2xl sm:p-8'>
+      <div className='relative w-full max-w-2xl rounded-3xl border border-slate-700/50 bg-slate-900/70 p-6 shadow-2xl sm:p-8'>
+        <button
+          onClick={onClose}
+          className='absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-800 hover:text-white'
+          aria-label='Close'
+        >
+          <X size={20} />
+        </button>
         <h2 className='text-center text-3xl font-bold text-white'>Change Your Avatar</h2>
         <p className='mt-2 text-center text-slate-400'>Pick a different avatar.</p>
         <div className='mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
@@ -170,6 +178,7 @@ function ClassroomPanel({
   error,
   onStart,
   onCamera,
+  cameraPreset,
   onChat,
   chatOpen,
   onSettings,
@@ -190,6 +199,7 @@ function ClassroomPanel({
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
+  const [handMenuOpen, setHandMenuOpen] = useState(false);
 
   let buttonLabel = 'Start Class';
   let ButtonIcon = Play;
@@ -198,143 +208,237 @@ function ClassroomPanel({
   else if (state === 'completed') { buttonLabel = 'Replay Lecture'; ButtonIcon = RotateCcw; }
   else if (state === 'error') { buttonLabel = 'Retry Class'; ButtonIcon = RotateCcw; }
 
+  const cameraLabel = cameraPreset === 'first-person' ? 'First Person' : 'Third Person';
+  const handLabel = isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand';
+
+  const pillBase =
+    'flex items-center gap-2.5 rounded-full px-4 py-2 text-left transition hover:bg-slate-800/80';
+
   return (
-    <div className='fixed right-4 top-4 z-50 flex w-64 flex-col gap-3 rounded-2xl border border-slate-700/50 bg-slate-900/85 p-4 text-white shadow-2xl backdrop-blur'>
-      <div className='border-b border-slate-700/50 pb-3'>
-        <h2 className='text-base font-bold text-cyan-400'>{course?.title || course?.category}</h2>
-        <p className='text-xs text-slate-400'>{course?.category}</p>
-        {displayName && <p className='mt-1 text-xs text-slate-500'>You: {displayName}</p>}
-      </div>
-
-      <div className='-mt-1'>
-        <p className='text-xs font-semibold uppercase tracking-wide text-slate-500'>Lecture</p>
-        <p className='text-sm font-medium text-slate-200'>{lectureTitle || `Lecture ${number}`}</p>
-      </div>
-
-      <button
-        onClick={onStart}
-        disabled={!canStart}
-        className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-          state === 'teaching' || state === 'loading'
-            ? 'cursor-not-allowed bg-slate-700 text-slate-300'
-            : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
-        }`}
-      >
-        <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
-        {buttonLabel}
-      </button>
-
-      {error && (
-        <div className='flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-200'>
-          <AlertCircle size={14} className='mt-0.5 flex-shrink-0' />
-          <span>{error}</span>
-        </div>
+    <>
+      {(handMenuOpen || outfitsOpen) && (
+        <div
+          className='fixed inset-0 z-40'
+          onClick={() => {
+            setHandMenuOpen(false);
+            if (outfitsOpen) onOutfits();
+          }}
+        />
       )}
 
-      <div className='mt-1 grid grid-cols-2 gap-2'>
-        <button
-          onClick={onOutfits}
-          className={`flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800 ${outfitsOpen ? 'ring-1 ring-cyan-400' : ''}`}
-        >
-          <User size={18} />
-          <span>Avatar</span>
-        </button>
-        <button
-          onClick={onUserAvatar}
-          className='flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800'
-        >
-          <Users size={18} />
-          <span>My Avatar</span>
-        </button>
-        <button
-          onClick={onCamera}
-          className='flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800'
-        >
-          <Camera size={18} />
-          <span>Camera</span>
-        </button>
-        <button
-          onClick={onChat}
-          className={`flex flex-col items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-2 text-xs transition hover:bg-slate-800 ${chatOpen ? 'ring-1 ring-cyan-400' : ''}`}
-        >
-          <MessageSquare size={18} />
-          <span>Chat</span>
-        </button>
-      </div>
+      <div className='fixed left-1/2 top-4 z-50 -translate-x-1/2'>
+        <div className='flex items-center gap-1 rounded-full border border-slate-700/50 bg-slate-900/85 px-2 py-1.5 text-white shadow-2xl backdrop-blur'>
+          <div className={`${pillBase} cursor-default`} title={lectureTitle || `Lecture ${number}`}>
+            <Globe size={20} className='text-slate-300' />
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>{course?.title || course?.category || 'Class'}</p>
+              <p className='text-[11px] text-slate-400'>{displayName || lectureTitle || `Lecture ${number}`}</p>
+            </div>
+          </div>
 
-      <button
-        onClick={onToggleHand}
-        className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold transition ${
-          isActiveSpeaker
-            ? 'border-emerald-400/50 bg-emerald-400/20 text-emerald-200 hover:bg-emerald-400/30'
-            : handRaised
-              ? 'border-amber-400/50 bg-amber-400/20 text-amber-200 hover:bg-amber-400/30'
-              : 'border-slate-700 bg-slate-800/50 text-slate-200 hover:bg-slate-800'
-        }`}
-      >
-        <Hand size={14} />
-        {isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand'}
-      </button>
+          <div className='h-8 w-px bg-slate-700/60' />
 
-      <div className='rounded-xl border border-slate-700/50 bg-slate-800/40 px-3 py-2'>
-        <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Active Speaker</p>
-        <p className={`mt-1 text-xs font-medium ${activeSpeaker ? 'text-emerald-300' : 'text-slate-500'}`}>
-          {activeSpeaker ? activeSpeaker.name : 'None'}
-        </p>
-      </div>
+          <button onClick={onCamera} className={pillBase}>
+            <Camera size={20} className='text-slate-300' />
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>Camera</p>
+              <p className='text-[11px] text-slate-400'>{cameraLabel}</p>
+            </div>
+            <ChevronDown size={14} className='text-slate-500' />
+          </button>
 
-      <button
-        onClick={onGrantFloor}
-        disabled={activeSpeaker !== null || floorQueue.length === 0}
-        className={`w-full rounded-xl border px-4 py-2 text-xs font-semibold transition ${
-          activeSpeaker === null && floorQueue.length > 0
-            ? 'border-cyan-500/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
-            : 'cursor-not-allowed border-slate-700/50 bg-slate-800/30 text-slate-600'
-        }`}
-      >
-        Grant Next
-      </button>
-
-      <div className='rounded-xl border border-slate-700/50 bg-slate-800/40 px-3 py-2'>
-        <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Waiting</p>
-        {floorQueue.length === 0 ? (
-          <p className='mt-1 text-xs text-slate-500'>No requests</p>
-        ) : (
-          <ol className='mt-1 space-y-0.5 text-xs text-slate-200'>
-            {floorQueue.map((p, i) => (
-              <li key={p.userId}>
-                {i + 1}. {p.name}
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-
-      <button
-        onClick={onSettings}
-        className={`mt-1 flex w-full items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-xs transition hover:bg-slate-800 ${settingsOpen ? 'ring-1 ring-cyan-400' : ''}`}
-      >
-        <Settings size={16} />
-        <span>Settings</span>
-        <ChevronDown size={14} className={`ml-auto transition ${settingsOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {outfitsOpen && (
-        <div className='-mt-1 rounded-xl border border-slate-700 bg-slate-800/90 p-2 text-xs'>
-          {outfits.map((o) => (
+          <div className='relative'>
             <button
-              key={o.path}
-              onClick={() => onPickOutfit(o.path)}
-              className={`w-full rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-700 ${
-                o.path === currentOutfit ? 'text-cyan-400' : 'text-slate-200'
+              onClick={() => setHandMenuOpen((v) => !v)}
+              className={`${pillBase} border ${
+                handMenuOpen || handRaised || isActiveSpeaker
+                  ? 'border-cyan-400/60 bg-slate-800/60'
+                  : 'border-cyan-500/30'
               }`}
             >
-              {o.label}
+              <Hand
+                size={20}
+                className={isActiveSpeaker ? 'text-emerald-300' : handRaised ? 'text-amber-300' : 'text-cyan-300'}
+              />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>{handLabel}</p>
+                <p className='text-[11px] text-slate-400'>
+                  {isActiveSpeaker ? 'You have the floor' : handRaised ? 'Hand is raised' : 'Let the instructor know'}
+                </p>
+              </div>
+              <ChevronDown size={14} className={`text-slate-400 transition ${handMenuOpen ? 'rotate-180' : ''}`} />
             </button>
-          ))}
+
+            {handMenuOpen && (
+              <div className='absolute right-0 top-full mt-2 w-72 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 shadow-2xl backdrop-blur'>
+                <button
+                  onClick={() => {
+                    if (!handRaised && !isActiveSpeaker) onToggleHand();
+                    setHandMenuOpen(false);
+                  }}
+                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
+                >
+                  <Hand size={18} className='text-cyan-300' />
+                  <div className='flex-1 leading-tight'>
+                    <p className='text-sm font-semibold'>Raise Hand</p>
+                    <p className='text-[11px] text-slate-400'>Let the instructor know</p>
+                  </div>
+                  <span
+                    className={`h-4 w-4 rounded-full border-2 ${
+                      handRaised && !isActiveSpeaker ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
+                    }`}
+                  />
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!handRaised && !isActiveSpeaker) onToggleHand();
+                    setHandMenuOpen(false);
+                  }}
+                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
+                >
+                  <MessageSquare size={18} className='text-slate-300' />
+                  <div className='flex-1 leading-tight'>
+                    <p className='text-sm font-semibold'>Request to Speak</p>
+                    <p className='text-[11px] text-slate-400'>Add to speaking queue</p>
+                  </div>
+                  <span
+                    className={`h-4 w-4 rounded-full border-2 ${
+                      handRaised ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
+                    }`}
+                  />
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (handRaised || isActiveSpeaker) onToggleHand();
+                    setHandMenuOpen(false);
+                  }}
+                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
+                >
+                  <Hand size={18} className='rotate-180 text-slate-300' />
+                  <div className='flex-1 leading-tight'>
+                    <p className='text-sm font-semibold'>{isActiveSpeaker ? 'Release Floor' : 'Lower Hand'}</p>
+                    <p className='text-[11px] text-slate-400'>
+                      {isActiveSpeaker ? 'Give up the floor' : 'Cancel your request'}
+                    </p>
+                  </div>
+                  <span
+                    className={`h-4 w-4 rounded-full border-2 ${
+                      !handRaised && !isActiveSpeaker ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
+                    }`}
+                  />
+                </button>
+
+                <div className='mt-1 border-t border-slate-700/50 px-3 py-2'>
+                  <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Active Speaker</p>
+                  <p className={`mt-0.5 text-xs font-medium ${activeSpeaker ? 'text-emerald-300' : 'text-slate-500'}`}>
+                    {activeSpeaker ? activeSpeaker.name : 'None'}
+                  </p>
+                  {floorQueue.length > 0 && (
+                    <ol className='mt-1 space-y-0.5 text-xs text-slate-300'>
+                      {floorQueue.map((p, i) => (
+                        <li key={p.userId}>
+                          {i + 1}. {p.name}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  <button
+                    onClick={() => {
+                      onGrantFloor();
+                      setHandMenuOpen(false);
+                    }}
+                    disabled={activeSpeaker !== null || floorQueue.length === 0}
+                    className={`mt-2 w-full rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      activeSpeaker === null && floorQueue.length > 0
+                        ? 'border-cyan-500/50 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30'
+                        : 'cursor-not-allowed border-slate-700/50 bg-slate-800/30 text-slate-600'
+                    }`}
+                  >
+                    Grant Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className='relative'>
+            <button onClick={onOutfits} className={pillBase}>
+              <User size={20} className='text-slate-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>Avatar</p>
+                <p className='text-[11px] text-slate-400'>Professor outfit</p>
+              </div>
+              <ChevronDown size={14} className={`text-slate-500 transition ${outfitsOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {outfitsOpen && (
+              <div className='absolute right-0 top-full z-50 mt-2 w-56 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur'>
+                {outfits.map((o) => (
+                  <button
+                    key={o.path}
+                    onClick={() => onPickOutfit(o.path)}
+                    className={`w-full rounded-lg px-3 py-2 text-left transition hover:bg-slate-800 ${
+                      o.path === currentOutfit ? 'text-cyan-400' : 'text-slate-200'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={onUserAvatar} className={pillBase}>
+            <Users size={20} className='text-slate-300' />
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>My Avatar</p>
+              <p className='text-[11px] text-slate-400'>Change look</p>
+            </div>
+          </button>
+
+          <button onClick={onChat} className={`${pillBase} ${chatOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}>
+            <MessageSquare size={20} className='text-slate-300' />
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>Chat</p>
+              <p className='text-[11px] text-slate-400'>{chatOpen ? 'Open' : 'Closed'}</p>
+            </div>
+          </button>
+
+          <button
+            onClick={onSettings}
+            className={`${pillBase} ${settingsOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
+          >
+            <Settings size={20} className='text-slate-300' />
+            <div className='leading-tight'>
+              <p className='text-xs font-semibold'>Settings</p>
+              <p className='text-[11px] text-slate-400'>Options</p>
+            </div>
+          </button>
+
+          <button
+            onClick={onStart}
+            disabled={!canStart}
+            className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
+              state === 'teaching' || state === 'loading'
+                ? 'cursor-not-allowed bg-slate-700 text-slate-300'
+                : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+            }`}
+          >
+            <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+            {buttonLabel}
+          </button>
         </div>
-      )}
-    </div>
+
+        {error && (
+          <div className='mt-2 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-200 backdrop-blur'>
+            <AlertCircle size={14} className='mt-0.5 flex-shrink-0' />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -358,14 +462,19 @@ function NotFound({ sceneName }) {
 
 export default function Scene() {
   const { sceneName } = useParams();
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const lectureId = searchParams.get('lecture');
   const baseConfig = SCENE_CONFIG[sceneName];
 
   if (!baseConfig) {
     return <NotFound sceneName={sceneName} />;
   }
+
+  return <SceneRoom sceneName={sceneName} baseConfig={baseConfig} />;
+}
+
+function SceneRoom({ sceneName, baseConfig }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const lectureId = searchParams.get('lecture');
 
   const runtimeConfig = useMemo(() => {
     const m = runtimeConfigModules[`./scenes/configs/${sceneName}.json`];
@@ -500,7 +609,7 @@ export default function Scene() {
     setLectureError(null);
 
     try {
-      const res = await fetch(`http://localhost:3000/api/lecture/segments/${lectureId}`);
+      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lecture not available');
       if (!data.segments || data.segments.length === 0) {
@@ -513,7 +622,7 @@ export default function Scene() {
           id: `${lectureId}_seg_${seg.id}`,
           type: 'lecture',
           text: seg.text,
-          audioUrl: seg.audioUrl ? `http://localhost:3000${seg.audioUrl}` : null,
+          audioUrl: seg.audioUrl ? `${API_URL}${seg.audioUrl}` : null,
           animation: seg.animation || 'explain',
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
@@ -554,7 +663,7 @@ export default function Scene() {
 
   useEffect(() => {
     if (socketRef.current) return;
-    const socket = io('http://localhost:3000', {
+    const socket = io(API_URL, {
       transports: ['websocket', 'polling'],
       reconnection: !import.meta.env.DEV,
       reconnectionAttempts: 2,
@@ -737,6 +846,7 @@ export default function Scene() {
       {showAvatarPicker && (
         <AvatarPicker
           avatars={USER_AVATARS}
+          onClose={() => setShowAvatarPicker(false)}
           onPick={(path) => {
             setUserAvatarPath(path);
             setShowAvatarPicker(false);
@@ -754,6 +864,7 @@ export default function Scene() {
             error={lectureError}
             onStart={handleStartClass}
             onCamera={toggleCamera}
+            cameraPreset={cameraPreset}
             onChat={() => setChatOpen((v) => !v)}
             chatOpen={chatOpen}
             onSettings={() => setShowSettings((v) => !v)}
@@ -786,6 +897,7 @@ export default function Scene() {
             floorError={floorError}
             onFloorQuestion={(text) => {
               setFloorError(null);
+              setFloorAnswering(true); // optimistic: blocks duplicate sends before the 'answering' broadcast arrives
               socketRef.current?.emit('ask-floor-question', { question: text, lectureId });
             }}
           />

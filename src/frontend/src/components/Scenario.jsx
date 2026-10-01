@@ -6,8 +6,9 @@ import { Avatar } from "./Avatar";
 import { UserAvatar } from "./UserAvatar";
 import { RemoteAvatar } from "./RemoteAvatar";
 import { SCENE_CONFIG } from "../sceneConfig";
+import { API_URL } from "../config";
 
-const SLIDE_API_BASE = 'http://localhost:3000/api/lecture/pdf_image';
+const SLIDE_API_BASE = `${API_URL}/api/lecture/pdf_image`;
 
 function isValidLectureId(id) {
   return typeof id === 'string' && id.trim().length > 0 && id.trim().toLowerCase() !== 'undefined';

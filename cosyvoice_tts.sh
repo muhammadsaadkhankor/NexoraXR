@@ -33,16 +33,16 @@ COSSYPID=$!
 cd ..
 
 echo "[*] Starting NexoraXR backend on port 3000..."
-cd backend
-nohup node server.js > ../logs/backend.log 2>&1 &
+cd src/backend
+nohup node server.js > ../../logs/backend.log 2>&1 &
 NODEPID=$!
-cd ..
+cd ../..
 
 echo "[*] Starting Vite frontend dev server..."
-cd frontend
-nohup npm run dev:frontend > ../logs/frontend.log 2>&1 &
+cd src/frontend
+nohup npm run dev:frontend > ../../logs/frontend.log 2>&1 &
 NPMYPID=$!
-cd ..
+cd ../..
 
 cat > .run_pids <<EOF
 $COSSYPID

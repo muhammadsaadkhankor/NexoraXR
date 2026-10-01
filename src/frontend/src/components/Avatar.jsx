@@ -62,7 +62,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, [avatarAnimations, extraAnimations, nodes]);
 
   const { actions, mixer } = useAnimations(animations, group);
-  const { message, onMessagePlayed, audioElementRef, floorPausedRef } = useSpeech();
+  const { message, onMessagePlayed, audioElementRef, floorPausedRef, floorPaused } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
   const [animation, setAnimation] = useState("Idle");
@@ -105,9 +105,26 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       ? new Audio(message.audioUrl)
       : null;
     if (nextAudio) {
-      if (typeof message.resumeAt === 'number' && message.resumeAt > 0) {
-        nextAudio.currentTime = message.resumeAt;
-        delete message.resumeAt;
+      const savedResumeAt =
+        typeof message.resumeAt === 'number' && message.resumeAt > 0 ? message.resumeAt : null;
+      if (savedResumeAt !== null) {
+        // Seeking before metadata loads is unreliable on a fresh element —
+        // wait for loadedmetadata, then apply the saved position.
+        const applySeek = () => {
+          try {
+            nextAudio.currentTime = savedResumeAt;
+            console.log('[LECTURE_RESTORE]', `messageId=${message.id}`, `resumeAt=${savedResumeAt.toFixed(2)}`);
+          } catch (e) {
+            console.error('[Avatar] failed to apply resumeAt:', e);
+          }
+        };
+        if (nextAudio.readyState >= 1) applySeek();
+        else nextAudio.addEventListener('loadedmetadata', applySeek, { once: true });
+        // resumeAt survives until this element is actually playing, so a
+        // re-created element can still re-apply the saved position.
+        nextAudio.addEventListener('playing', () => {
+          if (typeof message.resumeAt === 'number') delete message.resumeAt;
+        }, { once: true });
       }
       nextAudio.onended = onMessagePlayed;
       nextAudio.onerror = () => {
@@ -136,8 +153,36 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     };
   }, [message]);
 
+  // While the floor is held, a paused lecture message must not keep playing
+  // its talking animation or a frozen lipsync cue — fade out every running
+  // action except Idle, drop to Idle, and close the mouth. Answer/other
+  // messages are unaffected and animate normally. Kept separate from the
+  // audio-creation effect above so toggling floorPaused never recreates the
+  // audio element or consumes resumeAt.
   useEffect(() => {
-    const target = resolveAnimation(animation, actions);
+    if (floorPaused && message?.type === 'lecture') {
+      const idleName = actions && actions['Idle'] ? 'Idle' : (resolveAnimation('idle', actions) || 'Idle');
+      Object.entries(actions || {}).forEach(([name, action]) => {
+        if (action && name !== idleName && action.isRunning && action.isRunning()) {
+          action.fadeOut(0.4);
+        }
+      });
+      setAnimation(idleName);
+      setLipsync(undefined);
+      console.log('[ANIMATION]', 'lecture →', idleName);
+    } else if (message) {
+      setAnimation(resolveAnimation(message.animation, actions) || 'Idle');
+      setLipsync(message.lipsync);
+    }
+  }, [floorPaused, message, actions]);
+
+  // While a floor-paused lecture message is at the queue head the professor is
+  // listening, not lecturing — force Idle regardless of message.animation.
+  const pausedLecture = !!(floorPaused && message?.type === 'lecture');
+  const activeAnimation = pausedLecture ? 'Idle' : animation;
+
+  useEffect(() => {
+    const target = resolveAnimation(activeAnimation, actions);
     if (!target) return;
     const action = actions[target];
     if (action) {
@@ -151,7 +196,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         }
       };
     }
-  }, [animation, actions, mixer]);
+  }, [activeAnimation, actions, mixer]);
 
   useLayoutEffect(() => {
     if (group.current) {
@@ -160,11 +205,11 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       if (rotation) group.current.rotation.set(rotation[0], rotation[1], rotation[2]);
       if (scale) group.current.scale.set(scale[0], scale[1], scale[2]);
     }
-    const target = resolveAnimation(animation, actions);
+    const target = resolveAnimation(activeAnimation, actions);
     if (target && actions[target]) {
       actions[target].reset().play().setEffectiveWeight(1);
     }
-  }, [group, actions, animation, props.position, props.rotation, props.scale]);
+  }, [group, actions, activeAnimation, props.position, props.rotation, props.scale]);
 
   useEffect(() => {
     let blinkTimeout;
@@ -182,7 +227,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, []);
 
   useFrame(() => {
-    const target = resolveAnimation(animation, actions);
+    const target = resolveAnimation(activeAnimation, actions);
     if (target && actions[target]) actions[target].play().setEffectiveWeight(1);
     morphTargets.forEach((key) => {
         const mapping = facialExpressions[facialExpression];
@@ -200,7 +245,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       lerpMorphTarget("eyeBlinkRight", blink ? 1 : 0, 0.5);
 
       const appliedMorphTargets = [];
-      if (message && lipsync) {
+      if (message && lipsync && !pausedLecture) {
         const currentAudioTime = audio.currentTime;
         for (let i = 0; i < lipsync.mouthCues.length; i++) {
           const mouthCue = lipsync.mouthCues[i];

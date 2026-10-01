@@ -10,11 +10,11 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f backend/.env ]; then
-  echo "Warning: backend/.env is missing. Copy backend/env.template.txt to backend/.env and fill in your API keys." >&2
+if [ ! -f src/backend/.env ]; then
+  echo "Warning: src/backend/.env is missing. Copy src/backend/env.template.txt to src/backend/.env and fill in your API keys." >&2
 fi
 
-for dir in backend frontend; do
+for dir in src/backend src/frontend; do
   if [ ! -d "$dir/node_modules" ]; then
     echo "Installing $dir dependencies..."
     npm install --prefix "$dir"
@@ -37,11 +37,11 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "Starting backend on http://localhost:3000 ..."
-setsid npm --prefix backend run dev &
+setsid npm --prefix src/backend run dev &
 PIDS+=("$!")
 
 echo "Starting frontend on http://localhost:5173 ..."
-setsid npm --prefix frontend run dev &
+setsid npm --prefix src/frontend run dev &
 PIDS+=("$!")
 
 echo "Both services are running. Press Ctrl+C to stop."

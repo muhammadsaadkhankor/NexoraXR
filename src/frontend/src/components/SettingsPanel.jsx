@@ -1,142 +1,5 @@
-// // src/components/SettingsPanel.jsx
-
-// import React, { useState } from 'react';
-
-// const SettingsPanel = () => {
-//   const [isOpen, setIsOpen] = useState(false);
-//   const [settings, setSettings] = useState({
-//     openaiModel: '',
-//     openaiApiKey: '',
-//     elevenLabsApiKey: '',
-//     elevenLabsVoiceId: '',
-//     elevenLabsModelId: ''
-//   });
-
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     try {
-//       const response = await fetch('http://localhost:3000/settings', {
-//         method: 'POST',
-//         headers: {
-//           'Content-Type': 'application/json'
-//         },
-//         body: JSON.stringify(settings)
-//       });
-
-//       if (response.ok) {
-//         alert('Settings updated successfully!');
-//         setIsOpen(false);
-//       }
-//     } catch (error) {
-//       console.error('Error updating settings:', error);
-//       alert('Failed to update settings');
-//     }
-//   };
-
-//   return (
-//     <div className="fixed top-4 left-4 z-20">
-//       <button
-//         onClick={() => setIsOpen(!isOpen)}
-//         className="bg-white bg-opacity-50 backdrop-blur-md p-4 rounded-lg hover:bg-opacity-70"
-//       >
-//         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-//           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-//           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-//         </svg>
-//       </button>
-
-//       {isOpen && (
-//         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-//           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-//             <h2 className="text-2xl font-bold mb-4">API Settings</h2>
-//             <form onSubmit={handleSubmit}>
-//               <div className="space-y-4">
-//                 <div>
-//                   <label className="block text-sm font-medium text-gray-700">OpenAI Model</label>
-//                   <input
-//                     type="text"
-//                     value={settings.openaiModel}
-//                     onChange={(e) => setSettings({...settings, openaiModel: e.target.value})}
-//                     className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-//                     placeholder="gpt-4"
-//                   />
-//                 </div>
-
-//                 <div>
-//                   <label className="block text-sm font-medium text-gray-700">OpenAI API Key</label>
-//                   <input
-//                     type="password"
-//                     value={settings.openaiApiKey}
-//                     onChange={(e) => setSettings({...settings, openaiApiKey: e.target.value})}
-//                     className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-//                     placeholder="sk-..."
-//                   />
-//                 </div>
-
-//                 <div>
-//                   <label className="block text-sm font-medium text-gray-700">ElevenLabs API Key</label>
-//                   <input
-//                     type="password"
-//                     value={settings.elevenLabsApiKey}
-//                     onChange={(e) => setSettings({...settings, elevenLabsApiKey: e.target.value})}
-//                     className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-//                     placeholder="elevenlabs-key..."
-//                   />
-//                 </div>
-
-//                 <div>
-//                   <label className="block text-sm font-medium text-gray-700">ElevenLabs Voice ID</label>
-//                   <input
-//                     type="text"
-//                     value={settings.elevenLabsVoiceId}
-//                     onChange={(e) => setSettings({...settings, elevenLabsVoiceId: e.target.value})}
-//                     className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-//                     placeholder="voice-id..."
-//                   />
-//                 </div>
-
-//                 <div>
-//                   <label className="block text-sm font-medium text-gray-700">ElevenLabs Model ID</label>
-//                   <input
-//                     type="text"
-//                     value={settings.elevenLabsModelId}
-//                     onChange={(e) => setSettings({...settings, elevenLabsModelId: e.target.value})}
-//                     className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-//                     placeholder="eleven_multilingual_v1"
-//                   />
-//                 </div>
-//               </div>
-
-//               <div className="mt-6 flex justify-end space-x-3">
-//                 <button
-//                   type="button"
-//                   onClick={() => setIsOpen(false)}
-//                   className="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300"
-//                 >
-//                   Cancel
-//                 </button>
-//                 <button
-//                   type="submit"
-//                   className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
-//                 >
-//                   Save Changes
-//                 </button>
-//               </div>
-//             </form>
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// };
-
-// export default SettingsPanel;
-
-
-
-// src/components/SettingsPanel.jsx
-
 import React, { useState, useEffect } from 'react';
+import { API_URL } from '../config';
 
 const SettingsPanel = ({ open, onClose }) => {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -167,7 +30,7 @@ const SettingsPanel = ({ open, onClose }) => {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('http://localhost:3000/settings');
+      const response = await fetch(`${API_URL}/settings`);
       if (response.ok) {
         const currentSettings = await response.json();
         setSettings(currentSettings);
@@ -177,41 +40,12 @@ const SettingsPanel = ({ open, onClose }) => {
     }
   };
 
-//   const handleSubmit = async (e) => {
-//     e.preventDefault();
-//     setIsLoading(true);
-//     try {
-//       const response = await fetch('http://localhost:3000/settings', {
-//         method: 'POST',
-//         headers: {
-//           'Content-Type': 'application/json'
-//         },
-//         body: JSON.stringify(settings)
-//       });
-
-//       if (response.ok) {
-//         alert('Settings updated successfully! The new voice settings will be applied to the next message.');
-//         setIsOpen(false);
-//       } else {
-//         const errorData = await response.json();
-//         throw new Error(errorData.error || 'Failed to update settings');
-//       }
-//     } catch (error) {
-//       console.error('Error updating settings:', error);
-//       alert(error.message);
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-
-// src/components/SettingsPanel.jsx
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
         try {
         // First get current settings
-        const response = await fetch('http://localhost:3000/settings');
+        const response = await fetch(`${API_URL}/settings`);
         const currentSettings = await response.json();
     
         // Merge current settings with changes, only including non-empty values
@@ -222,7 +56,7 @@ const SettingsPanel = ({ open, onClose }) => {
             )
         };
     
-        const saveResponse = await fetch('http://localhost:3000/settings', {
+        const saveResponse = await fetch(`${API_URL}/settings`, {
             method: 'POST',
             headers: {
             'Content-Type': 'application/json'

@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:3000/api';
+import { API_URL } from '../config';
+
+const API_BASE = `${API_URL}/api`;
 
 export async function getLectures() {
   const res = await fetch(`${API_BASE}/lectures`);
@@ -22,5 +24,5 @@ export async function explainLecture(lectureId, voiceId) {
 }
 
 export function audioUrl(path) {
-  return `http://localhost:3000${path}`;
+  return `${API_URL}${path}`;
 }

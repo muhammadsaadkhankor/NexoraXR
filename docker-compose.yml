@@ -3,26 +3,26 @@ version: '3.8'
 services:
   frontend:
     build:
-      context: ./frontend
+      context: ./src/frontend
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
     volumes:
-      - ./frontend:/app
+      - ./src/frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:5000
+      - VITE_API_URL=http://localhost:3000
     networks:
       - app-network
 
   backend:
     build:
-      context: ./backend
+      context: ./src/backend
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
     volumes:
-      - ./backend:/app
+      - ./src/backend:/app
       - /app/node_modules
     networks:
       - app-network

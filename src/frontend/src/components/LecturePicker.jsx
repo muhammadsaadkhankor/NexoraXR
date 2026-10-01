@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, X, ArrowRight } from 'lucide-react';
 import lectureDetails from '../constants/lectureDetails';
+import { API_URL } from '../config';
 
 export default function LecturePicker({ onSelect, onCancel }) {
   const [lectures, setLectures] = useState([]);
@@ -9,7 +10,7 @@ export default function LecturePicker({ onSelect, onCancel }) {
   const [selectedId, setSelectedId] = useState(null);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/lectures')
+    fetch(`${API_URL}/api/lectures`)
       .then((r) => r.json())
       .then((data) => {
         setLectures(data.lectures);
@@ -115,7 +116,7 @@ export default function LecturePicker({ onSelect, onCancel }) {
                     LECTURE PDF
                   </p>
                   <iframe
-                    src={`http://localhost:3000/api/lecture/pdf/${selected.lecture_id}`}
+                    src={`${API_URL}/api/lecture/pdf/${selected.lecture_id}`}
                     title='Lecture PDF'
                     className='h-64 w-full rounded-lg border border-slate-700 bg-slate-950'
                   />

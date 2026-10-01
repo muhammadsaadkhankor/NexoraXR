@@ -1,151 +1,7 @@
-// import { createContext, useContext, useEffect, useState } from "react";
-
-// const backendUrl = "http://localhost:3000";
-
-// const SpeechContext = createContext();
-
-// export const SpeechProvider = ({ children }) => {
-//   const [recording, setRecording] = useState(false);
-//   const [mediaRecorder, setMediaRecorder] = useState(null);
-//   const [messages, setMessages] = useState([]);
-//   const [message, setMessage] = useState();
-//   const [loading, setLoading] = useState(false);
-
-//   let chunks = [];
-
-//   const initiateRecording = () => {
-//     chunks = [];
-//   };
-
-//   const onDataAvailable = (e) => {
-//     chunks.push(e.data);
-//   };
-
-//   const sendAudioData = async (audioBlob) => {
-//     const reader = new FileReader();
-//     reader.readAsDataURL(audioBlob);
-//     reader.onloadend = async function () {
-//       const base64Audio = reader.result.split(",")[1];
-//       setLoading(true);
-//       try {
-//         const data = await fetch(`${backendUrl}/sts`, {
-//           method: "POST",
-//           headers: {
-//             "Content-Type": "application/json",
-//           },
-//           body: JSON.stringify({ audio: base64Audio }),
-//         });
-//         const response = (await data.json()).messages;
-//         setMessages((messages) => [...messages, ...response]);
-//       } catch (error) {
-//         console.error(error);
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-//   };
-
-//   useEffect(() => {
-//     if (typeof window !== "undefined") {
-//       navigator.mediaDevices
-//         .getUserMedia({ audio: true })
-//         .then((stream) => {
-//           const newMediaRecorder = new MediaRecorder(stream);
-//           newMediaRecorder.onstart = initiateRecording;
-//           newMediaRecorder.ondataavailable = onDataAvailable;
-//           newMediaRecorder.onstop = async () => {
-//             const audioBlob = new Blob(chunks, { type: "audio/webm" });
-//             try {
-//               await sendAudioData(audioBlob);
-//             } catch (error) {
-//               console.error(error);
-//               alert(error.message);
-//             }
-//           };
-//           setMediaRecorder(newMediaRecorder);
-//         })
-//         .catch((err) => console.error("Error accessing microphone:", err));
-//     }
-//   }, []);
-
-//   const startRecording = () => {
-//     if (mediaRecorder) {
-//       mediaRecorder.start();
-//       setRecording(true);
-//     }
-//   };
-
-//   const stopRecording = () => {
-//     if (mediaRecorder) {
-//       mediaRecorder.stop();
-//       setRecording(false);
-//     }
-//   };
-
-//   const tts = async (message) => {
-//     setLoading(true);
-//     try {
-//       const data = await fetch(`${backendUrl}/tts`, {
-//         method: "POST",
-//         headers: {
-//           "Content-Type": "application/json",
-//         },
-//         body: JSON.stringify({ message }),
-//       });
-//       const response = (await data.json()).messages;
-//       setMessages((messages) => [...messages, ...response]);
-//     } catch (error) {
-//       console.error(error);
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const onMessagePlayed = () => {
-//     setMessages((messages) => messages.slice(1));
-//   };
-
-//   useEffect(() => {
-//     if (messages.length > 0) {
-//       setMessage(messages[0]);
-//     } else {
-//       setMessage(null);
-//     }
-//   }, [messages]);
-
-//   return (
-//     <SpeechContext.Provider
-//       value={{
-//         startRecording,
-//         stopRecording,
-//         recording,
-//         tts,
-//         message,
-//         onMessagePlayed,
-//         loading,
-//       }}
-//     >
-//       {children}
-//     </SpeechContext.Provider>
-//   );
-// };
-
-// export const useSpeech = () => {
-//   const context = useContext(SpeechContext);
-//   if (!context) {
-//     throw new Error("useSpeech must be used within a SpeechProvider");
-//   }
-//   return context;
-// };
-
-
-
-
-
-
 import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
+import { API_URL } from "../config";
 
-const backendUrl = "http://localhost:3000";
+const backendUrl = API_URL;
 
 const SpeechContext = createContext();
 
@@ -167,6 +23,7 @@ export const SpeechProvider = ({ children }) => {
   const messageRef = useRef(null);
   messageRef.current = message;
   const floorPausedRef = useRef(false);
+  const [floorPaused, setFloorPaused] = useState(false);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -277,30 +134,6 @@ export const SpeechProvider = ({ children }) => {
     });
   }, []);
 
-  const sendAudioData = async (audioBlob) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(audioBlob);
-    reader.onloadend = async function () {
-      const base64Audio = reader.result.split(",")[1];
-      setLoading(true);
-      try {
-        const data = await fetch(`${backendUrl}/sts`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ audio: base64Audio }),
-        });
-        const response = (await data.json()).messages;
-        response.forEach((msg) => pushMessage(msg, false));
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
-  };
-
   const requestMicrophoneAccess = async () => {
     if (typeof window === "undefined" || hasRequestedMicRef.current) return;
 
@@ -396,20 +229,27 @@ export const SpeechProvider = ({ children }) => {
   const pauseLectureForFloor = useCallback(() => {
     const audio = audioElementRef.current;
     const current = messageRef.current;
-    if (current?.type === 'lecture' && audio) {
-      floorPausedRef.current = true;
-      if (typeof current.resumeAt !== 'number') current.resumeAt = audio.currentTime;
+    if (current?.type !== 'lecture') return;
+    floorPausedRef.current = true;
+    setFloorPaused(true);
+    if (audio) {
+      current.resumeAt = audio.currentTime;
       audio.pause();
+      console.log('[FLOOR_PAUSE]', `messageId=${current.id}`, `audioTime=${audio.currentTime.toFixed(2)}`);
     }
   }, []);
 
   // Resume a floor-paused lecture segment from its paused position.
   const resumeLecture = useCallback(() => {
     floorPausedRef.current = false;
+    setFloorPaused(false);
     const audio = audioElementRef.current;
     const current = messageRef.current;
-    if (current?.type === 'lecture' && audio && audio.paused) {
+    // `!audio.ended` guards against replaying a stale/finished element (e.g. an
+    // answer audio whose ref hasn't been swapped for the lecture audio yet).
+    if (current?.type === 'lecture' && audio && audio.paused && !audio.ended) {
       audio.play().catch(() => {});
+      console.log('[LECTURE_RESUME]', `messageId=${current.id}`, `currentTime=${audio.currentTime.toFixed(2)}`);
     }
   }, []);
 
@@ -424,6 +264,9 @@ export const SpeechProvider = ({ children }) => {
     if (current?.type === 'lecture' && audio) {
       current.resumeAt = audio.currentTime;
       audio.pause();
+      // Same as a floor pause: the professor must idle while "thinking".
+      floorPausedRef.current = true;
+      setFloorPaused(true);
     }
     setLoading(true);
     try {
@@ -445,11 +288,17 @@ export const SpeechProvider = ({ children }) => {
       if (current) delete current.resumeAt;
       if (audio && audio.paused) audio.play().catch(() => {});
     } finally {
+      // The queued answer now owns the head of the queue (or the lecture is
+      // resuming after a failure) — clear the listening/idle state either way.
+      floorPausedRef.current = false;
+      setFloorPaused(false);
       setLoading(false);
     }
   };
 
   const clearMessages = useCallback(() => {
+    floorPausedRef.current = false;
+    setFloorPaused(false);
     setMessages([]);
     setMessage(null);
   }, []);
@@ -486,6 +335,7 @@ export const SpeechProvider = ({ children }) => {
         pauseLectureForFloor,
         resumeLecture,
         floorPausedRef,
+        floorPaused,
       }}
     >
       {children}
