@@ -62,7 +62,9 @@ function LectureSlide({ lectureId, position, quaternion, scale }) {
 
   useEffect(() => {
     if (texture) {
-      texture.flipY = false;
+      // PNG loaded via TextureLoader (not a glTF texture) needs flipY=true,
+      // otherwise the slide renders upside-down/mirrored.
+      texture.flipY = true;
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
     }
@@ -240,21 +242,16 @@ export const Scenario = ({
     }
   });
 
+  // Floating lecture-PDF preview placed on the viewer's left of the professor
+  // (-x while he faces +z toward the camera).
   const slideTransform = useMemo(() => {
-    const screenNode = nodes?.screen1 || nodes?.screen2;
-    if (screenNode) {
-      const p = new THREE.Vector3();
-      const q = new THREE.Quaternion();
-      screenNode.getWorldPosition(p);
-      screenNode.getWorldQuaternion(q);
-      return { position: p.toArray(), quaternion: q.toArray(), scale: [2.2, 1.4, 1] };
-    }
+    const [px, py, pz] = professorStart.position;
     return {
-      position: [professorStart.position[0] - 1.2, professorStart.position[1] + 0.5, professorStart.position[2]],
+      position: [px - 1.9, py + 1.0, pz + 0.1],
       quaternion: [0, 0, 0, 1],
-      scale: [2.2, 1.4, 1],
+      scale: [1.9, 1.2, 1],
     };
-  }, [nodes, professorStart.position]);
+  }, [professorStart.position]);
 
   return (
     <>
