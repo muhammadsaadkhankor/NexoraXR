@@ -36,3 +36,8 @@ node_modules/
 
 # OS / package files
 *.deb
+
+# Internal review/handover notes — kept locally, not tracked
+/WORKSPACE_REVIEW.md
+/NEXORA_REVIEW.md
+/HANDOVER_FOR_PAPER.md
