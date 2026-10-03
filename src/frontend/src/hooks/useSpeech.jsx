@@ -223,6 +223,31 @@ export const SpeechProvider = ({ children }) => {
     });
   }, []);
 
+  // Replace the entire queue (including the head). Used by mid-lecture
+  // language switching when the head itself is the lecture segment that
+  // must restart in the new language — caller pauses the audio element.
+  const replaceQueue = useCallback((msgs) => {
+    const prepared = (msgs || []).map((m) => ({
+      ...m,
+      id: m.id || (Math.random().toString(36).slice(2) + Date.now().toString(36)),
+      fromRemote: m.fromRemote ?? false,
+    }));
+    setMessages(prepared);
+  }, []);
+
+  // Replace everything after the currently-playing message (messages[0]).
+  // Used by mid-lecture language switching while a floor answer is playing:
+  // the answer finishes, and all queued lecture segments come from the
+  // new-language manifest. If nothing is queued, the whole queue is replaced.
+  const replacePending = useCallback((msgs) => {
+    const prepared = (msgs || []).map((m) => ({
+      ...m,
+      id: m.id || (Math.random().toString(36).slice(2) + Date.now().toString(36)),
+      fromRemote: m.fromRemote ?? false,
+    }));
+    setMessages((prev) => (prev.length ? [prev[0], ...prepared] : prepared));
+  }, []);
+
   // Pause the currently-playing lecture segment in place for the floor owner.
   // Stamps resumeAt on the lecture message so it can restart from the same
   // point after the floor is released or an answer finishes playing.
@@ -323,6 +348,8 @@ export const SpeechProvider = ({ children }) => {
         pushMessage,
         onMessagePlayed,
         clearMessages,
+        replacePending,
+        replaceQueue,
         loading,
         transcribeAudio,
         micPermissionGranted,

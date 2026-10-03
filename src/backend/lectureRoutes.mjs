@@ -5,7 +5,7 @@ import { createHash } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { generate as generateOllama } from './modules/ollamaClient.mjs';
-import { getDefaultVoice, synthesize as synthesizeTTS } from './modules/cosyVoiceClient.mjs';
+import { getDefaultVoice, synthesize as synthesizeTTS } from './modules/voxcpmClient.mjs';
 import { execCommand } from './utils/files.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -145,6 +145,28 @@ function splitSummaryText(text, maxWords = 140) {
   return finalSegments;
 }
 
+const LECTURE_LANGUAGES = {
+  en: 'English',
+  ar: 'Arabic',
+  fr: 'French',
+  de: 'German',
+  es: 'Spanish',
+};
+
+function normalizeLang(lang) {
+  return lang && LECTURE_LANGUAGES[lang] ? lang : 'en';
+}
+
+// Translate a lecture narration segment via Ollama. VoxCPM2 then detects the
+// output language automatically at synthesis time (no tag needed).
+async function translateForLecture(text, lang) {
+  if (lang === 'en') return text;
+  const prompt = `Translate the following lecture narration into ${LECTURE_LANGUAGES[lang]}. Keep the same warm, spoken-lecture style and roughly the same length. Output ONLY the translated narration — no notes, no headings, no commentary.\n\n${text}`;
+  const out = await generateOllama(prompt, { numPredict: 800 });
+  const translated = (out || '').trim();
+  return translated || text;
+}
+
 function cleanTextForTts(text) {
   return text
     .replace(/\*\*/g, '')
@@ -219,7 +241,7 @@ async function generateSegmentAudio(lectureId, index, text) {
   return { audioPath, lipsync };
 }
 
-async function loadLectureManifest(lectureId) {
+async function loadLectureManifest(lectureId, lang = 'en') {
   const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
   if (!existsSync(summaryPath)) {
     throw new Error(`Summary not found for ${lectureId}`);
@@ -229,7 +251,11 @@ async function loadLectureManifest(lectureId) {
   const existingAudioPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.wav');
   const existingLipsyncPath = path.join(PROFBRAIN_DIR, lectureId, 'lipsync.json');
 
-  if (existsSync(existingAudioPath)) {
+  // Language-keyed cache dir: English keeps the original layout, translated
+  // lectures get their own audio/lipsync cache (e.g. segments/Lecture_1__ar).
+  const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
+
+  if (lang === 'en' && existsSync(existingAudioPath)) {
     let lipsync = null;
     if (existsSync(existingLipsyncPath)) {
       try {
@@ -257,14 +283,56 @@ async function loadLectureManifest(lectureId) {
   const texts = splitSummaryText(summary.text);
   const segments = [];
   for (let i = 0; i < texts.length; i++) {
-    const { audioPath, lipsync } = await generateSegmentAudio(lectureId, i, texts[i]);
+    const audioPath = segmentAudioPath(cacheKey, i);
+    const lipsyncPath = segmentLipSyncPath(cacheKey, i);
+    const textPath = path.join(segmentCacheDir(cacheKey), `segment_${String(i).padStart(3, '0')}.txt`);
+
+    // Fast path: translated text + audio + lipsync all cached — no LLM/TTS.
+    let segText = null;
+    let lipsync = null;
+    if (existsSync(textPath) && existsSync(audioPath) && existsSync(lipsyncPath)) {
+      try {
+        segText = await fs.readFile(textPath, 'utf-8');
+        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+      } catch (err) {
+        console.error(`[segments] Cache read failed for ${cacheKey}/${i}:`, err);
+        segText = null;
+      }
+    }
+
+    // Audio exists but the translated text wasn't persisted (older bake):
+    // serve the audio now and fill the text cache in the background so the
+    // NEXT request shows the translated transcript.
+    if (segText === null && lang !== 'en' && existsSync(audioPath) && existsSync(lipsyncPath)) {
+      segText = texts[i];
+      try {
+        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+      } catch {}
+      const srcText = texts[i];
+      translateForLecture(srcText, lang)
+        .then((t) => fs.writeFile(textPath, t))
+        .catch(() => {});
+    }
+
+    if (segText === null) {
+      segText = await translateForLecture(texts[i], lang);
+      await generateSegmentAudio(cacheKey, i, segText);
+      if (lang !== 'en') {
+        fs.writeFile(textPath, segText).catch(() => {});
+      }
+      if (existsSync(lipsyncPath)) {
+        try {
+          lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+        } catch {}
+      }
+    }
     segments.push({
       id: i,
       title: i === 0 ? summary.title : `Segment ${i + 1}`,
-      text: texts[i],
+      text: segText,
       animation: ANIMATIONS[i % ANIMATIONS.length],
       facialExpression: EXPRESSIONS[i % EXPRESSIONS.length],
-      audioUrl: `/api/lecture/segment_audio/${lectureId}/${i}`,
+      audioUrl: `/api/lecture/segment_audio/${cacheKey}/${i}`,
       lipsync,
     });
   }
@@ -272,6 +340,7 @@ async function loadLectureManifest(lectureId) {
   return {
     lectureId,
     title: summary.title,
+    language: lang,
     segments,
   };
 }
@@ -340,7 +409,7 @@ router.post('/lecture/explain', async (req, res) => {
 
     const selectedVoice = voiceId || (await getDefaultVoice()) || '';
     if (!selectedVoice) {
-      throw new Error('No voice_id provided and no voices registered in CosyVoice');
+      throw new Error('No voice_id provided and no voices registered in VoxCPM');
     }
 
     console.log(`[lecture] TTS for ${lectureId} with voice ${selectedVoice}`);
@@ -487,8 +556,9 @@ router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
 
 router.get('/lecture/segments/:lectureId', async (req, res) => {
   const { lectureId } = req.params;
+  const lang = normalizeLang(req.query.lang);
   try {
-    const manifest = await loadLectureManifest(lectureId);
+    const manifest = await loadLectureManifest(lectureId, lang);
     res.json(manifest);
   } catch (error) {
     console.error(`[lecture/segments] ${lectureId} failed:`, error);
@@ -507,7 +577,7 @@ router.get('/lecture/segment_audio/:lectureId/:segmentId', async (req, res) => {
   res.sendFile(audioPath, { root: '/' });
 });
 
-// Student question during a lecture: Ollama answer + CosyVoice (abed101) + Rhubarb.
+// Student question during a lecture: Ollama answer + VoxCPM2 (abed101) + Rhubarb.
 // Cached per (lectureId, question) so repeated interruptions are instant.
 router.post('/ask', async (req, res) => {
   const { question, lectureId } = req.body || {};

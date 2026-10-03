@@ -182,7 +182,8 @@ export const Scenario = ({
     const onKeyDown = (e) => {
       const t = e.target;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (e.key.toLowerCase() === 'c' && setCameraPreset) {
+      if (e.key === 'F5' && setCameraPreset) {
+        e.preventDefault();
         setCameraPreset((prev) => (prev === "third-person" ? "first-person" : "third-person"));
       }
     };

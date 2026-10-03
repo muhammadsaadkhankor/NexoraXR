@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, User, Users, Play, RotateCcw, MessageSquare, Settings, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff } from 'lucide-react';
+import { User, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -178,12 +178,8 @@ function ClassroomPanel({
   state,
   error,
   onStart,
-  onCamera,
-  cameraPreset,
   onChat,
   chatOpen,
-  onSettings,
-  settingsOpen,
   onUserAvatar,
   onOutfits,
   outfitsOpen,
@@ -199,10 +195,22 @@ function ClassroomPanel({
   onGrantFloor,
   onVoice,
   voiceOn,
+  language = 'en',
+  onLanguage,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
   const [handMenuOpen, setHandMenuOpen] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+
+  const LANGUAGES = [
+    { code: 'en', label: 'English' },
+    { code: 'ar', label: 'العربية' },
+    { code: 'fr', label: 'Français' },
+    { code: 'de', label: 'Deutsch' },
+    { code: 'es', label: 'Español' },
+  ];
+  const currentLangLabel = LANGUAGES.find((l) => l.code === language)?.label || 'English';
 
   let buttonLabel = 'Start Class';
   let ButtonIcon = Play;
@@ -211,7 +219,6 @@ function ClassroomPanel({
   else if (state === 'completed') { buttonLabel = 'Replay Lecture'; ButtonIcon = RotateCcw; }
   else if (state === 'error') { buttonLabel = 'Retry Class'; ButtonIcon = RotateCcw; }
 
-  const cameraLabel = cameraPreset === 'first-person' ? 'First Person' : 'Third Person';
   const handLabel = isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand';
 
   const pillBase =
@@ -219,11 +226,12 @@ function ClassroomPanel({
 
   return (
     <>
-      {(handMenuOpen || outfitsOpen) && (
+      {(handMenuOpen || outfitsOpen || langMenuOpen) && (
         <div
           className='fixed inset-0 z-40'
           onClick={() => {
             setHandMenuOpen(false);
+            setLangMenuOpen(false);
             if (outfitsOpen) onOutfits();
           }}
         />
@@ -240,15 +248,6 @@ function ClassroomPanel({
           </div>
 
           <div className='h-8 w-px bg-slate-700/60' />
-
-          <button onClick={onCamera} className={pillBase}>
-            <Camera size={20} className='text-slate-300' />
-            <div className='leading-tight'>
-              <p className='text-xs font-semibold'>Camera</p>
-              <p className='text-[11px] text-slate-400'>{cameraLabel}</p>
-            </div>
-            <ChevronDown size={14} className='text-slate-500' />
-          </button>
 
           <div className='relative'>
             <button
@@ -423,16 +422,45 @@ function ClassroomPanel({
             </div>
           </button>
 
-          <button
-            onClick={onSettings}
-            className={`${pillBase} ${settingsOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
-          >
-            <Settings size={20} className='text-slate-300' />
-            <div className='leading-tight'>
-              <p className='text-xs font-semibold'>Settings</p>
-              <p className='text-[11px] text-slate-400'>Options</p>
-            </div>
-          </button>
+          <div className='relative'>
+            <button
+              onClick={() => setLangMenuOpen((v) => !v)}
+              title='Lecture language (applies on next Start Class)'
+              className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
+            >
+              <Languages size={20} className='text-slate-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>Language</p>
+                <p className='text-[11px] text-slate-400'>{currentLangLabel}</p>
+              </div>
+              <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {langMenuOpen && (
+              <div className='absolute left-1/2 top-full z-50 mt-2 w-44 -translate-x-1/2 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur'>
+                {LANGUAGES.map((l) => (
+                  <button
+                    key={l.code}
+                    onClick={() => {
+                      onLanguage?.(l.code);
+                      setLangMenuOpen(false);
+                    }}
+                    className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
+                  >
+                    <span className='flex-1 text-sm font-semibold'>{l.label}</span>
+                    <span
+                      className={`h-4 w-4 rounded-full border-2 ${
+                        language === l.code ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
+                      }`}
+                    />
+                  </button>
+                ))}
+                <p className='mt-1 border-t border-slate-700/50 px-3 pt-2 text-[11px] text-slate-500'>
+                  Switches mid-lecture from the next segment
+                </p>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={onStart}
@@ -570,6 +598,8 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [inRange, setInRange] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [lectureLang, setLectureLang] = useState('en');
+  const [camHint, setCamHint] = useState(false);
   const [showUserAvatar] = useState(true);
   const [myId, setMyId] = useState(null);
   const [displayName, setDisplayName] = useState(() => {
@@ -596,7 +626,7 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture } = useSpeech();
   const speechCtlRef = useRef({});
   speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture };
 
@@ -631,7 +661,7 @@ function SceneRoom({ sceneName, baseConfig }) {
     setLectureError(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}`);
+      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lectureLang}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lecture not available');
       if (!data.segments || data.segments.length === 0) {
@@ -656,6 +686,58 @@ function SceneRoom({ sceneName, baseConfig }) {
       console.error('[handleStartClass]', err);
       setLectureStatus('error');
       setLectureError(err.message || 'Failed to load lecture');
+    }
+  };
+
+  // Mid-lecture language switch — resumes at the SAME segment index:
+  //  - if a lecture segment is currently playing: pause it, rebuild the queue
+  //    from that segment in the new language (replays that segment in Arabic)
+  //  - if a floor answer is playing while a lecture segment is paused: the
+  //    answer finishes, then the interrupted segment resumes in the new
+  //    language (resumeAt is dropped — timestamps don't map across languages)
+  const handleLanguageChange = async (lang) => {
+    setLectureLang(lang);
+    if (lectureStatus !== 'teaching' || !lectureId) return;
+
+    // Find the interrupted/current lecture segment anywhere in the queue —
+    // it sits under the answer message when a floor question is in flight.
+    const lecturePos = messages.findIndex(
+      (m) => m.type === 'lecture' && /_seg_(\d+)$/.test(m.id || '')
+    );
+    const curIdx = lecturePos >= 0
+      ? Number(messages[lecturePos].id.match(/_seg_(\d+)$/)[1])
+      : -1;
+    const headIsLecture = lecturePos === 0;
+
+    try {
+      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lang}`);
+      const data = await res.json();
+      if (!res.ok || !data.segments?.length) return;
+
+      const segs = data.segments
+        .filter((seg) => seg.id >= (curIdx < 0 ? 0 : curIdx))
+        .map((seg) => ({
+          id: `${lectureId}_seg_${seg.id}`,
+          type: 'lecture',
+          text: seg.text,
+          audioUrl: seg.audioUrl ? `${API_URL}${seg.audioUrl}` : null,
+          animation: seg.animation || 'explain',
+          facialExpression: seg.facialExpression || 'smile',
+          lipsync: seg.lipsync,
+        }));
+
+      if (headIsLecture || curIdx === -1) {
+        // Lecture segment is playing now — stop it and restart at the same
+        // segment index in the new language.
+        audioElementRef.current?.pause();
+        replaceQueue(segs);
+      } else {
+        // An answer/non-lecture message is playing — let it finish, the
+        // interrupted lecture resumes in the new language after it.
+        replacePending(segs);
+      }
+    } catch (err) {
+      console.error('[lang-switch]', err);
     }
   };
 
@@ -810,6 +892,16 @@ function SceneRoom({ sceneName, baseConfig }) {
     setSceneReady(true);
   }, []);
 
+  // One-time centered hint on scene entry; auto-dismisses and hides on F5.
+  useEffect(() => {
+    if (!sceneReady) return;
+    setCamHint(true);
+    const t = setTimeout(() => setCamHint(false), 8000);
+    const onKey = (e) => { if (e.key === 'F5') setCamHint(false); };
+    window.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
+  }, [sceneReady]);
+
   useEffect(() => {
     if (sceneReady) {
       requestMicrophoneAccess().catch(() => {});
@@ -846,10 +938,6 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   const raisedHands = useMemo(() => new Set(floorQueue.map((p) => p.userId)), [floorQueue]);
 
-  const toggleCamera = useCallback(() => {
-    setCameraPreset((prev) => (prev === 'third-person' ? 'first-person' : 'third-person'));
-  }, []);
-
   const OUTFITS = [
     { path: '/assets/avatar/ProfAbed_suit.glb', label: 'Suit' },
     { path: '/assets/avatar/ProfAbed_arabdress.glb', label: 'Arab Dress' },
@@ -883,6 +971,17 @@ function SceneRoom({ sceneName, baseConfig }) {
         />
       )}
 
+      {sceneReady && camHint && (
+        <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center'>
+          <div className='rounded-2xl border border-slate-700/60 bg-slate-900/85 px-8 py-5 text-center shadow-2xl backdrop-blur'>
+            <p className='text-sm font-semibold text-white'>
+              Press <span className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>F5</span> to toggle camera
+            </p>
+            <p className='mt-1.5 text-xs text-slate-400'>Switch between first-person and third-person view</p>
+          </div>
+        </div>
+      )}
+
       {sceneReady && (
         <>
           <ClassroomPanel
@@ -892,12 +991,8 @@ function SceneRoom({ sceneName, baseConfig }) {
             state={lectureStatus}
             error={lectureError}
             onStart={handleStartClass}
-            onCamera={toggleCamera}
-            cameraPreset={cameraPreset}
             onChat={() => setChatOpen((v) => !v)}
             chatOpen={chatOpen}
-            onSettings={() => setShowSettings((v) => !v)}
-            settingsOpen={showSettings}
             onUserAvatar={() => setShowAvatarPicker(true)}
             onOutfits={() => setShowOutfitList((v) => !v)}
             outfitsOpen={showOutfitList}
@@ -912,6 +1007,8 @@ function SceneRoom({ sceneName, baseConfig }) {
             onGrantFloor={grantFloor}
             onVoice={voiceChat.toggleVoice}
             voiceOn={voiceChat.voiceOn}
+            language={lectureLang}
+            onLanguage={handleLanguageChange}
             onPickOutfit={(path) => {
               setCurrentAvatarPath(path);
               setShowOutfitList(false);
