@@ -33,13 +33,13 @@ nohup vllm serve openbmb/VoxCPM2 --omni --host 0.0.0.0 --port 8010 \
 VOXPID=$!
 
 echo "[*] Starting NexoraXR backend on port 3000 (TTS -> vLLM-Omni :8010)..."
-cd src/backend
+cd src/nexora_server
 VOXCPM_BASE_URL=http://localhost:8010 nohup node server.js > ../../logs/backend.log 2>&1 &
 NODEPID=$!
 cd ../..
 
 echo "[*] Starting Vite frontend dev server..."
-cd src/frontend
+cd src/nexora_client
 nohup npm run dev:frontend > ../../logs/frontend.log 2>&1 &
 NPMYPID=$!
 cd ../..

@@ -10,11 +10,11 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f src/backend/.env ]; then
-  echo "Warning: src/backend/.env is missing. Copy src/backend/env.template.txt to src/backend/.env and fill in your API keys." >&2
+if [ ! -f src/nexora_server/.env ]; then
+  echo "Warning: src/nexora_server/.env is missing. Copy src/nexora_server/env.template.txt to src/nexora_server/.env and fill in your API keys." >&2
 fi
 
-for dir in src/backend src/frontend; do
+for dir in src/nexora_server src/nexora_client; do
   if [ ! -d "$dir/node_modules" ]; then
     echo "Installing $dir dependencies..."
     npm install --prefix "$dir"
@@ -37,11 +37,11 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "Starting backend on http://localhost:3000 ..."
-setsid npm --prefix src/backend run dev &
+setsid npm --prefix src/nexora_server run dev &
 PIDS+=("$!")
 
 echo "Starting frontend on http://localhost:5173 ..."
-setsid npm --prefix src/frontend run dev &
+setsid npm --prefix src/nexora_client run dev &
 PIDS+=("$!")
 
 echo "Both services are running. Press Ctrl+C to stop."

@@ -3,12 +3,12 @@ version: '3.8'
 services:
   frontend:
     build:
-      context: ./src/frontend
+      context: ./src/nexora_client
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
     volumes:
-      - ./src/frontend:/app
+      - ./src/nexora_client:/app
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:3000
@@ -17,13 +17,15 @@ services:
 
   backend:
     build:
-      context: ./src/backend
-      dockerfile: Dockerfile
+      context: ./src
+      dockerfile: nexora_server/Dockerfile
     ports:
       - "3000:3000"
     volumes:
-      - ./src/backend:/app
-      - /app/node_modules
+      - ./src/nexora_server:/app/nexora_server
+      - ./src/nexora_ai:/app/nexora_ai
+      - /app/nexora_server/node_modules
+      - /app/nexora_ai/node_modules
     networks:
       - app-network
 

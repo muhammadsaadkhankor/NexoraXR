@@ -76,15 +76,15 @@ cd dtalk
 **2. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
-mkdir backend\bin
-tar -xf backend\bin.zip -C backend\bin
+mkdir src\nexora_ai\bin
+tar -xf src\nexora_ai\bin.zip -C src\nexora_ai\bin
 
 # Set up the .env file
-copy backend\env.template.txt backend\.env
+copy src\nexora_server\env.template.txt src\nexora_server\.env
 ```
 
 **3. Configure API Keys**
-Open the .env file with any text editor (Notepad, VS Code, etc.) and add your API keys to the file:d backend\.env
+Open the .env file with any text editor (Notepad, VS Code, etc.) and add your API keys to the file:d src\nexora_server\.env
 
 Add your API keys to the file:
 ```env
@@ -183,21 +183,21 @@ cd dtalk
 **2.1. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
-unzip backend/bin.zip -d backend/bin
+unzip src/nexora_ai/bin.zip -d src/nexora_ai/bin
 
 # Set execute permissions for the rhubarb file
-cd backend/bin
+cd src/nexora_ai/bin
 chmod +x rhubarb
 
 # Return to the project root and set up the .env file
 cd ../..
-cp backend/env.template.txt backend/.env
+cp src/nexora_server/env.template.txt src/nexora_server/.env
 ```
 
 **2.2. Configure API Keys**
 ```bash
 # Open the .env file in nano editor
-nano backend/.env
+nano src/nexora_server/.env
 ```
 
 Add your API keys to the file:
@@ -224,8 +224,8 @@ Press `Ctrl + S` to save, then `Ctrl + X` to exit nano.
 ```bash
 # Install dependencies for each component separately
 npm install                 # root (dev tooling: concurrently)
-npm install --prefix backend
-npm install --prefix frontend
+npm install --prefix src/nexora_server
+npm install --prefix src/nexora_client
 
 # Shortcut for both components
 npm run install:all
@@ -310,21 +310,21 @@ cd dtalk
 **2.1. Extract Files and Setup Environment**
 ```bash
 # Extract the bin file
-unzip backend/bin.zip -d backend/bin
+unzip src/nexora_ai/bin.zip -d src/nexora_ai/bin
 
 # Set execute permissions for the rhubarb file
-cd backend/bin
+cd src/nexora_ai/bin
 chmod +x rhubarb
 
 # Return to the project root and set up the .env file
 cd ../..
-cp backend/env.template.txt backend/.env
+cp src/nexora_server/env.template.txt src/nexora_server/.env
 ```
 
 **2.2. Configure API Keys**
 ```bash
 # Open the .env file in nano editor
-nano backend/.env
+nano src/nexora_server/.env
 ```
 
 Add your API keys to the file:

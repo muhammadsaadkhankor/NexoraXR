@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "install:all": "npm install --prefix src/backend && npm install --prefix src/frontend",
-    "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm --prefix src/frontend run dev\" \"npm --prefix src/backend run dev\"",
-    "dev:frontend": "npm --prefix src/frontend run dev",
-    "dev:backend": "npm --prefix src/backend run dev",
-    "dev:client_ui": "npm --prefix src/client_ui run dev",
-    "build:frontend": "npm --prefix src/frontend run build",
-    "build:client_ui": "npm --prefix src/client_ui run build",
-    "start": "npm --prefix src/backend run start"
+    "install:all": "npm install --prefix src/nexora_server && npm install --prefix src/nexora_ai && npm install --prefix src/nexora_client",
+    "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm --prefix src/nexora_client run dev\" \"npm --prefix src/nexora_server run dev\"",
+    "dev:frontend": "npm --prefix src/nexora_client run dev",
+    "dev:backend": "npm --prefix src/nexora_server run dev",
+    "dev:client_ui": "npm --prefix src/nexora_client/client_ui run dev",
+    "build:frontend": "npm --prefix src/nexora_client run build",
+    "build:client_ui": "npm --prefix src/nexora_client/client_ui run build",
+    "start": "npm --prefix src/nexora_server run start"
   },
   "devDependencies": {
     "concurrently": "^8.0.0"
