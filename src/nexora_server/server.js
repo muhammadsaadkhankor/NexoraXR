@@ -196,13 +196,55 @@ const io = new Server(httpServer, {
   }
 });
 
-const rooms = {};
-const socketRoom = new Map();
+const rooms = {}; // roomId -> { [participantId]: player }
+const socketCtx = new Map(); // socketId -> { roomId, participantId }
 const ncipRooms = {};
+// NCIP Slice 4: reconnect grace timers, keyed `${roomId} ${pid}`.
+const graceTimers = new Map();
+// NCIP Slice 5: floor timeouts, keyed `${roomId} ${pid}` — armed at
+// floor-ready, disarmed when the holder's question enters THINKING.
+const floorTimers = new Map();
+// THINKING generation timeouts, keyed `${roomId} ${token}` — one active
+// generation per room; token-verified so stale timers/results are no-ops.
+const thinkingTimers = new Map();
+// Answer-completion timers per room — cleared on room teardown.
+const roomTimers = {};
 
 function getNcipRoom(roomId) {
   if (!ncipRooms[roomId]) ncipRooms[roomId] = new NcipRoom(roomId);
   return ncipRooms[roomId];
+}
+
+// pid -> live socketId for targeted emits (e.to is a participantId).
+function socketFor(roomId, pid) {
+  return ncipRooms[roomId]?.session.participants.get(pid)?.socketId || pid;
+}
+
+function trackRoomTimer(roomId, timer) {
+  (roomTimers[roomId] ??= new Set()).add(timer);
+}
+
+// Remove a participant's presence and run room teardown when empty.
+function cleanupAfterRemoval(roomId, pid) {
+  if (rooms[roomId]) {
+    delete rooms[roomId][pid];
+    io.to(roomId).emit('user-left', { userId: pid });
+  }
+  if (rooms[roomId] && Object.keys(rooms[roomId]).length === 0) {
+    delete rooms[roomId];
+    delete ncipRooms[roomId];
+    for (const t of roomTimers[roomId] || []) clearTimeout(t);
+    delete roomTimers[roomId];
+    for (const [key, t] of graceTimers) {
+      if (key.startsWith(`${roomId} `)) { clearTimeout(t); graceTimers.delete(key); }
+    }
+    for (const [key, t] of floorTimers) {
+      if (key.startsWith(`${roomId} `)) { clearTimeout(t); floorTimers.delete(key); }
+    }
+    for (const [key, t] of thinkingTimers) {
+      if (key.startsWith(`${roomId} `)) { clearTimeout(t); thinkingTimers.delete(key); }
+    }
+  }
 }
 
 function nameFor(roomId, userId) {
@@ -218,6 +260,24 @@ function buildFloorStatePayload(roomId) {
       : null,
     professorStatus: ncip.professor.status,
     checkpoint: ncip.interruption.checkpoint,
+    participants: ncip.sessionParticipants(),
+    stateVersion: ncip.stateVersion,
+  };
+}
+
+// NCIP Slice 2: authoritative recovery snapshot. Same floor shape as
+// floor-state (display names included) so clients can reuse one reducer.
+function buildSnapshotPayload(roomId) {
+  const ncip = getNcipRoom(roomId);
+  const s = ncip.snapshot();
+  return {
+    ...s,
+    floor: {
+      holder: s.floor.holder
+        ? { userId: s.floor.holder, name: nameFor(roomId, s.floor.holder) }
+        : null,
+      queue: s.floor.queue.map((id) => ({ userId: id, name: nameFor(roomId, id) })),
+    },
   };
 }
 
@@ -249,24 +309,79 @@ function scheduleAnswerEnd(roomId, answerId, durationMs) {
   // 'answer-ended' reports advance the protocol immediately in that case.
   const wait = (durationMs ?? 60000) + ANSWER_END_SLACK_MS;
   const timer = setTimeout(() => {
+    roomTimers[roomId]?.delete(timer);
     const room = ncipRooms[roomId];
     if (!room) return;
     applyEffects(roomId, room.answerTimeExpired(answerId));
   }, wait);
   timer.unref?.();
+  trackRoomTimer(roomId, timer);
+}
+
+// NCIP Slice 5: arm/disarm the 30s floor timeout keyed to a specific holder.
+// The room-level floorTimeoutExpired re-verifies holder + status on fire, so
+// a timer that outlives its holder is a safe no-op.
+function syncFloorTimer(roomId, pid) {
+  const key = `${roomId} ${pid}`;
+  const existing = floorTimers.get(key);
+  if (existing) { clearTimeout(existing); floorTimers.delete(key); }
+
+  const ncip = ncipRooms[roomId];
+  const d = ncip?.floorDeadline;
+  if (!d) return; // question entered THINKING or floor moved on
+  const remaining = Math.max(0, d.expiresAt - Date.now());
+  const timer = setTimeout(() => {
+    floorTimers.delete(key);
+    const room = ncipRooms[roomId];
+    if (!room) return;
+    console.log(`[server] floor timeout expired for ${pid} in '${roomId}'`);
+    applyEffects(roomId, room.floorTimeoutExpired(pid));
+  }, remaining);
+  timer.unref?.();
+  floorTimers.set(key, timer);
+}
+
+// Arm the 60s THINKING generation timeout, bound to the question's
+// generation token so a stale timer can never recover the wrong question.
+function armThinkingTimer(roomId, token) {
+  const key = `${roomId} ${token}`;
+  const existing = thinkingTimers.get(key);
+  if (existing) { clearTimeout(existing); thinkingTimers.delete(key); }
+  const ncip = ncipRooms[roomId];
+  const d = ncip?.thinkingDeadline;
+  if (!d || d.token !== token) return;
+  const timer = setTimeout(() => {
+    thinkingTimers.delete(key);
+    const room = ncipRooms[roomId];
+    if (!room) return;
+    console.log(`[server] thinking timeout expired for generation ${token} in '${roomId}'`);
+    applyEffects(roomId, room.thinkingTimeoutExpired(token));
+  }, Math.max(0, d.expiresAt - Date.now()));
+  timer.unref?.();
+  thinkingTimers.set(key, timer);
+}
+
+// Drop all pending generation timers for a room (answer started or failed).
+function clearThinkingTimers(roomId) {
+  for (const [key, t] of thinkingTimers) {
+    if (key.startsWith(`${roomId} `)) { clearTimeout(t); thinkingTimers.delete(key); }
+  }
 }
 
 function applyEffects(roomId, effects) {
+  const ncip = getNcipRoom(roomId);
   for (const e of effects || []) {
     if (e.event === 'floor-state') {
       emitFloorState(roomId);
       continue;
     }
     const data = enrichEffectData(roomId, e.event, e.data);
+    // Every authoritative NCIP event carries the post-transition version.
+    const payload = { ...(data || {}), stateVersion: ncip.stateVersion };
     if (e.to && e.to !== 'room') {
-      io.to(e.to).emit(e.event, data);
+      io.to(socketFor(roomId, e.to)).emit(e.event, payload);
     } else {
-      io.to(roomId).emit(e.event, data);
+      io.to(roomId).emit(e.event, payload);
     }
   }
 }
@@ -284,13 +399,28 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // NCIP Slice 4: the client supplies a stable participantId persisted
+    // across reconnects; socket.id is only the current transport binding.
+    const pid = typeof data.participantId === 'string' && data.participantId.length <= 64
+      ? data.participantId
+      : socket.id;
+
     socket.join(roomId);
-    socketRoom.set(socket.id, roomId);
+    socketCtx.set(socket.id, { roomId, participantId: pid });
 
     if (!rooms[roomId]) rooms[roomId] = {};
+    const ncip = getNcipRoom(roomId);
+    const joinResult = ncip.joinParticipant(pid, socket.id);
+
+    // A reconnect during the grace window cancels the pending expiry.
+    const graceKey = `${roomId} ${pid}`;
+    if (graceTimers.has(graceKey)) {
+      clearTimeout(graceTimers.get(graceKey));
+      graceTimers.delete(graceKey);
+    }
 
     const user = {
-      userId: socket.id,
+      userId: pid,
       roomId,
       name: safeName,
       avatar: data.avatar || '/assets/useravatar/avatars/UserAvatar.glb',
@@ -300,74 +430,111 @@ io.on('connection', (socket) => {
       timestamp: Date.now()
     };
 
-    rooms[roomId][socket.id] = user;
+    rooms[roomId][pid] = user;
     const members = Object.keys(rooms[roomId]);
-    console.log(`[server] join: ${socket.id} joined room '${roomId}' (members: ${members.length})`);
+    console.log(`[server] join: ${pid} (${socket.id}) joined room '${roomId}' (members: ${members.length}, reconnected: ${joinResult.reconnected})`);
 
     socket.broadcast.to(roomId).emit('user-joined', user);
-    console.log(`[server] emitted 'user-joined' for ${socket.id} to room ${roomId}`);
-    socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== socket.id));
-    console.log(`[server] emitted 'room-state' to ${socket.id}:`, Object.values(rooms[roomId]).map((p) => p.userId));
+    socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== pid));
     emitFloorState(roomId, socket);
-    const ncip = getNcipRoom(roomId);
-    if (ncip.professor.status === ProfessorStatus.PAUSED ||
-        ncip.professor.status === ProfessorStatus.THINKING ||
-        ncip.professor.status === ProfessorStatus.ANSWERING) {
-      socket.emit('lecture-control', {
-        action: 'pause-for-floor',
-        activeSpeaker: ncip.floor.holder
-          ? { userId: ncip.floor.holder, name: nameFor(roomId, ncip.floor.holder) }
-          : null
-      });
+    // Slice 2+4: joiners AND reconnectors get the authoritative snapshot —
+    // floor ownership/queue position survived the grace window.
+    socket.emit('session.snapshot', buildSnapshotPayload(roomId));
+  });
+
+  // Explicit intentional leave: immediate removal, no grace window.
+  socket.on('leave', () => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId, participantId: pid } = ctx;
+    console.log(`[server] leave: ${pid} left room '${roomId}'`);
+    const graceKey = `${roomId} ${pid}`;
+    if (graceTimers.has(graceKey)) {
+      clearTimeout(graceTimers.get(graceKey));
+      graceTimers.delete(graceKey);
     }
+    applyEffects(roomId, getNcipRoom(roomId).leave(pid));
+    cleanupAfterRemoval(roomId, pid);
+  });
+
+  // NCIP Slice 2 recovery: a client that detects a version gap (or reconnects)
+  // asks for the authoritative snapshot; only room members may sync.
+  socket.on('session.sync', () => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    socket.emit('session.snapshot', buildSnapshotPayload(ctx.roomId));
+  });
+
+  // NCIP language.change: the server owns the room language — clients request,
+  // the room state machine validates and broadcasts the authoritative result.
+  socket.on('language.change', ({ language } = {}) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const ncip = getNcipRoom(ctx.roomId);
+    const result = ncip.changeLanguage(ctx.participantId, language);
+    if (!result.ok) {
+      socket.emit('lecture-control', { action: 'language-error', error: result.error });
+      return;
+    }
+    applyEffects(ctx.roomId, result.effects);
   });
 
   // NCIP floor.request: dedupe; auto-grant when the floor is free, else FIFO queue.
   socket.on('request-floor', () => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId || !rooms[roomId]?.[socket.id]) return;
-    const ncip = getNcipRoom(roomId);
-    console.log(`[server] request-floor: ${socket.id} in room '${roomId}' (status: ${ncip.professor.status})`);
-    applyEffects(roomId, ncip.requestFloor(socket.id));
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const ncip = getNcipRoom(ctx.roomId);
+    console.log(`[server] request-floor: ${ctx.participantId} in room '${ctx.roomId}' (status: ${ncip.professor.status})`);
+    applyEffects(ctx.roomId, ncip.requestFloor(ctx.participantId));
   });
 
   socket.on('cancel-floor-request', () => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId) return;
-    console.log(`[server] cancel-floor-request: ${socket.id} in room '${roomId}'`);
-    applyEffects(roomId, getNcipRoom(roomId).cancelRequest(socket.id));
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    console.log(`[server] cancel-floor-request: ${ctx.participantId} in room '${ctx.roomId}'`);
+    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).cancelRequest(ctx.participantId));
   });
 
   socket.on('release-floor', () => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId) return;
-    console.log(`[server] release-floor: ${socket.id} in room '${roomId}'`);
-    applyEffects(roomId, getNcipRoom(roomId).releaseFloor(socket.id));
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    console.log(`[server] release-floor: ${ctx.participantId} in room '${ctx.roomId}'`);
+    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).releaseFloor(ctx.participantId));
   });
 
   // Clients report their exact interrupted lecture position when the floor is
   // granted; the server stores it as the authoritative room checkpoint.
   socket.on('lecture-checkpoint', (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId || !rooms[roomId]?.[socket.id]) return;
-    applyEffects(roomId, getNcipRoom(roomId).submitCheckpoint(socket.id, data));
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).submitCheckpoint(ctx.participantId, data));
+    // Checkpoint accepted => floor is ready: arm the 30s question timeout.
+    syncFloorTimer(ctx.roomId, ctx.participantId);
   });
 
   // NCIP question.submit: only the current floor holder, only while PAUSED.
   socket.on('ask-floor-question', async (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId || !rooms[roomId]?.[socket.id]) return;
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const roomId = ctx.roomId;
+    const pid = ctx.participantId;
 
     const ncip = getNcipRoom(roomId);
     const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 500) : '';
     if (!question) return;
 
-    const result = ncip.submitQuestion(socket.id, question);
+    const result = ncip.submitQuestion(pid, question);
     if (!result.ok) {
       socket.emit('floor-question-error', { error: result.error });
       return;
     }
     applyEffects(roomId, result.effects);
+    // Valid question submitted => THINKING: disarm the floor timeout and arm
+    // the generation timeout bound to this question's token.
+    syncFloorTimer(roomId, pid);
+    const genToken = ncip.thinkingDeadline?.token;
+    if (genToken) armThinkingTimer(roomId, genToken);
+    const submittedAt = Date.now();
 
     try {
       const res = await fetch(`http://localhost:${port}/api/ask`, {
@@ -380,24 +547,34 @@ io.on('connection', (socket) => {
         throw new Error(json.error || 'Empty answer');
       }
       const msg = json.messages[0];
+      // Late result: only valid while its own generation is still THINKING —
+      // a post-timeout or superseded answer must never reach the room. The
+      // room-object identity check also guards against room teardown mid-fetch.
+      if (ncip !== ncipRooms[roomId] || !ncip.isActiveGeneration(genToken)) {
+        console.log(`[server] ignoring stale answer for generation ${genToken} in '${roomId}'`);
+        return;
+      }
       const answerId = `floor_${roomId}_${Date.now()}`;
       const durationMs = Number.isFinite(msg.durationMs) ? msg.durationMs : null;
       // Host-relative audio URL — remote clients resolve it against the
       // backend origin they already use (API_URL on the frontend).
       applyEffects(roomId, ncip.answerReady(answerId, {
         type: 'answer',
-        askedBy: socket.id,
+        askedBy: pid,
         text: msg.text,
         animation: msg.animation,
         facialExpression: msg.facialExpression,
         audioUrl: msg.audioUrl || null,
         lipsync: msg.lipsync
       }, durationMs));
+      clearThinkingTimers(roomId); // THINKING -> ANSWERING disarms the timeout
+      console.log(`[ncip:metrics] ${roomId}: question.submit -> answer.start = ${Date.now() - submittedAt}ms`);
       scheduleAnswerEnd(roomId, answerId, durationMs);
     } catch (err) {
       console.error('[server] ask-floor-question failed:', err);
+      clearThinkingTimers(roomId);
       applyEffects(roomId, ncip.answerFailed(
-        socket.id,
+        pid,
         'The professor could not answer right now. Please try again.'
       ));
     }
@@ -406,57 +583,91 @@ io.on('connection', (socket) => {
   // NCIP answer.end: clients report when the answer audio finished playing;
   // the first report for the current answer advances the protocol.
   socket.on('answer-ended', (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId) return;
-    applyEffects(roomId, getNcipRoom(roomId).answerEnded(data?.id));
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).answerEnded(data?.id));
   });
 
   socket.on('state-update', (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId || !rooms[roomId]?.[socket.id]) return;
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
 
-    const user = rooms[roomId][socket.id];
+    const user = rooms[ctx.roomId][ctx.participantId];
     user.position = data.position;
     user.rotation = data.rotation;
     user.animation = data.animation;
     user.timestamp = Date.now();
 
-    socket.broadcast.to(roomId).emit('state-update', user);
+    socket.broadcast.to(ctx.roomId).emit('state-update', user);
   });
 
   socket.on('professor-speak', (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId) return;
-    console.log(`[server] professor-speak from ${socket.id} to room ${roomId}:`, data?.text);
-    io.to(roomId).emit('professor-speak', data);
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    console.log(`[server] professor-speak from ${ctx.participantId} to room ${ctx.roomId}:`, data?.text);
+    // A lecture-segment head is also the authoritative live playback position
+    // — record it so late joiners can recover an in-progress lecture.
+    const seg = /^(.+)_seg_(\d+)$/.exec(data?.id || '');
+    if (data?.type === 'lecture' && seg && seg[1] !== 'none') {
+      applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).updatePlayback(ctx.participantId, {
+        lectureId: seg[1],
+        segmentIndex: Number(seg[2]),
+        playbackOffsetMs: 0,
+      }));
+    }
+    io.to(ctx.roomId).emit('professor-speak', data);
+  });
+
+  // The lecture queue drained on a client — clear the live position so
+  // snapshots don't offer a stale segment to late joiners.
+  socket.on('lecture-ended', () => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).endLecture(ctx.participantId));
   });
 
   socket.on('chat', (data) => {
-    const roomId = socketRoom.get(socket.id);
-    if (roomId) socket.broadcast.to(roomId).emit('chat', { from: data.name || socket.id, text: data.text });
+    const ctx = socketCtx.get(socket.id);
+    if (ctx) socket.broadcast.to(ctx.roomId).emit('chat', { from: data.name || ctx.participantId, text: data.text });
   });
 
   // WebRTC signaling relay for peer voice chat: forwards offers, answers and
   // ICE candidates to a specific room member. Media flows peer-to-peer; the
   // server only shuttles SDP/ICE.
   socket.on('webrtc-signal', ({ to, data }) => {
-    const roomId = socketRoom.get(socket.id);
-    if (!roomId || !to || !data || !rooms[roomId]?.[to]) return;
-    io.to(to).emit('webrtc-signal', { from: socket.id, data });
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !to || !data || !rooms[ctx.roomId]?.[to]) return;
+    io.to(socketFor(ctx.roomId, to)).emit('webrtc-signal', { from: ctx.participantId, data });
   });
 
+  // NCIP Slice 4: a dropped socket does NOT remove the participant — it
+  // marks them offline and opens the 10s reconnect grace window. Presence,
+  // floor ownership and queue position are preserved until expiry.
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
-    const roomId = socketRoom.get(socket.id);
-    if (roomId && rooms[roomId]) {
-      delete rooms[roomId][socket.id];
-      const ncip = getNcipRoom(roomId);
-      const members = Object.keys(rooms[roomId]);
-      console.log(`[server] disconnect: ${socket.id} left room '${roomId}' (members: ${members.length})`);
-      socket.broadcast.to(roomId).emit('user-left', { userId: socket.id });
-      applyEffects(roomId, ncip.disconnect(socket.id));
-      socketRoom.delete(socket.id);
-      if (members.length === 0) delete ncipRooms[roomId];
+    const ctx = socketCtx.get(socket.id);
+    socketCtx.delete(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId, participantId: pid } = ctx;
+    const ncip = getNcipRoom(roomId);
+    if (ncip.participantDisconnected(pid)) {
+      console.log(`[server] disconnect: ${pid} offline in '${roomId}' — ${ncip.RECONNECT_GRACE_MS}ms grace`);
+      emitFloorState(roomId); // participants list shows them offline
+      const graceKey = `${roomId} ${pid}`;
+      const timer = setTimeout(() => {
+        graceTimers.delete(graceKey);
+        const room = ncipRooms[roomId];
+        if (!room) return;
+        console.log(`[server] grace expired: ${pid} removed from '${roomId}'`);
+        applyEffects(roomId, room.expireGrace(pid));
+        cleanupAfterRemoval(roomId, pid);
+      }, ncip.RECONNECT_GRACE_MS);
+      timer.unref?.();
+      graceTimers.set(graceKey, timer);
+    } else {
+      // No participant record — treat as an immediate removal.
+      applyEffects(roomId, ncip.leave(pid));
+      cleanupAfterRemoval(roomId, pid);
     }
   });
 });

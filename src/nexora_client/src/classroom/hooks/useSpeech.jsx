@@ -346,6 +346,21 @@ export const SpeechProvider = ({ children }) => {
     }
   }, []);
 
+  // Hard-stop the current audio element when its message is being DISCARDED
+  // (language-switch rebuild). Detaches onended/onerror first so a terminal
+  // event can't fire between pause and queue replacement and pop the new
+  // head — that race skipped segments / left a stale head. NOT used by the
+  // floor-pause paths, where the same element is reused on resume and needs
+  // its 'ended' handler intact.
+  const stopAudio = useCallback(() => {
+    const a = audioElementRef.current;
+    if (!a) return;
+    a.onended = null;
+    a.onerror = null;
+    a.pause();
+    audioElementRef.current = null;
+  }, []);
+
   const clearMessages = useCallback(() => {
     floorPausedRef.current = false;
     setFloorPaused(false);
@@ -382,11 +397,13 @@ export const SpeechProvider = ({ children }) => {
         isListening,
         requestMicrophoneAccess,
         audioElementRef,
+        stopAudio,
         prependMessages,
         pauseLectureForFloor,
         resumeLecture,
         floorPausedRef,
         floorPaused,
+        setFloorPaused,
         answerEndedRef,
       }}
     >

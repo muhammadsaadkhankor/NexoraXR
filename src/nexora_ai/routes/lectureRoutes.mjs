@@ -250,38 +250,14 @@ async function loadLectureManifest(lectureId, lang = 'en') {
   }
 
   const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
-  const existingAudioPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.wav');
-  const existingLipsyncPath = path.join(PROFBRAIN_DIR, lectureId, 'lipsync.json');
-
   // Language-keyed cache dir: English keeps the original layout, translated
   // lectures get their own audio/lipsync cache (e.g. segments/Lecture_1__ar).
   const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
 
-  if (lang === 'en' && existsSync(existingAudioPath)) {
-    let lipsync = null;
-    if (existsSync(existingLipsyncPath)) {
-      try {
-        lipsync = JSON.parse(await fs.readFile(existingLipsyncPath, 'utf-8'));
-      } catch (err) {
-        console.error(`[segments] Failed to read lipsync for ${lectureId}:`, err);
-      }
-    }
-
-    return {
-      lectureId,
-      title: summary.title,
-      segments: [{
-        id: 0,
-        title: summary.title,
-        text: summary.text,
-        animation: 'explain',
-        facialExpression: 'smile',
-        audioUrl: `/api/lecture/summary_audio/${lectureId}`,
-        lipsync,
-      }],
-    };
-  }
-
+  // Every language must return the SAME segmented manifest — seg.id indexes
+  // the shared logical position. A single-segment English shortcut breaks
+  // NCIP mid-lecture language switching: switches away rebuild from seg 0,
+  // and switching back yields an empty filtered manifest (nothing plays).
   const texts = splitSummaryText(summary.text);
   const segments = [];
   for (let i = 0; i < texts.length; i++) {
@@ -318,15 +294,18 @@ async function loadLectureManifest(lectureId, lang = 'en') {
 
     if (segText === null) {
       segText = await translateForLecture(texts[i], lang);
-      await generateSegmentAudio(cacheKey, i, segText);
-      if (lang !== 'en') {
-        fs.writeFile(textPath, segText).catch(() => {});
-      }
-      if (existsSync(lipsyncPath)) {
-        try {
-          lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
-        } catch {}
-      }
+      // Persist the segment text so the audio endpoint can synthesize lazily.
+      const dir = segmentCacheDir(cacheKey);
+      if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(textPath, segText).catch(() => {});
+    }
+    // Audio/lipsync are generated lazily by /lecture/segment_audio on first
+    // play — building all segments' TTS inside the manifest request blocks
+    // Start Class for minutes on uncached lectures/languages.
+    if (!lipsync && existsSync(lipsyncPath)) {
+      try {
+        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+      } catch {}
     }
     segments.push({
       id: i,
@@ -572,6 +551,21 @@ router.get('/lecture/segment_audio/:lectureId/:segmentId', async (req, res) => {
   const { lectureId, segmentId } = req.params;
   const index = Number(segmentId);
   const audioPath = segmentAudioPath(lectureId, index);
+  // Lazy generation: manifests no longer pre-bake audio, so a first-play miss
+  // synthesizes (and caches) the segment on demand from its persisted text.
+  if (!existsSync(audioPath)) {
+    const textPath = path.join(segmentCacheDir(lectureId), `segment_${String(index).padStart(3, '0')}.txt`);
+    if (!existsSync(textPath)) {
+      return res.status(404).json({ error: 'Segment audio not found' });
+    }
+    try {
+      const segText = await fs.readFile(textPath, 'utf-8');
+      await generateSegmentAudio(lectureId, index, segText);
+    } catch (err) {
+      console.error(`[segments] lazy TTS failed for ${lectureId}/${index}:`, err);
+      return res.status(500).json({ error: 'Segment audio generation failed' });
+    }
+  }
   if (!existsSync(audioPath)) {
     return res.status(404).json({ error: 'Segment audio not found' });
   }

@@ -14,6 +14,7 @@ import ContinuousRecorder from './components/ContinuousRecorder';
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
+import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch } from './services/ncipSync';
 import { API_URL } from '../shared/config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
@@ -31,7 +32,20 @@ const USER_AVATARS = [
 ];
 
 const DISPLAY_NAME_KEY = 'nexoraxr_display_name';
+const PARTICIPANT_ID_KEY = 'nexoraxr_participant_id';
 const MAX_NAME_LENGTH = 30;
+
+// NCIP Slice 4: stable per-tab participant identity. Persists in
+// sessionStorage across reconnects/refreshes so the server can rebind the
+// same participant to a new socket instead of treating it as a new student.
+function getParticipantId() {
+  let pid = sessionStorage.getItem(PARTICIPANT_ID_KEY);
+  if (!pid) {
+    pid = (crypto.randomUUID?.() || `p_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    sessionStorage.setItem(PARTICIPANT_ID_KEY, pid);
+  }
+  return pid;
+}
 
 function NameEntryModal({ onSubmit }) {
   const [value, setValue] = useState('');
@@ -616,9 +630,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, answerEndedRef } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef } = useSpeech();
   const speechCtlRef = useRef({});
-  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture };
+  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages };
+  const languageChangeRef = useRef(null);
   // Refs so the once-registered socket handlers always see current values.
   const myIdRef = useRef(null);
   const lectureIdRef = useRef(lectureId);
@@ -630,6 +645,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   // 'floor-ready' acknowledgement (holder checkpoint accepted) arrives.
   const pendingQuestionRef = useRef(null);
   const floorReadyRef = useRef(false);
+  // NCIP Slice 2: version of the newest authoritative state this client has
+  // applied. -1 = no baseline yet (fresh connect / before first snapshot).
+  const lastAppliedVersionRef = useRef(-1);
+  const syncPendingRef = useRef(false);
 
   // Peer voice chat (WebRTC mesh + positional audio on remote avatars)
   const voiceChat = useVoiceChat();
@@ -696,29 +715,40 @@ function SceneRoom({ sceneName, baseConfig }) {
   //  - if a floor answer is playing while a lecture segment is paused: the
   //    answer finishes, then the interrupted segment resumes in the new
   //    language (resumeAt is dropped — timestamps don't map across languages)
-  const handleLanguageChange = async (lang) => {
-    setLectureLang(lang);
-    if (lectureStatus !== 'teaching' || !lectureId) return;
+  // NCIP Slice 3: language is server-authoritative — the selector only
+  // requests; the room broadcasts 'language-change' and every client
+  // (including the requester) applies it through applyLanguageChange.
+  const requestLanguageChange = useCallback((lang) => {
+    socketRef.current?.emit('language.change', { language: lang });
+  }, []);
 
-    // Find the interrupted/current lecture segment anywhere in the queue —
-    // it sits under the answer message when a floor question is in flight.
-    const lecturePos = messages.findIndex(
-      (m) => m.type === 'lecture' && /_seg_(\d+)$/.test(m.id || '')
-    );
-    const curIdx = lecturePos >= 0
-      ? Number(messages[lecturePos].id.match(/_seg_(\d+)$/)[1])
-      : -1;
-    const headIsLecture = lecturePos === 0;
+  // Applies an authoritative language change to the local lecture queue.
+  // `seq` makes the last accepted switch win: a stale fetch resolving after a
+  // newer change must never overwrite the queue. Position comes from the
+  // live queue, falling back to the server's segmentIndex hint — never seg 0.
+  const langSwitchSeqRef = useRef(0);
+  const lectureStatusRef = useRef(lectureStatus);
+  lectureStatusRef.current = lectureStatus;
+  const handleLanguageChange = async (lang, hintSegmentIndex = null) => {
+    const seq = ++langSwitchSeqRef.current;
+    setLectureLang(lang);
+    lectureLangRef.current = lang;
+    const lid = lectureIdRef.current;
+    if (lectureStatusRef.current !== 'teaching' || !lid) return;
+
+    const plan = planLanguageSwitch(speechCtlRef.current.messages, hintSegmentIndex);
+    if (!plan) return; // no known position — leave the queue untouched
 
     try {
-      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lang}`);
+      const res = await fetch(`${API_URL}/api/lecture/segments/${lid}?lang=${lang}`);
       const data = await res.json();
+      if (seq !== langSwitchSeqRef.current) return; // superseded by a newer switch
       if (!res.ok || !data.segments?.length) return;
 
       const segs = data.segments
-        .filter((seg) => seg.id >= (curIdx < 0 ? 0 : curIdx))
+        .filter((seg) => seg.id >= plan.segmentIndex)
         .map((seg) => ({
-          id: `${lectureId}_seg_${seg.id}`,
+          id: `${lid}_seg_${seg.id}`,
           type: 'lecture',
           text: seg.text,
           audioUrl: seg.audioUrl ? `${API_URL}${seg.audioUrl}` : null,
@@ -726,25 +756,30 @@ function SceneRoom({ sceneName, baseConfig }) {
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
         }));
+      if (seq !== langSwitchSeqRef.current || !segs.length) return;
 
-      if (headIsLecture || curIdx === -1) {
-        // Lecture segment is playing now — stop it and restart at the same
-        // segment index in the new language.
-        audioElementRef.current?.pause();
-        replaceQueue(segs);
+      if (plan.headIsLecture) {
+        // Lecture segment is playing now — invalidate it (detach handlers so
+        // a late 'ended'/'error' can't pop the new head), then rebuild.
+        speechCtlRef.current.stopAudio();
+        speechCtlRef.current.replaceQueue(segs);
       } else {
-        // An answer/non-lecture message is playing — let it finish, the
-        // interrupted lecture resumes in the new language after it.
-        replacePending(segs);
+        // An answer/non-lecture message is playing (or the queue was empty) —
+        // the interrupted lecture resumes in the new language behind it.
+        speechCtlRef.current.replacePending(segs);
       }
     } catch (err) {
       console.error('[lang-switch]', err);
     }
   };
+  languageChangeRef.current = handleLanguageChange;
 
   useEffect(() => {
     if (lectureStatus === 'teaching' && messages.length === 0) {
       setLectureStatus('completed');
+      // The queue drained — tell the server the live lecture is over so its
+      // snapshots stop offering a stale segment to late joiners.
+      socketRef.current?.emit('lecture-ended');
     }
   }, [messages, lectureStatus]);
 
@@ -766,6 +801,71 @@ function SceneRoom({ sceneName, baseConfig }) {
     setChatOpen(inRange);
   }, [inRange]);
 
+  // NCIP Slice 2: the checkpoint segment is already in the local queue.
+  // Trim everything before it, stamp the authoritative offset as resumeAt,
+  // and keep it paused while the floor is held.
+  const positionLectureAtCheckpoint = (cp, floorHeld) => {
+    const msgs = speechCtlRef.current.messages || [];
+    const segId = `${cp.lectureId}_seg_${cp.segmentIndex}`;
+    const idx = msgs.findIndex((m) => m.type === 'lecture' && m.id === segId);
+    if (idx < 0) return false;
+    msgs[idx].resumeAt = cp.playbackOffsetMs / 1000;
+    if (idx === 0) {
+      if (floorHeld) speechCtlRef.current.audioElementRef?.current?.pause();
+    } else if (msgs[0]?.type === 'lecture') {
+      // Trim to the checkpoint segment only when the head is a lecture
+      // message — a recovered floor answer at the head must finish first;
+      // the stamped segment becomes head right after it. The old head is
+      // being discarded, so detach its handlers before replacing the queue.
+      speechCtlRef.current.stopAudio();
+      speechCtlRef.current.replaceQueue(msgs.slice(idx));
+    }
+    return true;
+  };
+
+  // NCIP Slice 2 canonical lecture recovery: the checkpoint segment is NOT in
+  // the local queue (late join / missed segments / different lecture) — fetch
+  // the segment manifest through the existing lecture API, rebuild the queue
+  // from the authoritative segmentIndex and stamp the offset. Never restarts
+  // at segment 0.
+  const recoverLectureFromSnapshot = async (cp, floorHeld, answerMsg = null) => {
+    try {
+      const lang = cp.language || lectureLangRef.current;
+      const res = await fetch(`${API_URL}/api/lecture/segments/${cp.lectureId}?lang=${lang}`);
+      const data = await res.json();
+      if (!res.ok || !data.segments?.length) {
+        console.error('[ncip] lecture recovery failed, no segments for', cp.lectureId);
+        return;
+      }
+      const segs = data.segments
+        .filter((seg) => seg.id >= cp.segmentIndex)
+        .map((seg) => ({
+          id: `${cp.lectureId}_seg_${seg.id}`,
+          type: 'lecture',
+          text: seg.text,
+          audioUrl: seg.audioUrl ? `${API_URL}${seg.audioUrl}` : null,
+          animation: seg.animation || 'explain',
+          facialExpression: seg.facialExpression || 'smile',
+          lipsync: seg.lipsync,
+        }));
+      if (!segs.length) return;
+      segs[0].resumeAt = cp.playbackOffsetMs / 1000;
+      // The queue is being rebuilt wholesale — invalidate the old head's
+      // audio handlers before replacement to avoid a stale 'ended' pop.
+      speechCtlRef.current.stopAudio();
+      speechCtlRef.current.replaceQueue(segs);
+      setLectureStatus('teaching');
+      // An in-flight floor answer recovered alongside the lecture takes the
+      // queue head and plays from its elapsed offset; the stamped lecture
+      // segment becomes head right after it.
+      if (answerMsg) speechCtlRef.current.prependMessages([answerMsg]);
+      if (floorHeld) speechCtlRef.current.audioElementRef?.current?.pause();
+      console.log('[ncip] lecture recovered:', cp.lectureId, 'seg', cp.segmentIndex, '@', cp.playbackOffsetMs, 'ms, paused:', floorHeld);
+    } catch (err) {
+      console.error('[ncip] lecture recovery error:', err);
+    }
+  };
+
   useEffect(() => {
     if (socketRef.current) return;
     const socket = io(API_URL, {
@@ -780,7 +880,8 @@ function SceneRoom({ sceneName, baseConfig }) {
 
     socket.on('connect', () => {
       console.log('[client] socket connected, id:', socket.id);
-      setMyId(socket.id);
+      // Protocol identity is the stable participantId, not the socket.
+      setMyId(getParticipantId());
     });
 
     socket.on('room-state', (players) => {
@@ -808,7 +909,31 @@ function SceneRoom({ sceneName, baseConfig }) {
       });
     });
 
-    socket.on('floor-state', (data) => {
+    // NCIP Slice 2: gate every authoritative event through version checks.
+    // 'stale' events (older than the applied version) are dropped so delayed
+    // broadcasts can never roll the client backward; 'gap' versions mean we
+    // missed a transition — do not apply, ask the server for a snapshot.
+    const applyNcip = (data, apply) => {
+      const cls = classifyEvent(lastAppliedVersionRef.current, data?.stateVersion);
+      if (cls === 'stale') {
+        console.log('[ncip] stale event ignored, v' + data?.stateVersion + ' <= v' + lastAppliedVersionRef.current);
+        return;
+      }
+      if (cls === 'gap') {
+        console.warn('[ncip] version gap: v' + data?.stateVersion + ' after v' + lastAppliedVersionRef.current + ' — requesting session.sync');
+        if (!syncPendingRef.current) {
+          syncPendingRef.current = true;
+          socket.emit('session.sync');
+        }
+        return;
+      }
+      if (Number.isFinite(data?.stateVersion)) {
+        lastAppliedVersionRef.current = Math.max(lastAppliedVersionRef.current, data.stateVersion);
+      }
+      apply();
+    };
+
+    socket.on('floor-state', (data) => applyNcip(data, () => {
       console.log('[client] floor-state received:', data);
       setFloorQueue(data?.floorQueue || []);
       setActiveSpeaker(data?.activeSpeaker || null);
@@ -816,11 +941,11 @@ function SceneRoom({ sceneName, baseConfig }) {
       if (data?.activeSpeaker?.userId !== myIdRef.current) {
         floorReadyRef.current = false;
       }
-    });
+    }));
 
     // NCIP readiness acknowledgement: the server accepted our holder
     // checkpoint, so a pending question may now enter THINKING.
-    socket.on('floor-ready', () => {
+    socket.on('floor-ready', (data) => applyNcip(data, () => {
       floorReadyRef.current = true;
       if (pendingQuestionRef.current) {
         const question = pendingQuestionRef.current;
@@ -828,7 +953,7 @@ function SceneRoom({ sceneName, baseConfig }) {
         setFloorAnswering(true); // optimistic until the 'thinking' broadcast
         socket.emit('ask-floor-question', { question, lectureId: lectureIdRef.current });
       }
-    });
+    }));
 
     socket.on('join-error', (data) => {
       console.warn('[client] join rejected:', data?.error);
@@ -844,9 +969,13 @@ function SceneRoom({ sceneName, baseConfig }) {
       setFloorQueue([]);
       setActiveSpeaker(null);
       joinedRef.current = false;
+      // All local NCIP state is stale now — the reconnect re-join flow brings
+      // a fresh snapshot which re-establishes the baseline.
+      lastAppliedVersionRef.current = -1;
+      syncPendingRef.current = false;
     });
 
-    socket.on('professor-speak', (data) => {
+    socket.on('professor-speak', (data) => applyNcip(data, () => {
       console.log('[client] professor-speak received:', data?.text);
       // Resolve host-relative audio URLs against the backend origin.
       const audioUrl = data?.audioUrl?.startsWith('/') ? `${API_URL}${data.audioUrl}` : data?.audioUrl;
@@ -856,9 +985,9 @@ function SceneRoom({ sceneName, baseConfig }) {
       } else {
         pushMessage({ ...data, audioUrl }, true);
       }
-    });
+    }));
 
-    socket.on('lecture-control', (data) => {
+    socket.on('lecture-control', (data) => applyNcip(data, () => {
       console.log('[client] lecture-control received:', data?.action);
       if (data?.action === 'pause-for-floor') {
         const cp = speechCtlRef.current.pauseLectureForFloor();
@@ -888,13 +1017,78 @@ function SceneRoom({ sceneName, baseConfig }) {
         setFloorError(null);
       } else if (data?.action === 'answer-error') {
         setFloorAnswering(false);
+      } else if (data?.action === 'language-change') {
+        // NCIP Slice 3: the server accepted a language.change — every client
+        // applies it identically. Floor-held states only retarget the
+        // checkpoint language locally (already done server-side); an active
+        // lecture rebuilds from its current segment in the new language.
+        console.log('[client] language-change received:', data.language);
+        languageChangeRef.current?.(data.language, data.segmentIndex);
+      } else if (data?.action === 'language-error') {
+        console.warn('[client] language change rejected:', data?.error);
       }
-    });
+    }));
 
-    socket.on('floor-question-error', (data) => {
+    socket.on('floor-question-error', (data) => applyNcip(data, () => {
       console.warn('[client] floor-question-error:', data?.error);
       setFloorAnswering(false);
       setFloorError(data?.error || 'Question failed.');
+    }));
+
+    // NCIP Slice 2: authoritative snapshot — sent on join and on session.sync.
+    // Replaces local NCIP state wholesale; stale snapshots are dropped.
+    socket.on('session.snapshot', (snap) => {
+      if (snapshotIsStale(lastAppliedVersionRef.current, snap)) {
+        console.log('[ncip] stale snapshot ignored, v' + snap?.stateVersion + ' < v' + lastAppliedVersionRef.current);
+        return;
+      }
+      console.log('[ncip] applying session.snapshot v' + snap?.stateVersion + ':', snap?.professor?.status);
+      lastAppliedVersionRef.current = snap?.stateVersion ?? lastAppliedVersionRef.current;
+      syncPendingRef.current = false;
+
+      // Floor + professor UI state.
+      const { floorQueue, activeSpeaker } = snapshotFloor(snap);
+      setFloorQueue(floorQueue);
+      setActiveSpeaker(activeSpeaker);
+      const status = snap?.professor?.status || 'IDLE';
+      setProfessorStatus(status);
+      setFloorAnswering(status === 'THINKING' || status === 'ANSWERING');
+      if (activeSpeaker?.userId !== myIdRef.current) floorReadyRef.current = false;
+
+      // NCIP Slice 3: adopt the authoritative room language immediately —
+      // lecture recovery below and future checkpoint reports use it.
+      if (snap?.language?.roomLanguage) {
+        lectureLangRef.current = snap.language.roomLanguage;
+        setLectureLang(snap.language.roomLanguage);
+      }
+
+      // Floor held => a recovered lecture head must stay paused (Avatar
+      // consults floorPausedRef before playing the head message).
+      const floorHeld = status === 'PAUSED' || status === 'THINKING' || status === 'ANSWERING';
+      speechCtlRef.current.floorPausedRef.current = floorHeld;
+      speechCtlRef.current.setFloorPaused(floorHeld);
+
+      // In-flight floor answer: join partway through instead of missing it.
+      const answerPlan = planAnswerRecovery(snap);
+      const answerMsg = answerPlan.action === 'play' ? answerPlan.message : null;
+      if (answerMsg) {
+        console.log('[ncip] recovering in-flight answer at +' + answerPlan.elapsedMs + 'ms (seek ' + answerPlan.seekSec.toFixed(2) + 's)');
+      }
+
+      // Lecture recovery at the canonical server position — never seg 0.
+      const plan = planLectureRecovery(snap, speechCtlRef.current.messages);
+      if (plan.action === 'resume') {
+        if (floorHeld) {
+          positionLectureAtCheckpoint(plan.checkpoint, true);
+          if (answerMsg) speechCtlRef.current.prependMessages([answerMsg]);
+        } else {
+          speechCtlRef.current.resumeLecture(plan.checkpoint);
+        }
+      } else if (plan.action === 'reload') {
+        recoverLectureFromSnapshot(plan.checkpoint, floorHeld, answerMsg);
+      } else if (answerMsg) {
+        speechCtlRef.current.prependMessages([answerMsg]);
+      }
     });
 
     // NCIP answer.end: report when this client finishes playing a floor
@@ -923,6 +1117,7 @@ function SceneRoom({ sceneName, baseConfig }) {
       joinedRef.current = true;
       socketRef.current.emit('join', {
         roomId: sceneName,
+        participantId: getParticipantId(),
         name: displayName,
         avatar: userAvatarPath,
         position: config.userStart.position,
@@ -1052,7 +1247,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onVoice={voiceChat.toggleVoice}
             voiceOn={voiceChat.voiceOn}
             language={lectureLang}
-            onLanguage={handleLanguageChange}
+            onLanguage={requestLanguageChange}
             onPickOutfit={(path) => {
               setCurrentAvatarPath(path);
               setShowOutfitList(false);
