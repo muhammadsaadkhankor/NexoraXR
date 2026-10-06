@@ -243,6 +243,20 @@ async function generateSegmentAudio(lectureId, index, text) {
   return { audioPath, lipsync };
 }
 
+// Optional deterministic segment→PDF-page map. Language-independent: it is
+// keyed on the shared logical segment index, not on translated text.
+async function loadSlideMap(lectureId) {
+  const mapPath = path.join(PROFBRAIN_DIR, lectureId, 'slide_map.json');
+  if (!existsSync(mapPath)) return null;
+  try {
+    const map = JSON.parse(await fs.readFile(mapPath, 'utf-8'));
+    return map?.segments && typeof map.segments === 'object' ? map.segments : null;
+  } catch (err) {
+    console.error(`[segments] slide_map invalid for ${lectureId}:`, err);
+    return null;
+  }
+}
+
 async function loadLectureManifest(lectureId, lang = 'en') {
   const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
   if (!existsSync(summaryPath)) {
@@ -250,6 +264,7 @@ async function loadLectureManifest(lectureId, lang = 'en') {
   }
 
   const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
+  const slideMap = await loadSlideMap(lectureId);
   // Language-keyed cache dir: English keeps the original layout, translated
   // lectures get their own audio/lipsync cache (e.g. segments/Lecture_1__ar).
   const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
@@ -315,6 +330,7 @@ async function loadLectureManifest(lectureId, lang = 'en') {
       facialExpression: EXPRESSIONS[i % EXPRESSIONS.length],
       audioUrl: `/api/lecture/segment_audio/${cacheKey}/${i}`,
       lipsync,
+      slidePage: slideMap ? (Number(slideMap[String(i)]) || null) : null,
     });
   }
 
@@ -506,6 +522,7 @@ router.get('/lecture/pdf/:lectureId', (req, res) => {
 router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   const { lectureId } = req.params;
   const course = req.query.course || 'Multimedia';
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const pdfPath = findLecturePdf(lectureId, course);
   if (!pdfPath || !existsSync(pdfPath)) {
     console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} course=${course}`);
@@ -513,13 +530,15 @@ router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   }
 
   await ensureCacheDir();
-  const outBase = path.join(CACHE_DIR, `${course}_${lectureId}_slide`);
+  // Page 1 keeps the legacy cache filename; other pages get a per-page key.
+  const suffix = page === 1 ? '' : `_p${page}`;
+  const outBase = path.join(CACHE_DIR, `${course}_${lectureId}_slide${suffix}`);
   const outPng = `${outBase}.png`;
 
   if (!existsSync(outPng)) {
     try {
       await execCommand({
-        command: `pdftoppm -png -f 1 -l 1 -r 96 -singlefile "${pdfPath}" "${outBase}"`,
+        command: `pdftoppm -png -f ${page} -l ${page} -r 96 -singlefile "${pdfPath}" "${outBase}"`,
       });
     } catch (err) {
       console.error(`[lecture/pdf_image] Failed for ${lectureId}:`, err);

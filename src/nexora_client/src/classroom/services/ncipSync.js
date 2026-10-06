@@ -136,4 +136,15 @@ export function planLanguageSwitch(messages, hintSegmentIndex) {
   return { segmentIndex: curIdx, headIsLecture: pos === 0 };
 }
 
+// Deterministic slide resolution: the current lecture segment's slidePage,
+// else the last valid page, else 1. During Q&A the head is an answer, so the
+// first lecture message in the queue still anchors the correct slide.
+export function resolveSlidePage(messages, lastPage) {
+  const lect = (messages || []).find(
+    (m) => m.type === 'lecture' && Number.isInteger(m.slidePage)
+  );
+  if (lect) return lect.slidePage;
+  return Number.isInteger(lastPage) && lastPage >= 1 ? lastPage : 1;
+}
+
 export { lectureSegmentIndex };

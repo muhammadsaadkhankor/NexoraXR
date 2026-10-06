@@ -14,7 +14,7 @@ import ContinuousRecorder from './components/ContinuousRecorder';
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
-import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch } from './services/ncipSync';
+import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage } from './services/ncipSync';
 import { API_URL } from '../shared/config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
@@ -633,6 +633,16 @@ function SceneRoom({ sceneName, baseConfig }) {
   const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef } = useSpeech();
   const speechCtlRef = useRef({});
   speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages };
+
+  // Slide follows the current lecture segment's slidePage. The head during
+  // Q&A is an answer, so resolveSlidePage anchors on the first lecture
+  // message in the queue; the last resolved page persists as fallback.
+  const slidePageRef = useRef(1);
+  const slidePage = useMemo(() => {
+    const p = resolveSlidePage(messages, slidePageRef.current);
+    slidePageRef.current = p;
+    return p;
+  }, [messages]);
   const languageChangeRef = useRef(null);
   // Refs so the once-registered socket handlers always see current values.
   const myIdRef = useRef(null);
@@ -698,6 +708,7 @@ function SceneRoom({ sceneName, baseConfig }) {
           animation: seg.animation || 'explain',
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
+          slidePage: seg.slidePage ?? null,
         });
       });
       setLectureStatus('teaching');
@@ -755,6 +766,7 @@ function SceneRoom({ sceneName, baseConfig }) {
           animation: seg.animation || 'explain',
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
+          slidePage: seg.slidePage ?? null,
         }));
       if (seq !== langSwitchSeqRef.current || !segs.length) return;
 
@@ -847,6 +859,7 @@ function SceneRoom({ sceneName, baseConfig }) {
           animation: seg.animation || 'explain',
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
+          slidePage: seg.slidePage ?? null,
         }));
       if (!segs.length) return;
       segs[0].resumeAt = cp.playbackOffsetMs / 1000;
@@ -1329,6 +1342,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             defaultLookAt={config.defaultLookAt}
             modelTransform={config.modelTransform}
             lectureId={lectureId}
+            slidePage={slidePage}
             remoteStreams={voiceChat.remoteStreams}
           />
         </Suspense>

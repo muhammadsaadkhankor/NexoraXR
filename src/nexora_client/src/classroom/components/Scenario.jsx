@@ -53,12 +53,12 @@ class SlideErrorBoundary extends Component {
   }
 }
 
-function LectureSlide({ lectureId, position, quaternion, scale }) {
+function LectureSlide({ lectureId, page = 1, position, quaternion, scale }) {
   if (!isValidLectureId(lectureId)) {
     return null;
   }
 
-  const texture = useTexture(`${SLIDE_API_BASE}/${lectureId}`);
+  const texture = useTexture(`${SLIDE_API_BASE}/${lectureId}?page=${page}`);
 
   useEffect(() => {
     if (texture) {
@@ -145,6 +145,7 @@ export const Scenario = ({
   defaultLookAt = [0, 0, 0],
   modelTransform = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
   lectureId = null,
+  slidePage = 1,
   remoteStreams = {},
 }) => {
   const cameraControls = useRef();
@@ -300,7 +301,7 @@ export const Scenario = ({
       {isValidLectureId(lectureId) && (
         <SlideErrorBoundary {...slideTransform}>
           <Suspense fallback={null}>
-            <LectureSlide lectureId={lectureId} {...slideTransform} />
+            <LectureSlide lectureId={lectureId} page={slidePage} {...slideTransform} />
           </Suspense>
         </SlideErrorBoundary>
       )}

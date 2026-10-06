@@ -9,6 +9,7 @@ import {
   planLectureRecovery,
   snapshotLanguage,
   planLanguageSwitch,
+  resolveSlidePage,
   snapshotFloor,
 } from './ncipSync.js';
 
@@ -234,4 +235,32 @@ test('L3. empty queue uses server hint — never falls back to 0', () => {
 test('L4. malformed hint ignored when local position exists', () => {
   const msgs = [seg('Lecture_1', 2)];
   assert.equal(planLanguageSwitch(msgs, 'x').segmentIndex, 2);
+});
+
+// --- slide sync (segment→PDF page resolution) --------------------------------
+
+test('S1. slidePage comes from the current lecture head', () => {
+  const msgs = [{ id: 'L_seg_0', type: 'lecture', slidePage: 1 }];
+  assert.equal(resolveSlidePage(msgs, null), 1);
+  const msgs5 = [{ id: 'L_seg_5', type: 'lecture', slidePage: 14 }];
+  assert.equal(resolveSlidePage(msgs5, 1), 14);
+});
+
+test('S2. Q&A answer head keeps the interrupted segment slide', () => {
+  const msgs = [
+    { id: 'ans', type: 'answer' },
+    { id: 'L_seg_6', type: 'lecture', slidePage: 26 },
+  ];
+  assert.equal(resolveSlidePage(msgs, 14), 26);
+});
+
+test('S3. no lecture message / no mapping → keep last valid page', () => {
+  assert.equal(resolveSlidePage([{ id: 'ans', type: 'answer' }], 30), 30);
+  assert.equal(resolveSlidePage([{ id: 'L_seg_2', type: 'lecture', slidePage: null }], 30), 30);
+  assert.equal(resolveSlidePage([], 30), 30);
+});
+
+test('S4. nothing ever resolved → page 1', () => {
+  assert.equal(resolveSlidePage([], null), 1);
+  assert.equal(resolveSlidePage([{ id: 'ans', type: 'answer' }], undefined), 1);
 });
