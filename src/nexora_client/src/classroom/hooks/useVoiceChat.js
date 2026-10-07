@@ -114,7 +114,12 @@ export function useVoiceChat() {
     socketRef.current = socket;
     socket.on('webrtc-signal', (msg) => handleSignal(msg));
     socket.on('user-joined', (player) => {
-      if (voiceOnRef.current && player?.userId) callPeer(player.userId);
+      if (!voiceOnRef.current || !player?.userId) return;
+      // A rejoining user (grace-window reconnect or fresh socket) arrives with
+      // a brand-new peer context — drop any stale RTCPeerConnection so the
+      // offer restarts cleanly instead of hitting the early-return guard.
+      if (peersRef.current.has(player.userId)) dropPeer(player.userId);
+      callPeer(player.userId);
     });
     socket.on('user-left', ({ userId }) => dropPeer(userId));
   }, [callPeer, dropPeer, handleSignal]);

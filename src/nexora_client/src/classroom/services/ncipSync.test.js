@@ -264,3 +264,39 @@ test('S4. nothing ever resolved → page 1', () => {
   assert.equal(resolveSlidePage([], null), 1);
   assert.equal(resolveSlidePage([{ id: 'ans', type: 'answer' }], undefined), 1);
 });
+
+// ---------------------------------------------------------------------------
+// Speech-recognition language mapping (V1 language lock)
+// ---------------------------------------------------------------------------
+
+import { SPEECH_RECOGNITION_LANGS } from '../../shared/config.js';
+
+test('recognition map covers every supported room language with BCP-47 codes', () => {
+  assert.equal(SPEECH_RECOGNITION_LANGS.en, 'en-US');
+  assert.equal(SPEECH_RECOGNITION_LANGS.ar, 'ar-SA');
+  assert.equal(SPEECH_RECOGNITION_LANGS.fr, 'fr-FR');
+  assert.equal(SPEECH_RECOGNITION_LANGS.de, 'de-DE');
+  assert.equal(SPEECH_RECOGNITION_LANGS.es, 'es-ES');
+  assert.equal(SPEECH_RECOGNITION_LANGS.zh, 'zh-CN'); // zh verified working
+  assert.equal(SPEECH_RECOGNITION_LANGS.hi, undefined); // hi intentionally excluded
+});
+
+// ---------------------------------------------------------------------------
+// Create Classroom form validation (V1 unified public/private creation)
+// ---------------------------------------------------------------------------
+
+import { CLASSROOM_LANGUAGES, validateClassroomDraft } from '../../shared/config.js';
+
+test('classroom draft validation: name, lectureId charset, known language', () => {
+  assert.equal(validateClassroomDraft({ className: 'CV Study', lectureId: 'Lecture_1', language: 'ar' }), true);
+  assert.equal(validateClassroomDraft({ className: '', lectureId: 'Lecture_1', language: 'en' }), false);
+  assert.equal(validateClassroomDraft({ className: 'c', lectureId: '../x', language: 'en' }), false);
+  assert.equal(validateClassroomDraft({ className: 'c', lectureId: 'Lecture_1', language: 'hi' }), false); // hi not offered
+  assert.equal(validateClassroomDraft({ className: 'c', lectureId: 'Lecture_1', language: 'zh' }), true);
+});
+
+test('classroom languages offer zh but not hi', () => {
+  const codes = CLASSROOM_LANGUAGES.map((l) => l.code);
+  assert.ok(codes.includes('zh'));
+  assert.ok(!codes.includes('hi'));
+});

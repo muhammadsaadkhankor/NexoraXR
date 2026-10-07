@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages } from 'lucide-react';
+import { User, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages, Lock, Copy } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -15,7 +15,7 @@ import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage } from './services/ncipSync';
-import { API_URL } from '../shared/config';
+import { API_URL, getParticipantId } from '../shared/config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
 
@@ -32,20 +32,7 @@ const USER_AVATARS = [
 ];
 
 const DISPLAY_NAME_KEY = 'nexoraxr_display_name';
-const PARTICIPANT_ID_KEY = 'nexoraxr_participant_id';
 const MAX_NAME_LENGTH = 30;
-
-// NCIP Slice 4: stable per-tab participant identity. Persists in
-// sessionStorage across reconnects/refreshes so the server can rebind the
-// same participant to a new socket instead of treating it as a new student.
-function getParticipantId() {
-  let pid = sessionStorage.getItem(PARTICIPANT_ID_KEY);
-  if (!pid) {
-    pid = (crypto.randomUUID?.() || `p_${Date.now()}_${Math.random().toString(36).slice(2)}`);
-    sessionStorage.setItem(PARTICIPANT_ID_KEY, pid);
-  }
-  return pid;
-}
 
 function NameEntryModal({ onSubmit }) {
   const [value, setValue] = useState('');
@@ -211,6 +198,19 @@ function ClassroomPanel({
   voiceOn,
   language = 'en',
   onLanguage,
+  canCatchUp = false,
+  onCatchUp,
+  onCreatePrivate,
+  creatingPrivate = false,
+  canCreatePrivate = false,
+  isPrivateRoom = false,
+  isRoomHost = false,
+  pauseReason = null,
+  onCopyInvite,
+  inviteCopied = false,
+  onHostPause,
+  onHostResume,
+  onHostEnd,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
@@ -223,6 +223,8 @@ function ClassroomPanel({
     { code: 'fr', label: 'Français' },
     { code: 'de', label: 'Deutsch' },
     { code: 'es', label: 'Español' },
+    { code: 'zh', label: '中文' },
+    // 'hi' intentionally not offered — VoxCPM2 Hindi output is unverified/garbled.
   ];
   const currentLangLabel = LANGUAGES.find((l) => l.code === language)?.label || 'English';
 
@@ -325,6 +327,22 @@ function ClassroomPanel({
                   />
                 </button>
 
+                {canCatchUp && (
+                  <button
+                    onClick={() => {
+                      onCatchUp?.();
+                      setHandMenuOpen(false);
+                    }}
+                    className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
+                  >
+                    <RotateCcw size={18} className='text-violet-300' />
+                    <div className='flex-1 leading-tight'>
+                      <p className='text-sm font-semibold'>Catch Me Up</p>
+                      <p className='text-[11px] text-slate-400'>Recap what you missed since joining</p>
+                    </div>
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     if (handRaised || isActiveSpeaker) onToggleHand();
@@ -425,6 +443,35 @@ function ClassroomPanel({
             </div>
           </button>
 
+          {!isPrivateRoom && (
+            <button
+              onClick={onCreatePrivate}
+              disabled={creatingPrivate || !canCreatePrivate}
+              title='Create a private room and get an invite link'
+              className={`${pillBase} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <Lock size={20} className='text-violet-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>{creatingPrivate ? 'Creating…' : 'Private Room'}</p>
+                <p className='text-[11px] text-slate-400'>Invite-only session</p>
+              </div>
+            </button>
+          )}
+
+          {isPrivateRoom && onCopyInvite && (
+            <button
+              onClick={onCopyInvite}
+              title='Generate a fresh single-use invite link'
+              className={pillBase}
+            >
+              <Copy size={20} className={inviteCopied ? 'text-emerald-300' : 'text-violet-300'} />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>{inviteCopied ? 'Copied!' : 'New Invite'}</p>
+                <p className='text-[11px] text-slate-400'>One-time link</p>
+              </div>
+            </button>
+          )}
+
           <div className='relative'>
             <button
               onClick={() => setLangMenuOpen((v) => !v)}
@@ -465,18 +512,62 @@ function ClassroomPanel({
             )}
           </div>
 
-          <button
-            onClick={onStart}
-            disabled={!canStart}
-            className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
-              state === 'teaching' || state === 'loading'
-                ? 'cursor-not-allowed bg-slate-700 text-slate-300'
-                : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
-            }`}
-          >
-            <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
-            {buttonLabel}
-          </button>
+          {(!isPrivateRoom || isRoomHost) && (
+            <button
+              onClick={onStart}
+              disabled={!canStart}
+              className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
+                state === 'teaching' || state === 'loading'
+                  ? 'cursor-not-allowed bg-slate-700 text-slate-300'
+                  : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+              }`}
+            >
+              <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+              {buttonLabel}
+            </button>
+          )}
+
+          {/* Host lecture lifecycle — private rooms only (server-enforced). */}
+          {isPrivateRoom && isRoomHost && professorStatus === 'LECTURING' && (
+            <button
+              onClick={onHostPause}
+              title='Pause the lecture for discussion'
+              className={`${pillBase} border border-amber-500/40`}
+            >
+              <Hand size={18} className='text-amber-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>Pause</p>
+                <p className='text-[11px] text-slate-400'>Discussion break</p>
+              </div>
+            </button>
+          )}
+          {isPrivateRoom && isRoomHost && professorStatus === 'PAUSED' && pauseReason === 'host' && (
+            <button
+              onClick={onHostResume}
+              title='Resume the lecture from the pause point'
+              className={`${pillBase} border border-emerald-500/40`}
+            >
+              <Play size={18} className='text-emerald-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>Resume</p>
+                <p className='text-[11px] text-slate-400'>Continue lecture</p>
+              </div>
+            </button>
+          )}
+          {isPrivateRoom && isRoomHost &&
+            ['LECTURING', 'PAUSED', 'THINKING', 'ANSWERING', 'RESUMING'].includes(professorStatus) && (
+            <button
+              onClick={onHostEnd}
+              title='End the lecture for everyone'
+              className={`${pillBase} border border-rose-500/40`}
+            >
+              <X size={18} className='text-rose-300' />
+              <div className='leading-tight'>
+                <p className='text-xs font-semibold'>End Class</p>
+                <p className='text-[11px] text-slate-400'>Stop lecture</p>
+              </div>
+            </button>
+          )}
         </div>
 
         {error && (
@@ -523,6 +614,9 @@ function SceneRoom({ sceneName, baseConfig }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const lectureId = searchParams.get('lecture');
+  // Private-room admission params (invite links carry ?room=&invite=).
+  const privateRoomId = searchParams.get('room');
+  const inviteToken = searchParams.get('invite');
 
   const runtimeConfig = useMemo(() => {
     const m = runtimeConfigModules[`./scenes/configs/${sceneName}.json`];
@@ -615,6 +709,48 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [professorStatus, setProfessorStatus] = useState('IDLE');
   const [floorAnswering, setFloorAnswering] = useState(false);
   const [floorError, setFloorError] = useState(null);
+  // Server-authoritative: this participant joined a lecture already underway
+  // and has a recap anchor — offered via the hand menu ("Catch me up").
+  const [canCatchUp, setCanCatchUp] = useState(false);
+  // Private-room flow: access errors replace the scene; created invite links
+  // are shown to the host for sharing.
+  const [accessError, setAccessError] = useState(null);
+  // The invite banner is shown only to the creator: the URL is stored under a
+  // per-room sessionStorage key set at creation time, so guests who open the
+  // same link never see a "you created this" banner.
+  const [privateInviteUrl, setPrivateInviteUrl] = useState(() =>
+    privateRoomId ? sessionStorage.getItem(`nexoraxr_invite_${privateRoomId}`) : null);
+  const [creatingPrivate, setCreatingPrivate] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  // Private-room guest admission: guests wait for host approval; the host sees
+  // pending requests and approves/declines each one.
+  const [joinPending, setJoinPending] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [roomMeta, setRoomMeta] = useState(null); // {roomId, roomType, hostId} from snapshot
+  const [pauseReason, setPauseReason] = useState(null); // 'host' during a host discussion pause
+  const isPrivateRoom = roomMeta?.roomType === 'private';
+  const isRoomHost = isPrivateRoom && roomMeta?.hostId === getParticipantId();
+
+  // Invite links are single-use: the host mints a fresh one on each share
+  // (server rotates the token). Guests never see this control.
+  const copyInvite = useCallback(async () => {
+    if (!privateRoomId) return;
+    try {
+      const res = await fetch(`${API_URL}/api/rooms/${privateRoomId}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hostId: getParticipantId() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate invite');
+      await navigator.clipboard?.writeText(`${window.location.origin}${data.inviteUrl}`);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2000);
+    } catch (err) {
+      console.error('[invite]', err);
+      setLectureError(err.message || 'Could not generate invite link');
+    }
+  }, [privateRoomId]);
   const [sceneReady, setSceneReady] = useState(false);
   const canvasRef = useRef(null);
   const socketRef = useRef(null);
@@ -630,7 +766,7 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, setRecognitionLang } = useSpeech();
   const speechCtlRef = useRef({});
   speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages };
 
@@ -675,6 +811,12 @@ function SceneRoom({ sceneName, baseConfig }) {
     clearMessages();
   }, [lectureId]);
 
+  // Speech recognition follows the authoritative room language so student
+  // voice questions are transcribed in the language actually spoken.
+  useEffect(() => {
+    setRecognitionLang(lectureLang);
+  }, [lectureLang, setRecognitionLang]);
+
   useEffect(() => {
     return () => {
       clearMessages();
@@ -689,6 +831,10 @@ function SceneRoom({ sceneName, baseConfig }) {
     clearMessages();
     setLectureStatus('loading');
     setLectureError(null);
+    // Replay of the same lectureId restarts at segment 0 — tell the server the
+    // previous playthrough ended so playback position and recap anchors reset
+    // (without this, the monotonic guard would reject the restart's seg 0).
+    socketRef.current?.emit('lecture-ended');
 
     try {
       const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lectureLang}`);
@@ -863,6 +1009,9 @@ function SceneRoom({ sceneName, baseConfig }) {
         }));
       if (!segs.length) return;
       segs[0].resumeAt = cp.playbackOffsetMs / 1000;
+      // This head resumes mid-segment at a position the server already tracks
+      // — it must not be reported as a new segment start.
+      segs[0].skipPlaybackReport = true;
       // The queue is being rebuilt wholesale — invalidate the old head's
       // audio handlers before replacement to avoid a stale 'ended' pop.
       speechCtlRef.current.stopAudio();
@@ -961,16 +1110,34 @@ function SceneRoom({ sceneName, baseConfig }) {
     socket.on('floor-ready', (data) => applyNcip(data, () => {
       floorReadyRef.current = true;
       if (pendingQuestionRef.current) {
-        const question = pendingQuestionRef.current;
+        const pending = pendingQuestionRef.current;
         pendingQuestionRef.current = null;
+        // pending is either a plain question string or a recap request object.
         setFloorAnswering(true); // optimistic until the 'thinking' broadcast
-        socket.emit('ask-floor-question', { question, lectureId: lectureIdRef.current });
+        const payload = typeof pending === 'string' ? { question: pending } : pending;
+        socket.emit('ask-floor-question', { ...payload, lectureId: lectureIdRef.current });
       }
     }));
+
+    // Private-room admission: guest parked awaiting host approval.
+    socket.on('join-pending', () => setJoinPending(true));
+
+    // Host receives each pending guest request (private rooms only).
+    socket.on('private-join-request', ({ name, socketId }) => {
+      if (!socketId) return;
+      setPendingRequests((l) => (l.some((r) => r.socketId === socketId) ? l : [...l, { name, socketId }]));
+    });
 
     socket.on('join-error', (data) => {
       console.warn('[client] join rejected:', data?.error);
       joinedRef.current = false;
+      if (data?.private) {
+        // Private-room rejection: show the access error, don't bounce the user
+        // back to the name prompt (a name can't fix a bad invite).
+        setJoinPending(false);
+        setAccessError(data.error || 'Invalid or expired invite link.');
+        return;
+      }
       sessionStorage.removeItem(DISPLAY_NAME_KEY);
       setDisplayName(null);
     });
@@ -1002,7 +1169,21 @@ function SceneRoom({ sceneName, baseConfig }) {
 
     socket.on('lecture-control', (data) => applyNcip(data, () => {
       console.log('[client] lecture-control received:', data?.action);
-      if (data?.action === 'pause-for-floor') {
+      if (data?.action === 'pause-for-host') {
+        // Host discussion pause (private rooms): same local pause as a floor
+        // pause, but no checkpoint report — the server already projected the
+        // canonical position.
+        speechCtlRef.current.pauseLectureForFloor();
+      } else if (data?.action === 'control-error') {
+        setFloorError(data?.error || 'Lecture control rejected.');
+      } else if (data?.action === 'end') {
+        // Host ended the class (private room): stop and clear local playback.
+        speechCtlRef.current.floorPausedRef.current = false;
+        speechCtlRef.current.setFloorPaused(false);
+        speechCtlRef.current.clearMessages();
+        setLectureStatus('idle');
+        setFloorAnswering(false);
+      } else if (data?.action === 'pause-for-floor') {
         const cp = speechCtlRef.current.pauseLectureForFloor();
         // Only the holder reports the canonical checkpoint; a null
         // segmentIndex means "no lecture playing locally" but still counts
@@ -1065,6 +1246,10 @@ function SceneRoom({ sceneName, baseConfig }) {
       setActiveSpeaker(activeSpeaker);
       const status = snap?.professor?.status || 'IDLE';
       setProfessorStatus(status);
+      setCanCatchUp(snap?.canCatchUp === true);
+      setRoomMeta(snap?.room || null); // roomType/hostId for private-room UI
+      setPauseReason(snap?.interruption?.pauseReason || null);
+      setJoinPending(false); // snapshot = admitted
       setFloorAnswering(status === 'THINKING' || status === 'ANSWERING');
       if (activeSpeaker?.userId !== myIdRef.current) floorReadyRef.current = false;
 
@@ -1119,6 +1304,10 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   useEffect(() => {
     if (!message || message.fromRemote) return;
+    // skipPlaybackReport: recovered snapshot heads re-enter the queue at a
+    // position the server already knows — re-emitting them as a segment-start
+    // report would corrupt the room's authoritative playback position.
+    if (message.skipPlaybackReport) return;
     if (!message.id) return;
     if (lastEmittedMessageIdRef.current.has(message.id)) return;
     lastEmittedMessageIdRef.current.add(message.id);
@@ -1129,7 +1318,9 @@ function SceneRoom({ sceneName, baseConfig }) {
     if (myId && displayName && !joinedRef.current && socketRef.current?.connected) {
       joinedRef.current = true;
       socketRef.current.emit('join', {
-        roomId: sceneName,
+        roomId: privateRoomId || sceneName,
+        room: privateRoomId || undefined,
+        invite: inviteToken || undefined,
         participantId: getParticipantId(),
         name: displayName,
         avatar: userAvatarPath,
@@ -1138,7 +1329,7 @@ function SceneRoom({ sceneName, baseConfig }) {
         animation: config.userStart.animation,
       });
     }
-  }, [myId, displayName, sceneName, userAvatarPath, config]);
+  }, [myId, displayName, sceneName, privateRoomId, inviteToken, userAvatarPath, config]);
 
   const onSceneReady = useCallback(() => {
     setSceneReady(true);
@@ -1188,6 +1379,57 @@ function SceneRoom({ sceneName, baseConfig }) {
     }
   }, [handRaised, isActiveSpeaker]);
 
+  // "Catch me up": a late joiner takes the floor and asks the professor to
+  // recap what they missed. Reuses the normal floor pipeline — the request is
+  // held in pendingQuestionRef and submitted when 'floor-ready' arrives, or
+  // immediately if this client already holds a ready floor.
+  const requestCatchUp = useCallback(() => {
+    if (!canCatchUp) return;
+    setFloorError(null);
+    const recap = { kind: 'recap', question: 'Summarize what I missed.' };
+    if (isActiveSpeaker && floorReadyRef.current) {
+      setFloorAnswering(true); // optimistic until the 'thinking' broadcast
+      socketRef.current?.emit('ask-floor-question', { ...recap, lectureId: lectureIdRef.current });
+    } else {
+      pendingQuestionRef.current = recap;
+      if (!isActiveSpeaker) socketRef.current?.emit('request-floor');
+    }
+  }, [canCatchUp, isActiveSpeaker]);
+
+  // Create a private room bound to the currently selected lecture/language —
+  // the server returns an invite URL; the host navigates into the private
+  // room and gets the shareable link to copy.
+  const createPrivateRoom = async () => {
+    if (!lectureId || creatingPrivate) return;
+    setCreatingPrivate(true);
+    try {
+      const res = await fetch(`${API_URL}/api/rooms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          className: lectureTitle || lectureId,
+          courseId: sceneName,
+          lectureId,
+          language: lectureLang,
+          roomType: 'private',
+          hostId: getParticipantId(),
+          scene: sceneName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create private room');
+      const fullUrl = `${window.location.origin}${data.inviteUrl}`;
+      sessionStorage.setItem(`nexoraxr_invite_${data.roomId}`, fullUrl);
+      setPrivateInviteUrl(fullUrl);
+      navigate(data.inviteUrl); // host enters the private room
+    } catch (err) {
+      console.error('[private-room]', err);
+      setLectureError(err.message || 'Failed to create private room');
+    } finally {
+      setCreatingPrivate(false);
+    }
+  };
+
   const raisedHands = useMemo(() => new Set(floorQueue.map((p) => p.userId)), [floorQueue]);
 
   const OUTFITS = [
@@ -1199,9 +1441,89 @@ function SceneRoom({ sceneName, baseConfig }) {
     { path: '/assets/avatar/ProfRalf.glb', label: 'Prof Ralf' },
   ];
 
+  if (accessError) {
+    return (
+      <div className='flex h-screen w-screen flex-col items-center justify-center bg-slate-950 text-slate-100'>
+        <Lock size={40} className='mb-4 text-violet-400' />
+        <h2 className='text-xl font-bold'>Private room</h2>
+        <p className='mt-2 max-w-sm text-center text-sm text-slate-400'>{accessError}</p>
+        <a href='/' className='mt-6 rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800'>
+          Back to courses
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
       <LoadingOverlay visible={!sceneReady} />
+
+      {privateInviteUrl && (
+        <div className='fixed inset-x-0 top-3 z-50 flex justify-center px-4'>
+          <div className='flex max-w-full items-center gap-3 rounded-xl border border-violet-500/40 bg-slate-900/95 px-4 py-2.5 shadow-2xl backdrop-blur'>
+            <Lock size={16} className='shrink-0 text-violet-300' />
+            <div className='min-w-0'>
+              <p className='text-xs font-semibold text-white'>Private room created</p>
+              <p className='truncate text-[11px] text-slate-400'>{privateInviteUrl}</p>
+            </div>
+            <button
+              onClick={() => navigator.clipboard?.writeText(privateInviteUrl)}
+              title='Copy invite link'
+              className='flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500'
+            >
+              <Copy size={13} /> Copy link
+            </button>
+            <button
+              onClick={() => setPrivateInviteUrl(null)}
+              className='shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white'
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Guest waiting on host approval (private rooms) */}
+      {joinPending && (
+        <div className='fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 text-slate-100 backdrop-blur'>
+          <Loader2 size={36} className='mb-4 animate-spin text-violet-400' />
+          <h2 className='text-lg font-bold'>Waiting for the host…</h2>
+          <p className='mt-1 text-sm text-slate-400'>The host must approve your request to join this private room.</p>
+        </div>
+      )}
+
+      {/* Host: pending guest approval requests (private rooms) */}
+      {pendingRequests.length > 0 && (
+        <div className='fixed bottom-24 right-4 z-50 flex w-80 flex-col gap-2'>
+          {pendingRequests.map((r) => (
+            <div key={r.socketId} className='flex items-center gap-3 rounded-xl border border-violet-500/40 bg-slate-900/95 px-4 py-3 shadow-2xl'>
+              <User size={18} className='shrink-0 text-violet-300' />
+              <div className='min-w-0 flex-1'>
+                <p className='truncate text-sm font-semibold text-white'>{r.name || 'Guest'}</p>
+                <p className='text-[11px] text-slate-400'>wants to join this private room</p>
+              </div>
+              <button
+                className='rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500'
+                onClick={() => {
+                  socketRef.current?.emit('private-join-decision', { socketId: r.socketId, accept: true });
+                  setPendingRequests((l) => l.filter((x) => x.socketId !== r.socketId));
+                }}
+              >
+                Accept
+              </button>
+              <button
+                className='rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-600'
+                onClick={() => {
+                  socketRef.current?.emit('private-join-decision', { socketId: r.socketId, accept: false });
+                  setPendingRequests((l) => l.filter((x) => x.socketId !== r.socketId));
+                }}
+              >
+                Decline
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {!displayName && (
         <NameEntryModal
@@ -1261,6 +1583,19 @@ function SceneRoom({ sceneName, baseConfig }) {
             voiceOn={voiceChat.voiceOn}
             language={lectureLang}
             onLanguage={requestLanguageChange}
+            canCatchUp={canCatchUp}
+            onCatchUp={requestCatchUp}
+            onCreatePrivate={createPrivateRoom}
+            creatingPrivate={creatingPrivate}
+            canCreatePrivate={!!lectureId && !privateRoomId}
+            isPrivateRoom={isPrivateRoom}
+            isRoomHost={isRoomHost}
+            pauseReason={pauseReason}
+            onCopyInvite={isRoomHost ? copyInvite : null}
+            inviteCopied={inviteCopied}
+            onHostPause={() => socketRef.current?.emit('lecture-control', { action: 'pause' })}
+            onHostResume={() => socketRef.current?.emit('lecture-control', { action: 'resume' })}
+            onHostEnd={() => socketRef.current?.emit('lecture-control', { action: 'end' })}
             onPickOutfit={(path) => {
               setCurrentAvatarPath(path);
               setShowOutfitList(false);

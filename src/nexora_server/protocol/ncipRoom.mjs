@@ -17,7 +17,9 @@ export const ProfessorStatus = Object.freeze({
 
 // Room-wide languages — must stay in sync with LECTURE_LANGUAGES in
 // nexora_ai/routes/lectureRoutes.mjs and the client LANGUAGES list.
-export const SUPPORTED_LANGUAGES = Object.freeze(['en', 'ar', 'fr', 'de', 'es']);
+export const SUPPORTED_LANGUAGES = Object.freeze(['en', 'ar', 'fr', 'de', 'es', 'zh']);
+// 'hi' intentionally excluded — VoxCPM2 Hindi output verified garbled; re-add
+// only with a verified Hindi-capable TTS backend/voice.
 
 const ev = (event, data, to = 'room') => ({ to, event, data });
 const FLOOR_STATE = { to: 'room', event: 'floor-state' };
@@ -27,11 +29,20 @@ const pauseCtl = (userId) =>
 export class NcipRoom {
   constructor(roomId) {
     this.roomId = roomId;
+    // 'public' (sceneName-derived) or 'private' (registry-created, invite-only).
+    // Set by the server on first admission; protocol behavior is identical.
+    this.roomType = 'public';
     this.floor = { holder: null, queue: [] };
     this.professor = { status: ProfessorStatus.IDLE };
     // Single canonical checkpoint — written once per floor grant, only by the
     // current floor holder. First write wins until the floor advances.
-    this.interruption = { checkpoint: null };
+    this.interruption = {
+      checkpoint: null,
+      // 'host' while the room is paused by the room host for discussion
+      // (private rooms). null during normal play or a floor interruption —
+      // keeps a host pause unambiguous from a student question pause.
+      pauseReason: null,
+    };
     // { id, startedAt, durationMs } — server timing is authoritative for when
     // the answer ends; client 'answer-ended' events are fallback telemetry.
     this.currentAnswer = null;
@@ -40,6 +51,12 @@ export class NcipRoom {
     // Feeds the snapshot when no floor interruption checkpoint exists so
     // late joiners can recover an in-progress lecture.
     this.playback = null; // {lectureId, segmentIndex, playbackOffsetMs, language, reportedAt}
+    // V1 catch-up: per-participant anchor = the canonical lecture position the
+    // participant synchronized to on FIRST join. Keyed by stable participantId
+    // (sessionStorage on the client), so it survives reconnects and even
+    // participant-record expiry; cleared when a different lecture starts or
+    // the current one definitively ends. Never overwritten once set.
+    this.recapAnchors = new Map(); // pid -> {lectureId, segmentIndex, playbackOffsetMs}
     // NCIP Slice 3: one authoritative room-wide lecture language.
     this.language = { roomLanguage: 'en' };
     // NCIP Slice 5: server-authoritative floor timeout. The deadline is
@@ -115,7 +132,81 @@ export class NcipRoom {
       disconnectedAt: null,
     });
     this._bump();
+    this._recordRecapAnchor(pid, now);
     return { isNew: true, reconnected: false };
+  }
+
+  // ---- catch-up anchors (V1 recap) ----------------------------------------
+
+  // The position a joining client will converge to — identical logic to the
+  // lecture fields of snapshot(): the canonical interruption checkpoint when
+  // one exists (PAUSED/THINKING/ANSWERING), else the live playback position
+  // projected forward while LECTURING.
+  _effectivePosition(now = Date.now()) {
+    const cp = this.interruption.checkpoint;
+    if (cp && cp.lectureId != null && cp.segmentIndex != null) {
+      return {
+        lectureId: cp.lectureId,
+        segmentIndex: cp.segmentIndex,
+        playbackOffsetMs: cp.playbackOffsetMs ?? 0,
+      };
+    }
+    const pp = this.playback;
+    if (!this.lectureActive || !pp) return null;
+    return {
+      lectureId: pp.lectureId,
+      segmentIndex: pp.segmentIndex,
+      playbackOffsetMs: pp.playbackOffsetMs +
+        (this.professor.status === ProfessorStatus.LECTURING
+          ? Math.max(0, now - pp.reportedAt)
+          : 0),
+    };
+  }
+
+  // First write wins — reconnects must never move the anchor forward.
+  _recordRecapAnchor(pid, now = Date.now()) {
+    if (this.recapAnchors.has(pid)) return;
+    const pos = this._effectivePosition(now);
+    if (!pos) return; // joined before the lecture started — nothing to miss
+    this.recapAnchors.set(pid, { ...pos, satisfied: false });
+  }
+
+  // Consume the anchor once its recap answer has been committed for the room
+  // (answerReady). Failed or stale generations never reach this point, so the
+  // participant keeps the pending anchor and may retry. The anchor entry is
+  // kept (not deleted) so a post-grace rejoin cannot mint a fresh pending
+  // anchor at the current position.
+  markRecapSatisfied(pid) {
+    const a = this.recapAnchors.get(pid);
+    if (!a || a.satisfied) return;
+    a.satisfied = true;
+    this._bump();
+  }
+
+  // True when this participant joined a lecture already underway, has not yet
+  // received its recap, and the anchor still refers to the current lecture.
+  canCatchUp(pid) {
+    if (this.roomType === 'private') return false; // Catch Me Up is public-only (V1)
+    if (!this.lectureActive) return false;
+    const a = this.recapAnchors.get(pid);
+    if (!a || a.satisfied) return false;
+    const cur = this.interruption.checkpoint?.lectureId ?? this.playback?.lectureId ?? null;
+    return a.lectureId === cur;
+  }
+
+  // The recap payload for /api/recap, or null when the participant has no
+  // valid anchor for the current lecture. Range is [0, anchor.segmentIndex]
+  // inclusive — the join segment is recapped whole; mid-segment granularity
+  // is out of scope for V1.
+  recapRange(pid) {
+    if (!this.canCatchUp(pid)) return null;
+    const a = this.recapAnchors.get(pid);
+    return {
+      lectureId: a.lectureId,
+      language: this.language.roomLanguage,
+      fromSegment: 0,
+      toSegment: a.segmentIndex,
+    };
   }
 
   // Socket dropped: mark offline and open the grace window. Floor/queue
@@ -228,7 +319,7 @@ export class NcipRoom {
             : 0),
         language: cp?.language ?? pp?.language ?? this.language.roomLanguage,
       },
-      interruption: { checkpoint: cp },
+      interruption: { checkpoint: cp, pauseReason: this.interruption.pauseReason },
       language: { roomLanguage: this.language.roomLanguage },
       session: { participants: this.sessionParticipants() },
       currentAnswer: this.currentAnswer ? { ...this.currentAnswer } : null,
@@ -281,6 +372,18 @@ export class NcipRoom {
   // even before any floor interruption has occurred.
   updatePlayback(pid, pos, now = Date.now()) {
     if (!pos || typeof pos.lectureId !== 'string' || !Number.isInteger(pos.segmentIndex)) return [];
+    const cur = this.playback;
+    if (cur && cur.lectureId === pos.lectureId) {
+      // Monotonic within a lecture: every connected client reports every
+      // segment head, so duplicates and late/out-of-order reports must never
+      // rewind the position or reset reportedAt (which would corrupt the
+      // projected playbackOffsetMs in snapshots).
+      if (pos.segmentIndex <= cur.segmentIndex) return [];
+    } else if (cur && cur.lectureId !== pos.lectureId) {
+      // A different lecture starting invalidates all recap anchors — they
+      // name segments of the old lecture.
+      this.recapAnchors.clear();
+    }
     this.playback = {
       lectureId: pos.lectureId,
       segmentIndex: pos.segmentIndex,
@@ -297,11 +400,76 @@ export class NcipRoom {
     return [];
   }
 
-  // The lecture queue drained — live position is no longer valid.
+  // ---- host-controlled manual pause (private rooms) ------------------------
+  //
+  // Distinct from floor interruptions: no floor grant, no question, no
+  // THINKING/ANSWERING — just PAUSED with pauseReason 'host' until the host
+  // resumes from the canonical checkpoint. The checkpoint is projected from
+  // the authoritative playback position (same math as snapshot recovery);
+  // a client roundtrip is unnecessary because segment heads are always
+  // reported at offset 0.
+
+  hostPause(userId, now = Date.now()) {
+    // Only from a clean lecture: a floor PAUSED/THINKING/ANSWERING or an idle
+    // room has nothing for a manual pause to own.
+    if (this.professor.status !== ProfessorStatus.LECTURING) {
+      return { ok: false, error: 'The professor is not lecturing.' };
+    }
+    const pos = this._effectivePosition(now);
+    if (!pos) return { ok: false, error: 'No lecture position to pause at.' };
+    this._bump();
+    this.professor.status = ProfessorStatus.PAUSED;
+    this.interruption.pauseReason = 'host';
+    this.interruption.checkpoint = {
+      ...pos,
+      language: this.language.roomLanguage,
+      reportedBy: userId,
+      reportedAt: now,
+    };
+    return {
+      ok: true,
+      effects: [
+        FLOOR_STATE,
+        ev('lecture-control', { action: 'pause-for-host', host: { userId } }),
+      ],
+    };
+  }
+
+  hostResume(userId) {
+    // Applies ONLY to a host-created pause — never cancels a floor flow.
+    if (this.professor.status !== ProfessorStatus.PAUSED ||
+        this.interruption.pauseReason !== 'host') {
+      return { ok: false, error: 'No host pause is active.' };
+    }
+    this._bump();
+    this.interruption.pauseReason = null;
+    this.professor.status = ProfessorStatus.RESUMING;
+    const effects = [FLOOR_STATE, ...this._resumeEffects()];
+    this.interruption.checkpoint = null;
+    this.professor.status = this.lectureActive
+      ? ProfessorStatus.LECTURING
+      : ProfessorStatus.IDLE;
+    return { ok: true, effects };
+  }
+
+  // The lecture queue drained (or the host ended class) — live position is
+  // no longer valid. A host pause is fully reset so the room can't be left
+  // stuck PAUSED with no resume path; floor-answer flows are untouched.
   endLecture(pid) {
+    if (this.interruption.pauseReason === 'host') {
+      this.interruption.pauseReason = null;
+      this.interruption.checkpoint = null;
+      if (this.professor.status === ProfessorStatus.PAUSED) {
+        this.professor.status = ProfessorStatus.IDLE;
+      }
+      this._bump();
+    }
     this.playback = null;
     const wasActive = this.lectureActive;
     this.lectureActive = false;
+    // The lecture definitively ended — anchors name positions in a finished
+    // playthrough and must not leak into a replay or the next lecture.
+    if (wasActive) this.recapAnchors.clear();
     if (this.professor.status === ProfessorStatus.LECTURING) {
       this.professor.status = ProfessorStatus.IDLE;
       this._bump();
@@ -312,6 +480,9 @@ export class NcipRoom {
   // ---- floor control -----------------------------------------------------
 
   requestFloor(userId) {
+    // A host discussion pause owns the room — the floor cannot be raised
+    // until the host resumes (keeps the two pause kinds unambiguous).
+    if (this.interruption.pauseReason === 'host') return [];
     if (this.floor.holder === userId || this.floor.queue.includes(userId)) {
       return []; // already holding or queued — never duplicated
     }

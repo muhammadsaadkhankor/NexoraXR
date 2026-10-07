@@ -5,7 +5,7 @@ import { createHash } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { generate as generateOllama } from '../modules/ollamaClient.mjs';
-import { getDefaultVoice, synthesize as synthesizeTTS } from '../modules/voxcpmClient.mjs';
+import { getDefaultVoice, synthesize as synthesizeTTS, synthesizeVerified } from '../modules/voxcpmClient.mjs';
 import { wavDurationMs } from '../modules/audioUtils.mjs';
 import { execCommand } from '../utils/files.mjs';
 
@@ -153,6 +153,9 @@ const LECTURE_LANGUAGES = {
   fr: 'French',
   de: 'German',
   es: 'Spanish',
+  zh: 'Chinese',
+  // 'hi' intentionally absent — VoxCPM2 produces garbled Hindi (verified);
+  // re-enable only with a verified Hindi-capable voice/model.
 };
 
 function normalizeLang(lang) {
@@ -180,7 +183,14 @@ function cleanTextForTts(text) {
     .trim();
 }
 
-async function generateSegmentAudio(lectureId, index, text) {
+// Derive the language from a segment cacheKey ('Lecture_1' => 'en',
+// 'Lecture_1__ar' => 'ar') so verified synthesis can check the output.
+function langFromCacheKey(lectureId) {
+  const m = /__(en|ar|fr|de|es|zh)$/.exec(lectureId || '');
+  return m ? m[1] : 'en';
+}
+
+async function generateSegmentAudio(lectureId, index, text, lang = null) {
   const audioPath = segmentAudioPath(lectureId, index);
   const lipsyncPath = segmentLipSyncPath(lectureId, index);
   const ttsText = cleanTextForTts(text);
@@ -208,7 +218,7 @@ async function generateSegmentAudio(lectureId, index, text) {
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      audioBuffer = await synthesizeTTS(ttsText, voiceId);
+      audioBuffer = await synthesizeVerified(ttsText, voiceId, lang || langFromCacheKey(lectureId));
       break;
     } catch (err) {
       lastError = err;
@@ -592,13 +602,27 @@ router.get('/lecture/segment_audio/:lectureId/:segmentId', async (req, res) => {
   res.sendFile(audioPath, { root: '/' });
 });
 
+// The answer MUST be in the authoritative room language regardless of the
+// language the question was asked in. Exported for unit tests.
+export function buildAskPrompt(context, question, lang) {
+  return `You are Professor Abed, a warm university professor teaching Multimedia Computing. A student interrupts your lecture to ask a question. Answer clearly and briefly in 2-4 spoken-style sentences. You must answer ONLY in ${LECTURE_LANGUAGES[lang] || 'English'} — even if the question is asked in another language, never switch languages. Plain text only — no markdown, no lists, no citations.
+
+${context}
+
+Student question: ${question}`;
+}
+
 // Student question during a lecture: Ollama answer + VoxCPM2 (abed101) + Rhubarb.
 // Cached per (lectureId, question) so repeated interruptions are instant.
 router.post('/ask', async (req, res) => {
-  const { question, lectureId } = req.body || {};
+  const { question, lectureId, language } = req.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
     return res.status(400).json({ error: 'question required' });
   }
+  if (language != null && !LECTURE_LANGUAGES[language]) {
+    return res.status(400).json({ error: `Unsupported language '${language}'` });
+  }
+  const lang = normalizeLang(language);
   try {
     let context = '';
     if (lectureId) {
@@ -613,11 +637,7 @@ router.post('/ask', async (req, res) => {
       }
     }
 
-    const prompt = `You are Professor Abed, a warm university professor teaching Multimedia Computing. A student interrupts your lecture to ask a question. Answer clearly and briefly in 2-4 spoken-style sentences. Plain text only — no markdown, no lists, no citations.
-
-${context}
-
-Student question: ${question}`;
+    const prompt = buildAskPrompt(context, question, lang);
 
     let answerText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 220 })).trim();
     if (!answerText) {
@@ -625,7 +645,7 @@ Student question: ${question}`;
     }
 
     const key = createHash('md5')
-      .update(`${lectureId || 'general'}::${question.trim().toLowerCase()}`)
+      .update(`${lectureId || 'general'}::${lang}::${question.trim().toLowerCase()}`)
       .digest('hex');
     const audioPath = path.join(ANSWERS_DIR, `${key}.wav`);
     const lipsyncPath = path.join(ANSWERS_DIR, `${key}_lipsync.json`);
@@ -638,7 +658,7 @@ Student question: ${question}`;
       if (!voiceId) {
         throw new Error('No professor voice configured');
       }
-      const audioBuffer = await synthesizeTTS(cleanTextForTts(answerText), voiceId);
+      const audioBuffer = await synthesizeVerified(cleanTextForTts(answerText), voiceId, lang);
       await fs.writeFile(audioPath, audioBuffer);
       try {
         await execCommand({
@@ -678,6 +698,136 @@ Student question: ${question}`;
   } catch (error) {
     console.error('[ask] failed:', error);
     res.status(500).json({ error: error.message || 'Failed to answer question' });
+  }
+});
+
+// lectureId is used to build filesystem paths — accept only safe characters.
+const LECTURE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// Validate a recap request and resolve the actual segment texts it covers.
+// Returns { status, error } on failure or { lang, texts } on success. Exported
+// for unit tests — performs no LLM/TTS work itself.
+async function resolveRecapMaterial(lectureId, language, fromSegment, toSegment) {
+  if (typeof lectureId !== 'string' || !LECTURE_ID_RE.test(lectureId)) {
+    return { status: 400, error: 'Invalid lectureId' };
+  }
+  if (language != null && typeof language === 'string' && !LECTURE_LANGUAGES[language]) {
+    return { status: 400, error: `Unsupported language '${language}'` };
+  }
+  if (!Number.isInteger(fromSegment) || !Number.isInteger(toSegment)) {
+    return { status: 400, error: 'fromSegment and toSegment must be integers' };
+  }
+  if (fromSegment < 0 || toSegment < fromSegment) {
+    return { status: 400, error: 'Invalid segment range' };
+  }
+  const lang = normalizeLang(language);
+  let manifest;
+  try {
+    manifest = await loadLectureManifest(lectureId, lang);
+  } catch {
+    return { status: 404, error: `Lecture '${lectureId}' not found` };
+  }
+  if (toSegment >= manifest.segments.length) {
+    return { status: 400, error: `toSegment ${toSegment} is beyond the manifest (${manifest.segments.length} segments)` };
+  }
+  const texts = manifest.segments
+    .slice(fromSegment, toSegment + 1)
+    .map((s) => s.text)
+    .filter(Boolean);
+  if (texts.length === 0) {
+    return { status: 400, error: 'Empty recap range' };
+  }
+  return { lang, texts };
+}
+
+// Cache key includes a hash of the actual source text so a regenerated lecture
+// with the same lectureId/range can never replay an obsolete recap.
+function recapCacheKey(cacheKey, from, to, material) {
+  const materialHash = createHash('md5').update(material).digest('hex');
+  return createHash('md5').update(`${cacheKey}::recap::${from}-${to}::${materialHash}`).digest('hex');
+}
+
+export { resolveRecapMaterial, recapCacheKey };
+
+// Late-joiner catch-up: summarize the contiguous segment range a participant
+// missed (segments fromSegment..toSegment inclusive, normally 0..anchor) as a
+// short spoken recap in the room language. Returns the exact message shape of
+// /ask so the NCIP floor-answer pipeline broadcasts it unchanged.
+router.post('/recap', async (req, res) => {
+  const { lectureId, language, fromSegment, toSegment } = req.body || {};
+  try {
+    const resolved = await resolveRecapMaterial(lectureId, language, fromSegment, toSegment);
+    if (resolved.error) {
+      return res.status(resolved.status).json({ error: resolved.error });
+    }
+    const { lang, texts } = resolved;
+    const material = texts.join('\n\n');
+
+    const prompt = `You are Professor Abed, a warm university professor teaching Multimedia Computing. A student just joined your lecture late and missed what you already covered. In ${LECTURE_LANGUAGES[lang]}, give them a quick spoken catch-up: summarize ONLY the material below into at most 3-4 short sentences, keeping the important concepts. Do not mention "the text", "the material", or that this is a summary — speak naturally as yourself catching the student up, then say you will now continue with the rest of the class. Plain text only — no markdown, no lists.
+
+Material covered so far:
+${material}`;
+
+    let recapText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 220 })).trim();
+    if (!recapText) {
+      recapText = "You have only missed the opening remarks — let's pick it up from here together.";
+    }
+
+    // Cached per (lecture, language, range, content) — identical inputs replay
+    // instantly; edited lecture content produces a different key.
+    const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
+    const key = recapCacheKey(cacheKey, fromSegment, toSegment, material);
+    const audioPath = path.join(ANSWERS_DIR, `${key}.wav`);
+    const lipsyncPath = path.join(ANSWERS_DIR, `${key}_lipsync.json`);
+
+    if (!(existsSync(audioPath) && existsSync(lipsyncPath))) {
+      if (!existsSync(ANSWERS_DIR)) {
+        await fs.mkdir(ANSWERS_DIR, { recursive: true });
+      }
+      const voiceId = await getDefaultVoice();
+      if (!voiceId) {
+        throw new Error('No professor voice configured');
+      }
+      const audioBuffer = await synthesizeVerified(cleanTextForTts(recapText), voiceId, lang);
+      await fs.writeFile(audioPath, audioBuffer);
+      try {
+        await execCommand({
+          command: `${RHUBARB_BIN} -f json -o "${lipsyncPath}" "${audioPath}" -r phonetic`,
+        });
+      } catch (err) {
+        console.error('[recap] Rhubarb failed:', err);
+      }
+    }
+
+    let lipsync = null;
+    if (existsSync(lipsyncPath)) {
+      try {
+        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+      } catch (err) {
+        console.error('[recap] Lipsync parse failed:', err);
+      }
+    }
+
+    let durationMs = null;
+    try {
+      durationMs = wavDurationMs(await fs.readFile(audioPath));
+    } catch (err) {
+      console.error('[recap] duration parse failed:', err);
+    }
+
+    res.json({
+      messages: [{
+        text: recapText,
+        animation: 'explain',
+        facialExpression: 'smile',
+        audioUrl: `/api/lecture/answer_audio/${key}`,
+        durationMs,
+        lipsync,
+      }],
+    });
+  } catch (error) {
+    console.error('[recap] failed:', error);
+    res.status(500).json({ error: error.message || 'Failed to build recap' });
   }
 });
 

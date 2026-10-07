@@ -1086,3 +1086,419 @@ test('23h. language-change prefers the canonical checkpoint while paused', () =>
   const lc = r.effects.find((e) => e.event === 'lecture-control');
   assert.equal(lc.data.segmentIndex, 2);
 });
+
+// ---------------------------------------------------------------------------
+// Playback monotonicity (V1): every client reports every segment head, so
+// duplicate / out-of-order / recovery reports must never corrupt the position.
+// ---------------------------------------------------------------------------
+
+test('24a. duplicate same-segment report does not reset reportedAt', () => {
+  const room = new NcipRoom('m');
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 3 }, 10000);
+  const fx = room.updatePlayback('b', { lectureId: 'Lecture_1', segmentIndex: 3 }, 50000);
+  assert.equal(room.playback.segmentIndex, 3);
+  assert.equal(room.playback.reportedAt, 10000); // not reset
+  assert.deepEqual(fx, []);
+});
+
+test('24b. older segment report cannot rewind playback', () => {
+  const room = new NcipRoom('m');
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 5 }, 10000);
+  room.updatePlayback('lagging', { lectureId: 'Lecture_1', segmentIndex: 2 }, 20000);
+  assert.equal(room.playback.segmentIndex, 5);
+  assert.equal(room.playback.reportedAt, 10000);
+});
+
+test('24c. next segment advances playback', () => {
+  const room = new NcipRoom('m');
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 3 }, 10000);
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 4 }, 20000);
+  assert.equal(room.playback.segmentIndex, 4);
+  assert.equal(room.playback.reportedAt, 20000);
+});
+
+test('24d. a different lecture starting at segment 0 is accepted and clears anchors', () => {
+  const room = new NcipRoom('m');
+  room.joinParticipant('lead', 's1');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 5 }, 1000);
+  room.joinParticipant('late', 's2', 2000);
+  assert.ok(room.recapAnchors.has('late'));
+  room.updatePlayback('lead', { lectureId: 'Lecture_2', segmentIndex: 0 }, 3000);
+  assert.equal(room.playback.lectureId, 'Lecture_2');
+  assert.equal(room.playback.segmentIndex, 0);
+  assert.equal(room.recapAnchors.size, 0);
+  assert.equal(room.canCatchUp('late'), false);
+});
+
+test('24e. same-lecture replay after endLecture accepts segment 0 again', () => {
+  const room = new NcipRoom('m');
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 9 }, 1000);
+  room.endLecture('a');
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 0 }, 5000);
+  assert.equal(room.playback.segmentIndex, 0);
+  assert.equal(room.playback.reportedAt, 5000);
+});
+
+test('24f. snapshot-recovery emit of the join segment cannot rewind the room', () => {
+  // Simulates the fixed client bug: a late joiner recovering at seg 2 +50s
+  // must not reset the shared position to seg 2 offset 0.
+  const room = new NcipRoom('m');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 60000);
+  // joiner syncs; its client used to emit '<lec>_seg_2' again at offset 0.
+  room.updatePlayback('late', { lectureId: 'Lecture_1', segmentIndex: 2 }, 120000);
+  const realNow = Date.now;
+  Date.now = () => 130000;
+  try {
+    const snap = room.snapshot();
+    assert.equal(snap.lecture.segmentIndex, 2);
+    assert.equal(snap.lecture.playbackOffsetMs, 70000); // projected from t=60000
+  } finally { Date.now = realNow; }
+});
+
+// ---------------------------------------------------------------------------
+// Recap anchors (V1 catch-up)
+// ---------------------------------------------------------------------------
+
+test('25a. joining before the lecture starts records no anchor', () => {
+  const room = new NcipRoom('r');
+  room.joinParticipant('alice', 's1', 1000);
+  assert.equal(room.recapAnchors.has('alice'), false);
+  assert.equal(room.canCatchUp('alice'), false);
+  assert.equal(room.recapRange('alice'), null);
+});
+
+test('25b. joining during segment N anchors to N; recapRange covers 0..N', () => {
+  const room = new NcipRoom('r');
+  room.joinParticipant('lead', 's1', 0);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late', 's2', 3000);
+  const a = room.recapAnchors.get('late');
+  assert.equal(a.lectureId, 'Lecture_1');
+  assert.equal(a.segmentIndex, 2);
+  assert.equal(a.playbackOffsetMs, 2000); // projected: 3000 - reportedAt(1000)
+  assert.equal(room.canCatchUp('late'), true);
+  assert.deepEqual(room.recapRange('late'), {
+    lectureId: 'Lecture_1',
+    language: 'en',
+    fromSegment: 0,
+    toSegment: 2,
+  });
+});
+
+test('25c. reconnect never overwrites the anchor', () => {
+  const room = new NcipRoom('r');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late', 's2', 3000);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 5 }, 8000);
+  room.participantDisconnected('late', 8000);
+  room.joinParticipant('late', 's3', 9000); // rebind within grace
+  assert.equal(room.recapAnchors.get('late').segmentIndex, 2); // not 5
+  assert.equal(room.canCatchUp('late'), true);
+});
+
+test('25d. anchor survives grace expiry — rejoin keeps the ORIGINAL anchor', () => {
+  const room = new NcipRoom('r');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late', 's2', 3000);
+  room.participantDisconnected('late', 4000);
+  room.expireGrace('late');
+  assert.equal(room.session.participants.has('late'), false);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 7 }, 20000);
+  room.joinParticipant('late', 's4', 21000); // isNew again, but anchor persists
+  assert.equal(room.recapAnchors.get('late').segmentIndex, 2);
+  assert.equal(room.canCatchUp('late'), true);
+});
+
+test('25e. joining while PAUSED anchors to the canonical checkpoint', () => {
+  const room = pausedRoom(); // cp = Lecture_1 seg 2 @4500
+  room.updatePlayback('alice', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late', 's9', 5000);
+  const a = room.recapAnchors.get('late');
+  assert.equal(a.segmentIndex, 2);
+  assert.equal(a.playbackOffsetMs, 4500); // checkpoint, not projected playback
+});
+
+test('25f. joining while ANSWERING also anchors to the canonical checkpoint', () => {
+  const { room } = answeringRoom(); // cp = Lecture_1 seg 2 @4500
+  room.joinParticipant('late', 's9', 9000);
+  assert.equal(room.recapAnchors.get('late').segmentIndex, 2);
+  assert.equal(room.recapAnchors.get('late').playbackOffsetMs, 4500);
+});
+
+test('25g. recapRange is null without a valid anchor for the current lecture', () => {
+  const room = new NcipRoom('r');
+  assert.equal(room.recapRange('nobody'), null);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 4 }, 1000);
+  assert.equal(room.recapRange('nobody'), null); // never joined
+  room.endLecture('lead');
+  assert.equal(room.canCatchUp('nobody'), false);
+});
+
+test('25h. endLecture clears all anchors', () => {
+  const room = new NcipRoom('r');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 3 }, 1000);
+  room.joinParticipant('late', 's2', 2000);
+  assert.ok(room.recapAnchors.has('late'));
+  room.endLecture('lead');
+  assert.equal(room.recapAnchors.size, 0);
+  assert.equal(room.canCatchUp('late'), false);
+});
+
+test('25i. two late joiners get independent anchors (floor queue serializes)', () => {
+  const room = new NcipRoom('r');
+  room.joinParticipant('lead', 's1', 0);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late1', 's2', 2000);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 5 }, 10000);
+  room.joinParticipant('late2', 's3', 11000);
+  assert.equal(room.recapAnchors.get('late1').segmentIndex, 2);
+  assert.equal(room.recapAnchors.get('late2').segmentIndex, 5);
+  assert.equal(room.recapRange('late1').toSegment, 2);
+  assert.equal(room.recapRange('late2').toSegment, 5);
+  // Existing floor FIFO serializes their requests untouched.
+  room.requestFloor('late1');
+  room.requestFloor('late2');
+  assert.equal(room.floor.holder, 'late1');
+  assert.deepEqual(room.floor.queue, ['late2']);
+});
+
+// ---------------------------------------------------------------------------
+// Catch-up lifecycle (pending -> satisfied) and boundary cases
+// ---------------------------------------------------------------------------
+
+// Drives a room with a lecture playing at seg 5 and a late joiner anchored at seg 2.
+function anchoredRoom() {
+  const room = new NcipRoom('r');
+  room.joinParticipant('lead', 's1', 0);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('late', 's2', 2000);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 5 }, 9000);
+  return room;
+}
+
+test('26a. successful recap consumes the anchor: canCatchUp flips to false', () => {
+  const room = anchoredRoom();
+  assert.equal(room.canCatchUp('late'), true);
+  room.markRecapSatisfied('late'); // called only after answerReady commits
+  assert.equal(room.canCatchUp('late'), false);
+  assert.equal(room.recapRange('late'), null);
+  check(room);
+});
+
+test('26b. failed recap never satisfies the anchor — retry stays possible', () => {
+  const room = anchoredRoom();
+  // A failed /api/recap goes through answerFailed without markRecapSatisfied.
+  const r = room.requestFloor('late');
+  room.submitCheckpoint('late', CP);
+  room.submitQuestion('late', 'Summarize what I missed.');
+  room.answerFailed('late', 'recap generation failed');
+  assert.equal(room.canCatchUp('late'), true); // still pending
+  assert.equal(room.recapRange('late').toSegment, 2);
+  check(room);
+});
+
+test('26c. reconnect after a successful recap keeps canCatchUp false', () => {
+  const room = anchoredRoom();
+  room.markRecapSatisfied('late');
+  room.participantDisconnected('late', 9000);
+  room.joinParticipant('late', 's3', 9500); // rebind within grace
+  assert.equal(room.canCatchUp('late'), false);
+  check(room);
+});
+
+test('26d. post-grace rejoin cannot mint a fresh pending anchor', () => {
+  const room = anchoredRoom();
+  room.markRecapSatisfied('late');
+  room.participantDisconnected('late', 9000);
+  room.expireGrace('late');
+  room.joinParticipant('late', 's4', 30000); // isNew again — anchor must not reset
+  assert.equal(room.recapAnchors.get('late').satisfied, true);
+  assert.equal(room.recapAnchors.get('late').segmentIndex, 2);
+  assert.equal(room.canCatchUp('late'), false);
+});
+
+test('26e. a new lecture clears satisfied anchors; fresh joins anchor normally', () => {
+  const room = anchoredRoom();
+  room.markRecapSatisfied('late');
+  room.endLecture('lead');
+  room.updatePlayback('lead', { lectureId: 'Lecture_2', segmentIndex: 4 }, 60000);
+  room.joinParticipant('later', 's9', 61000);
+  assert.equal(room.recapAnchors.has('late'), false);
+  assert.equal(room.recapAnchors.get('later').segmentIndex, 4);
+  assert.equal(room.canCatchUp('later'), true);
+});
+
+test('26f. join while lectureActive but no playback position yet -> no anchor, no crash', () => {
+  // lecturingRoom(): lectureActive via checkpoint flow, playback never reported.
+  const room = lecturingRoom();
+  assert.equal(room.lectureActive, true);
+  assert.equal(room.playback, null);
+  assert.equal(room.interruption.checkpoint, null);
+  room.joinParticipant('late', 's1', 5000); // must not throw or anchor
+  assert.equal(room.recapAnchors.has('late'), false);
+  assert.equal(room.canCatchUp('late'), false);
+  assert.equal(room.recapRange('late'), null);
+  check(room);
+});
+
+test('26g. satisfying one participant never affects another', () => {
+  const room = new NcipRoom('r');
+  room.joinParticipant('lead', 's1', 0);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  room.joinParticipant('A', 'sa', 2000);   // anchors seg 2
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 5 }, 10000);
+  room.joinParticipant('B', 'sb', 11000);  // anchors seg 5
+  room.markRecapSatisfied('A');
+  assert.equal(room.canCatchUp('A'), false);
+  assert.equal(room.canCatchUp('B'), true);
+  assert.deepEqual(room.recapRange('B'), {
+    lectureId: 'Lecture_1', language: 'en', fromSegment: 0, toSegment: 5,
+  });
+});
+
+test('26h. mid-lecture segment-0 report for the same lecture is still rejected', () => {
+  // A restart must go through endLecture (client emits lecture-ended on start);
+  // a bare seg-0 report during an active playthrough is stale/out-of-order.
+  const room = new NcipRoom('m');
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 8 }, 80000);
+  room.updatePlayback('lead', { lectureId: 'Lecture_1', segmentIndex: 0 }, 90000);
+  assert.equal(room.playback.segmentIndex, 8);
+  assert.equal(room.playback.reportedAt, 80000);
+});
+
+// ---------------------------------------------------------------------------
+// Language lock (V1): roomLanguage changes ONLY via explicit changeLanguage.
+// ---------------------------------------------------------------------------
+
+test('27a. zh is supported; hi is rejected (Hindi TTS unverified)', () => {
+  const room = lecturingRoom();
+  assert.equal(room.changeLanguage('x', 'zh').ok, true);
+  assert.equal(room.language.roomLanguage, 'zh');
+  const bad = room.changeLanguage('x', 'hi');
+  assert.equal(bad.ok, false);
+  assert.equal(room.language.roomLanguage, 'zh');
+});
+
+test('27b. joins, snapshots and playback reports never mutate roomLanguage', () => {
+  const room = new NcipRoom('r');
+  room.changeLanguage('x', 'ar');
+  room.joinParticipant('a', 's1', 1000);
+  room.updatePlayback('a', { lectureId: 'Lecture_1', segmentIndex: 0 }, 1000);
+  room.joinParticipant('b', 's2', 2000); // late join
+  room.participantDisconnected('a', 3000);
+  room.joinParticipant('a', 's3', 3500); // reconnect -> snapshot path
+  const snap = room.snapshot();
+  assert.equal(room.language.roomLanguage, 'ar');
+  assert.equal(snap.language.roomLanguage, 'ar');
+});
+
+// ---------------------------------------------------------------------------
+// Private-room host-controlled lecture lifecycle (manual pause/resume/end)
+// ---------------------------------------------------------------------------
+
+// Room with a live lecture: lead reporting heads, guest admitted.
+function hostLectureRoom() {
+  const room = new NcipRoom('priv_x');
+  room.roomType = 'private';
+  room.joinParticipant('host', 's1', 0);
+  room.joinParticipant('guest', 's2', 0);
+  room.updatePlayback('host', { lectureId: 'Lecture_1', segmentIndex: 2 }, 1000);
+  return room;
+}
+
+test('28a. hostPause only from LECTURING; stores canonical projected checkpoint', () => {
+  const room = hostLectureRoom();
+  const r = room.hostPause('host', 5000); // seg2 started t=1000 -> offset ~4000
+  assert.equal(r.ok, true);
+  assert.equal(room.professor.status, 'PAUSED');
+  assert.equal(room.interruption.pauseReason, 'host');
+  const cp = room.interruption.checkpoint;
+  assert.equal(cp.lectureId, 'Lecture_1');
+  assert.equal(cp.segmentIndex, 2);
+  assert.equal(cp.playbackOffsetMs, 4000);
+  assert.equal(cp.reportedBy, 'host');
+  assert.ok(r.effects.some((e) => e.event === 'lecture-control' && e.data.action === 'pause-for-host'));
+  check(room);
+});
+
+test('28b. snapshot while host-paused exposes PAUSED + checkpoint + pauseReason', () => {
+  const room = hostLectureRoom();
+  room.hostPause('host', 5000);
+  const snap = room.snapshot();
+  assert.equal(snap.professor.status, 'PAUSED');
+  assert.equal(snap.interruption.pauseReason, 'host');
+  assert.equal(snap.lecture.segmentIndex, 2);
+  assert.equal(snap.lecture.playbackOffsetMs, 4000);
+  // An approved guest joining now gets the same paused canonical state.
+  room.joinParticipant('late', 's3', 6000);
+  assert.equal(room.snapshot().lecture.segmentIndex, 2);
+});
+
+test('28c. hostPause rejected while IDLE / floor-PAUSED / THINKING / ANSWERING', () => {
+  const room = hostLectureRoom();
+  // IDLE
+  const idle = new NcipRoom('r');
+  assert.equal(idle.hostPause('h').ok, false);
+  // floor PAUSED
+  room.requestFloor('guest');
+  room.submitCheckpoint('guest', CP);
+  assert.equal(room.hostPause('host').ok, false);
+  // THINKING
+  room.submitQuestion('guest', 'q?');
+  assert.equal(room.hostPause('host').ok, false);
+  // ANSWERING
+  room.answerReady('a1', { text: 'x' });
+  assert.equal(room.hostPause('host').ok, false);
+  check(room);
+});
+
+test('28d. hostResume resumes from the exact checkpoint; floor unaffected', () => {
+  const room = hostLectureRoom();
+  room.hostPause('host', 5000);
+  const r = room.hostResume('host', 20000);
+  assert.equal(r.ok, true);
+  assert.equal(room.professor.status, 'LECTURING');
+  assert.equal(room.interruption.pauseReason, null);
+  assert.equal(room.interruption.checkpoint, null);
+  const resume = r.effects.find((e) => e.event === 'lecture-control' && e.data.action === 'resume');
+  assert.equal(resume.data.checkpoint.segmentIndex, 2);
+  assert.equal(resume.data.checkpoint.playbackOffsetMs, 4000);
+  check(room);
+});
+
+test('28e. hostResume cannot cancel a floor-answer flow', () => {
+  const room = hostLectureRoom();
+  room.requestFloor('guest');
+  room.submitCheckpoint('guest', CP); // floor PAUSED, pauseReason null
+  assert.equal(room.hostResume('host').ok, false);
+  room.submitQuestion('guest', 'q?'); // THINKING
+  assert.equal(room.hostResume('host').ok, false);
+  room.answerReady('a1', { text: 'x' }); // ANSWERING
+  assert.equal(room.hostResume('host').ok, false);
+  assert.equal(room.professor.status, 'ANSWERING');
+  check(room);
+});
+
+test('28f. raise-hand is a no-op while the host holds a discussion pause', () => {
+  const room = hostLectureRoom();
+  room.hostPause('host', 5000);
+  assert.deepEqual(room.requestFloor('guest'), []);
+  assert.equal(room.floor.holder, null);
+  assert.equal(room.professor.status, 'PAUSED');
+  assert.equal(room.interruption.pauseReason, 'host');
+});
+
+test('28g. host endLecture clears host pause; same-lecture restart works', () => {
+  const room = hostLectureRoom();
+  room.hostPause('host', 5000);
+  room.endLecture('host'); // End Class during a discussion pause
+  assert.equal(room.interruption.pauseReason, null);
+  assert.equal(room.interruption.checkpoint, null);
+  assert.equal(room.professor.status, 'IDLE'); // fully reset, not stuck PAUSED
+  assert.equal(room.lectureActive, false);
+  // Fresh restart of the SAME lectureId: seg 0 is a new playthrough.
+  room.updatePlayback('host', { lectureId: 'Lecture_1', segmentIndex: 0 }, 90000);
+  assert.equal(room.playback.segmentIndex, 0);
+  assert.equal(room.professor.status, 'LECTURING');
+  check(room);
+});

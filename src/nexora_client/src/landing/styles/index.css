@@ -794,3 +794,153 @@ img {
     align-items: stretch;
   }
 }
+
+/* --- Create Classroom modal + live classroom cards ---------------------- */
+.section__header--row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.liverooms__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 16px;
+}
+
+.liverooms__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.liverooms__card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+}
+.liverooms__card h4 {
+  margin: 10px 0 4px;
+  font-size: 1.05rem;
+}
+.liverooms__card p {
+  margin: 0 0 14px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.liverooms__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(124, 92, 252, 0.12);
+  border: 1px solid rgba(124, 92, 252, 0.35);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.ccmodal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+}
+.ccmodal {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ccmodal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ccmodal__head h3 { margin: 0; font-size: 1.2rem; }
+.ccmodal__close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+}
+.ccmodal__close:hover { color: var(--text); }
+.ccmodal__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ccmodal__label input,
+.ccmodal__label select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.ccmodal__label input:focus,
+.ccmodal__label select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ccmodal__radios {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ccmodal__radios legend {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  padding: 0;
+}
+.ccmodal__radios label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.ccmodal__radios input { accent-color: var(--accent); }
+.ccmodal__error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #f87171;
+}
+.ccmodal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}

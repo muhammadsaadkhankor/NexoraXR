@@ -11,6 +11,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import lectureRouter from "../nexora_ai/routes/lectureRoutes.mjs";
 import { NcipRoom, ProfessorStatus } from "./protocol/ncipRoom.mjs";
+import { RoomRegistry } from "./protocol/roomRegistry.mjs";
 
 dotenv.config();
 
@@ -186,6 +187,59 @@ app.get("/voices", async (req, res) => {
   }
 });
 
+// Unified classroom creation — public rooms become discoverable, private rooms
+// return an invite URL whose token is the only way in.
+app.post('/api/rooms', (req, res) => {
+  const { className, courseId, lectureId, language, roomType, hostId, scene } = req.body || {};
+  const { room, error } = roomRegistry.create({ roomType, className, courseId, lectureId, language, hostId, scene });
+  if (error) return res.status(400).json({ error });
+  // Never log the invite token.
+  console.log(`[rooms] ${room.roomType} room ${room.roomId} '${room.className}' created (lecture ${room.lectureId}, lang ${room.language})`);
+  const scenePath = `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}`;
+  res.status(201).json({
+    roomId: room.roomId,
+    roomType: room.roomType,
+    joinUrl: `${scenePath}`,
+    ...(room.roomType === 'private' ? { inviteUrl: `${scenePath}&invite=${room.inviteToken}` } : {}),
+  });
+});
+
+// Backward-compatible private-only endpoint (delegates to the unified path).
+app.post('/api/rooms/private', (req, res) => {
+  const b = req.body || {};
+  const { room, error } = roomRegistry.create({
+    ...b,
+    roomType: 'private',
+    className: b.className || `${b.lectureId || 'Lecture'} (private)`,
+  });
+  if (error) return res.status(400).json({ error });
+  console.log(`[rooms] private room ${room.roomId} created (lecture ${room.lectureId}, lang ${room.language}, scene ${room.scene})`);
+  res.status(201).json({
+    roomId: room.roomId,
+    inviteUrl: `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}&invite=${room.inviteToken}`,
+  });
+});
+
+// Gallery listing — safe public metadata only (no inviteToken/internals).
+app.get('/api/rooms/public', (_req, res) => {
+  res.json({ rooms: roomRegistry.listPublic() });
+});
+
+// Rotate a private room's invite — links are single-use, so the host calls
+// this each time they want to let someone new in. hostId must match the
+// registry record (no client-supplied authority).
+app.post('/api/rooms/:roomId/invite', (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room || room.roomType !== 'private') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const rot = roomRegistry.rotateInvite(req.params.roomId, req.body?.hostId);
+  if (!rot.ok) return res.status(403).json({ error: 'Only the host can generate invite links' });
+  res.json({
+    inviteUrl: `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}&invite=${rot.room.inviteToken}`,
+  });
+});
+
 app.use('/api', lectureRouter);
 
 const httpServer = createServer(app);
@@ -199,6 +253,10 @@ const io = new Server(httpServer, {
 const rooms = {}; // roomId -> { [participantId]: player }
 const socketCtx = new Map(); // socketId -> { roomId, participantId }
 const ncipRooms = {};
+// Room registry (public + private classroom metadata). Separate from NcipRoom:
+// registry entries carry the secret inviteToken, NcipRoom carries protocol
+// state and is what session.snapshot projects — tokens never leak into it.
+const roomRegistry = new RoomRegistry();
 // NCIP Slice 4: reconnect grace timers, keyed `${roomId} ${pid}`.
 const graceTimers = new Map();
 // NCIP Slice 5: floor timeouts, keyed `${roomId} ${pid}` — armed at
@@ -233,6 +291,9 @@ function cleanupAfterRemoval(roomId, pid) {
   if (rooms[roomId] && Object.keys(rooms[roomId]).length === 0) {
     delete rooms[roomId];
     delete ncipRooms[roomId];
+    // Emptied registry room => it dies with the NCIP room (in-memory
+    // lifetime); public cards disappear, private invite links stop working.
+    roomRegistry.remove(roomId);
     for (const t of roomTimers[roomId] || []) clearTimeout(t);
     delete roomTimers[roomId];
     for (const [key, t] of graceTimers) {
@@ -267,11 +328,19 @@ function buildFloorStatePayload(roomId) {
 
 // NCIP Slice 2: authoritative recovery snapshot. Same floor shape as
 // floor-state (display names included) so clients can reuse one reducer.
-function buildSnapshotPayload(roomId) {
+function buildSnapshotPayload(roomId, pid = null) {
   const ncip = getNcipRoom(roomId);
   const s = ncip.snapshot();
   return {
     ...s,
+    // V1 catch-up: per-recipient flag — true only when THIS participant has a
+    // valid recap anchor for the lecture currently playing.
+    canCatchUp: pid ? ncip.canCatchUp(pid) : false,
+    // Registry metadata so clients know who the host is (safe fields only —
+    // inviteToken never leaves the registry).
+    room: roomRegistry.get(roomId)
+      ? { roomId, roomType: roomRegistry.get(roomId).roomType, hostId: roomRegistry.get(roomId).hostId }
+      : null,
     floor: {
       holder: s.floor.holder
         ? { userId: s.floor.holder, name: nameFor(roomId, s.floor.holder) }
@@ -279,6 +348,13 @@ function buildSnapshotPayload(roomId) {
       queue: s.floor.queue.map((id) => ({ userId: id, name: nameFor(roomId, id) })),
     },
   };
+}
+
+// Private-room host authority — resolved server-side from the registry,
+// never from a client-supplied flag.
+function isRoomHost(roomId, participantId) {
+  const meta = roomRegistry.get(roomId);
+  return meta?.roomType === 'private' && meta.hostId === participantId;
 }
 
 function emitFloorState(roomId, target) {
@@ -386,60 +462,150 @@ function applyEffects(roomId, effects) {
   }
 }
 
+// Private joins awaiting host approval: socketId -> { data, roomId }.
+// The invite token is already consumed at this point (single-use), so a
+// rejected guest cannot retry the same link.
+const pendingJoins = new Map();
+
+// Post-admission join path — shared by public/private joins and by host
+// approval of a pending private guest.
+function finishJoin(socket, data, roomId, registryRoom = null) {
+  const safeName = typeof data.name === 'string' ? data.name.trim().slice(0, 30) : '';
+  if (!safeName) {
+    console.log(`[server] join rejected for ${socket.id}: invalid name`);
+    socket.emit('join-error', { error: 'A valid display name is required to join.' });
+    return;
+  }
+
+  // NCIP Slice 4: the client supplies a stable participantId persisted
+  // across reconnects; socket.id is only the current transport binding.
+  const pid = typeof data.participantId === 'string' && data.participantId.length <= 64
+    ? data.participantId
+    : socket.id;
+
+  socket.join(roomId);
+  socketCtx.set(socket.id, { roomId, participantId: pid });
+
+  if (!rooms[roomId]) rooms[roomId] = {};
+  const isNewNcip = !ncipRooms[roomId];
+  const ncip = getNcipRoom(roomId);
+  if (registryRoom && isNewNcip) {
+    // First admission: adopt the registry's authoritative type/language so
+    // snapshots and recap answers start in the host-selected language.
+    ncip.roomType = registryRoom.roomType;
+    ncip.language.roomLanguage = registryRoom.language;
+  }
+  const joinResult = ncip.joinParticipant(pid, socket.id);
+
+  // A reconnect during the grace window cancels the pending expiry.
+  const graceKey = `${roomId} ${pid}`;
+  if (graceTimers.has(graceKey)) {
+    clearTimeout(graceTimers.get(graceKey));
+    graceTimers.delete(graceKey);
+  }
+
+  const user = {
+    userId: pid,
+    roomId,
+    name: safeName,
+    avatar: data.avatar || '/assets/useravatar/avatars/UserAvatar.glb',
+    position: data.position || [0, 0, 0],
+    rotation: data.rotation || [0, 0, 0],
+    animation: data.animation || 'Idle',
+    timestamp: Date.now()
+  };
+
+  rooms[roomId][pid] = user;
+  const members = Object.keys(rooms[roomId]);
+  console.log(`[server] join: ${pid} (${socket.id}) joined room '${roomId}' (members: ${members.length}, reconnected: ${joinResult.reconnected})`);
+
+  socket.broadcast.to(roomId).emit('user-joined', user);
+  socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== pid));
+  emitFloorState(roomId, socket);
+  // Slice 2+4: joiners AND reconnectors get the authoritative snapshot —
+  // floor ownership/queue position survived the grace window.
+  socket.emit('session.snapshot', buildSnapshotPayload(roomId, pid));
+}
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   socket.on('join', (data) => {
-    const roomId = data.roomId || 'default';
+    let roomId = data.roomId || 'default';
+    let registryRoom = null;
 
-    const safeName = typeof data.name === 'string' ? data.name.trim().slice(0, 30) : '';
-    if (!safeName) {
-      console.log(`[server] join rejected for ${socket.id}: invalid name`);
-      socket.emit('join-error', { error: 'A valid display name is required to join.' });
+    if (data.room) {
+      // Registry-room join (public or private). The room must already exist —
+      // never create one from a join attempt.
+      const meta = roomRegistry.get(data.room);
+      if (!meta) {
+        socket.emit('join-error', { error: 'This classroom link is invalid or has expired.', private: true });
+        return;
+      }
+      if (meta.roomType === 'private' && data.participantId !== meta.hostId) {
+        // A participant already admitted to this room (known to NCIP) is
+        // reconnecting — invites gate NEW members only; don't burn a token.
+        const known = ncipRooms[meta.roomId]?.session?.participants?.has?.(data.participantId);
+        if (known) {
+          registryRoom = meta;
+          roomId = meta.roomId;
+          finishJoin(socket, data, roomId, registryRoom);
+          return;
+        }
+        // New guest: needs a valid unused invite AND host approval. The token
+        // is consumed the moment the request is parked (single-use).
+        const auth = roomRegistry.authorize(meta.roomId, data.invite);
+        if (!auth.ok) {
+          socket.emit('join-error', { error: auth.error, private: true });
+          return;
+        }
+        const hostSock = socketFor(meta.roomId, meta.hostId);
+        if (!hostSock) {
+          // No host to approve — don't burn the link so it can be retried.
+          socket.emit('join-error', { error: 'The host is not in the room right now. Try again later.', private: true });
+          return;
+        }
+        roomRegistry.consumeInvite(meta.roomId);
+        pendingJoins.set(socket.id, { data, roomId: meta.roomId });
+        socket.emit('join-pending', { roomId: meta.roomId });
+        io.to(hostSock).emit('private-join-request', {
+          roomId: meta.roomId,
+          name: typeof data.name === 'string' ? data.name.trim().slice(0, 30) : 'Guest',
+          socketId: socket.id,
+        });
+        return; // join completes on private-join-decision
+      }
+      registryRoom = meta;
+      roomId = meta.roomId;
+    } else if (roomRegistry.isPrivate(roomId)) {
+      // A private roomId used via the public path (no invite) is rejected —
+      // private rooms are not reachable through sceneName joining.
+      socket.emit('join-error', { error: 'This room is private. An invite link is required.', private: true });
       return;
     }
 
-    // NCIP Slice 4: the client supplies a stable participantId persisted
-    // across reconnects; socket.id is only the current transport binding.
-    const pid = typeof data.participantId === 'string' && data.participantId.length <= 64
-      ? data.participantId
-      : socket.id;
+    finishJoin(socket, data, roomId, registryRoom);
+  });
 
-    socket.join(roomId);
-    socketCtx.set(socket.id, { roomId, participantId: pid });
-
-    if (!rooms[roomId]) rooms[roomId] = {};
-    const ncip = getNcipRoom(roomId);
-    const joinResult = ncip.joinParticipant(pid, socket.id);
-
-    // A reconnect during the grace window cancels the pending expiry.
-    const graceKey = `${roomId} ${pid}`;
-    if (graceTimers.has(graceKey)) {
-      clearTimeout(graceTimers.get(graceKey));
-      graceTimers.delete(graceKey);
+  // Host decision on a pending private-room guest. Only the room's hostId
+  // (from the registry — the socket's own participant binding) may decide.
+  socket.on('private-join-decision', ({ socketId, accept } = {}) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    const meta = roomRegistry.get(ctx.roomId);
+    if (!meta || meta.roomType !== 'private' || meta.hostId !== ctx.participantId) return;
+    const pending = pendingJoins.get(socketId);
+    if (!pending || pending.roomId !== ctx.roomId) return;
+    pendingJoins.delete(socketId);
+    const guest = io.sockets.sockets.get(socketId);
+    if (!guest) return;
+    if (accept) {
+      console.log(`[server] host ${ctx.participantId} approved join for '${pending.roomId}'`);
+      finishJoin(guest, pending.data, pending.roomId, meta);
+    } else {
+      console.log(`[server] host ${ctx.participantId} declined join for '${pending.roomId}'`);
+      guest.emit('join-error', { error: 'The host declined your join request.', private: true });
     }
-
-    const user = {
-      userId: pid,
-      roomId,
-      name: safeName,
-      avatar: data.avatar || '/assets/useravatar/avatars/UserAvatar.glb',
-      position: data.position || [0, 0, 0],
-      rotation: data.rotation || [0, 0, 0],
-      animation: data.animation || 'Idle',
-      timestamp: Date.now()
-    };
-
-    rooms[roomId][pid] = user;
-    const members = Object.keys(rooms[roomId]);
-    console.log(`[server] join: ${pid} (${socket.id}) joined room '${roomId}' (members: ${members.length}, reconnected: ${joinResult.reconnected})`);
-
-    socket.broadcast.to(roomId).emit('user-joined', user);
-    socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== pid));
-    emitFloorState(roomId, socket);
-    // Slice 2+4: joiners AND reconnectors get the authoritative snapshot —
-    // floor ownership/queue position survived the grace window.
-    socket.emit('session.snapshot', buildSnapshotPayload(roomId));
   });
 
   // Explicit intentional leave: immediate removal, no grace window.
@@ -462,7 +628,7 @@ io.on('connection', (socket) => {
   socket.on('session.sync', () => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
-    socket.emit('session.snapshot', buildSnapshotPayload(ctx.roomId));
+    socket.emit('session.snapshot', buildSnapshotPayload(ctx.roomId, ctx.participantId));
   });
 
   // NCIP language.change: the server owns the room language — clients request,
@@ -520,6 +686,12 @@ io.on('connection', (socket) => {
     const pid = ctx.participantId;
 
     const ncip = getNcipRoom(roomId);
+    // Catch Me Up is a public-classroom feature — private rooms reject it
+    // outright (canCatchUp is already false for them; this is the hard gate).
+    if (data?.kind === 'recap' && ncip.roomType === 'private') {
+      socket.emit('floor-question-error', { error: 'Catch Me Up is not available in private rooms.' });
+      return;
+    }
     const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 500) : '';
     if (!question) return;
 
@@ -536,11 +708,36 @@ io.on('connection', (socket) => {
     if (genToken) armThinkingTimer(roomId, genToken);
     const submittedAt = Date.now();
 
+    // V1 catch-up: kind 'recap' routes to /api/recap with the requesting
+    // participant's join anchor; anything else is a normal /api/ask question.
+    let apiPath = '/api/ask';
+    let apiBody = {
+      question,
+      lectureId: data.lectureId,
+      language: ncip.language.roomLanguage, // answer text locked to room language
+    };
+    if (data?.kind === 'recap') {
+      const range = ncip.recapRange(pid);
+      if (!range) {
+        // No valid anchor (joined before the lecture started, or the anchor's
+        // lecture ended) — fail the generation through the normal path so the
+        // room recovers and resumes cleanly.
+        clearThinkingTimers(roomId);
+        applyEffects(roomId, ncip.answerFailed(
+          pid,
+          'You are already caught up — there is nothing missed to summarize.'
+        ));
+        return;
+      }
+      apiPath = '/api/recap';
+      apiBody = range;
+    }
+
     try {
-      const res = await fetch(`http://localhost:${port}/api/ask`, {
+      const res = await fetch(`http://localhost:${port}${apiPath}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, lectureId: data.lectureId })
+        body: JSON.stringify(apiBody)
       });
       const json = await res.json();
       if (!res.ok || !json.messages || json.messages.length === 0) {
@@ -567,6 +764,14 @@ io.on('connection', (socket) => {
         audioUrl: msg.audioUrl || null,
         lipsync: msg.lipsync
       }, durationMs));
+      if (data?.kind === 'recap') {
+        // Consume the catch-up anchor only now that the recap answer is
+        // committed for the room — failed/stale generations never reach this
+        // and keep the pending anchor so the participant may retry. Push a
+        // fresh snapshot so the requester's canCatchUp flips authoritatively.
+        ncip.markRecapSatisfied(pid);
+        io.to(socketFor(roomId, pid)).emit('session.snapshot', buildSnapshotPayload(roomId, pid));
+      }
       clearThinkingTimers(roomId); // THINKING -> ANSWERING disarms the timeout
       console.log(`[ncip:metrics] ${roomId}: question.submit -> answer.start = ${Date.now() - submittedAt}ms`);
       scheduleAnswerEnd(roomId, answerId, durationMs);
@@ -604,6 +809,9 @@ io.on('connection', (socket) => {
   socket.on('professor-speak', (data) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
+    // Private rooms: only the host's playback reports/broadcasts drive the
+    // room — a guest client cannot start or steer the lecture.
+    if (roomRegistry.isPrivate(ctx.roomId) && !isRoomHost(ctx.roomId, ctx.participantId)) return;
     console.log(`[server] professor-speak from ${ctx.participantId} to room ${ctx.roomId}:`, data?.text);
     // A lecture-segment head is also the authoritative live playback position
     // — record it so late joiners can recover an in-progress lecture.
@@ -620,9 +828,38 @@ io.on('connection', (socket) => {
 
   // The lecture queue drained on a client — clear the live position so
   // snapshots don't offer a stale segment to late joiners.
+  // Host lecture lifecycle (private rooms only — public rooms have no manual
+  // pause/resume and guests can never reach this path).
+  socket.on('lecture-control', (data) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx) return;
+    const meta = roomRegistry.get(ctx.roomId);
+    if (!meta || meta.roomType !== 'private') return; // public behavior unchanged
+    if (!isRoomHost(ctx.roomId, ctx.participantId)) {
+      socket.emit('lecture-control', { action: 'control-error', error: 'Only the host can control the lecture.' });
+      return;
+    }
+    const ncip = getNcipRoom(ctx.roomId);
+    let result = null;
+    if (data?.action === 'pause') result = ncip.hostPause(ctx.participantId);
+    else if (data?.action === 'resume') result = ncip.hostResume(ctx.participantId);
+    else if (data?.action === 'end') {
+      applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
+      // Tell every client to stop and clear its local lecture queue — unlike
+      // endLecture's implicit drain path, this is an explicit host command.
+      io.to(ctx.roomId).emit('lecture-control', { action: 'end' });
+      return;
+    } else return;
+    if (result.ok) applyEffects(ctx.roomId, result.effects);
+    else socket.emit('lecture-control', { action: 'control-error', error: result.error });
+  });
+
   socket.on('lecture-ended', () => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
+    // Private rooms: only the host may end the shared lecture — a guest's
+    // local queue draining must not reset the room's position.
+    if (roomRegistry.isPrivate(ctx.roomId) && !isRoomHost(ctx.roomId, ctx.participantId)) return;
     applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).endLecture(ctx.participantId));
   });
 
@@ -645,6 +882,7 @@ io.on('connection', (socket) => {
   // floor ownership and queue position are preserved until expiry.
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
+    pendingJoins.delete(socket.id); // drop any unanswered host-approval request
     const ctx = socketCtx.get(socket.id);
     socketCtx.delete(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;

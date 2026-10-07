@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "VOXCPM_BASE_URL=http://localhost:8010 nodemon server.js --ext js,mjs",
-    "test": "node --test protocol/ncipRoom.test.mjs"
+    "test": "node --test protocol/ncipRoom.test.mjs protocol/roomRegistry.test.mjs",
+    "test:e2e": "node --test e2e/privateSocial.test.mjs --test-timeout=60000"
   },
   "dependencies": {
     "@langchain/openai": "^0.0.12",

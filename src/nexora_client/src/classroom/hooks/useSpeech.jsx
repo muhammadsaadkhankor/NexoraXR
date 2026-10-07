@@ -1,5 +1,5 @@
 import { createContext, useContext, useCallback, useEffect, useState, useRef } from "react";
-import { API_URL } from "../../shared/config";
+import { API_URL, SPEECH_RECOGNITION_LANGS } from "../../shared/config";
 import { resolveResume } from "../services/ncipResume";
 
 const backendUrl = API_URL;
@@ -41,7 +41,7 @@ export const SpeechProvider = ({ children }) => {
       
       recognition.continuous = false;
       recognition.interimResults = false;
-      recognition.lang = 'en-US'; // Force English
+      recognition.lang = 'en-US'; // updated to the room language via setRecognitionLang
       recognition.maxAlternatives = 1;
       
       recognitionRef.current = recognition;
@@ -361,6 +361,13 @@ export const SpeechProvider = ({ children }) => {
     audioElementRef.current = null;
   }, []);
 
+  // Point speech recognition at the room language (server-authoritative) so a
+  // student's question is transcribed in the language they actually speak.
+  const setRecognitionLang = useCallback((roomLang) => {
+    const bcp47 = SPEECH_RECOGNITION_LANGS[roomLang];
+    if (recognitionRef.current && bcp47) recognitionRef.current.lang = bcp47;
+  }, []);
+
   const clearMessages = useCallback(() => {
     floorPausedRef.current = false;
     setFloorPaused(false);
@@ -405,6 +412,7 @@ export const SpeechProvider = ({ children }) => {
         floorPaused,
         setFloorPaused,
         answerEndedRef,
+        setRecognitionLang,
       }}
     >
       {children}
