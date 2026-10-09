@@ -5,12 +5,26 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { DEFAULT_AVATAR_PATH, ANIMATION_URLS, ANIMATION_NAMES } from './UserAvatar';
+import { analyseViseme, attachStreamAnalyser } from './utils/realtimeLipSync';
 
 const MIN_INTERP_MS = 60;
 const MAX_INTERP_MS = 400;
 const _listenerPos = new THREE.Vector3();
 const _localPos = new THREE.Vector3();
-const _voiceBuf = new Uint8Array(512); // analyser.fftSize
+
+// User-avatar rigs only expose mouthOpen/mouthSmile — no viseme morphs — but
+// the classifier's viseme class still tells us HOW open the mouth should be:
+// sibilants/fricatives stay narrow, vowels open wide.
+const OPENNESS_BY_VISEME = {
+  viseme_sil: 0,
+  viseme_SS: 0.3,
+  viseme_FF: 0.35,
+  viseme_TH: 0.45,
+  viseme_U: 0.55,
+  viseme_O: 0.8,
+  viseme_E: 0.9,
+  viseme_aa: 1,
+};
 
 const VOICE_REF_DIST = 1.5;   // full volume within this radius (meters)
 const VOICE_MAX_DIST = 15;    // silent beyond this distance
@@ -189,20 +203,18 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
       voiceRef.current.panner.pan.value = THREE.MathUtils.clamp(_localPos.x * 0.35, -1, 1);
     }
 
-    // Lipsync: read the voice stream's instantaneous level, smooth it, map to
-    // mouthOpen (+ a touch of mouthSmile while speaking).
-    let level = 0;
+    // Lipsync: spectral classification gives a per-sound openness target —
+    // snappier than raw amplitude, and sibilants stay narrow instead of
+    // flapping fully open. Fast attack, slower release, like the professor.
+    let target = 0;
     const analyser = voiceRef.current?.analyser;
     if (analyser) {
-      analyser.getByteTimeDomainData(_voiceBuf);
-      let sum = 0;
-      for (let i = 0; i < _voiceBuf.length; i++) {
-        const v = (_voiceBuf[i] - 128) / 128;
-        sum += v * v;
-      }
-      level = Math.sqrt(sum / _voiceBuf.length);
+      // Boosted tap (see attachStreamAnalyser) — thresholds scaled to match.
+      const { viseme, level } = analyseViseme(analyser, { silenceRms: 0.02, fullOpenRms: 0.2 });
+      target = level * (OPENNESS_BY_VISEME[viseme] ?? 0.8);
     }
-    mouthLevelRef.current += (Math.min(1, level * 4) - mouthLevelRef.current) * 0.35;
+    const smoothing = target > mouthLevelRef.current ? 0.55 : 0.18;
+    mouthLevelRef.current += (target - mouthLevelRef.current) * smoothing;
     for (const t of mouthTargets) {
       if (t.open != null) t.influences[t.open] = mouthLevelRef.current;
       if (t.smile != null) t.influences[t.smile] = mouthLevelRef.current * 0.25;
@@ -216,21 +228,21 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
     const ctx = audioListener.context;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(audioStream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = _voiceBuf.length;
-    analyser.smoothingTimeConstant = 0.4;
+    // Separate boosted tap for lipsync — remote mic RMS is far below TTS
+    // playback levels, so the classifier needs the amplified signal.
+    const tap = attachStreamAnalyser(source, ctx, 4);
     const panner = ctx.createStereoPanner();
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    source.connect(analyser); // taps the stream for lipsync levels
     source.connect(panner);
     panner.connect(gain);
     gain.connect(audioListener.getInput());
-    voiceRef.current = { source, panner, gain, analyser };
+    voiceRef.current = { source, panner, gain, analyser: tap?.analyser || null };
     return () => {
       voiceRef.current = null;
       try { source.disconnect(); } catch {}
-      try { analyser.disconnect(); } catch {}
+      try { tap?.gain.disconnect(); } catch {}
+      try { tap?.analyser.disconnect(); } catch {}
       try { panner.disconnect(); } catch {}
       try { gain.disconnect(); } catch {}
     };

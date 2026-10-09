@@ -20,7 +20,6 @@ const SEGMENTS_CACHE = path.join(__dirname, '..', 'lecture_cache', 'segments');
 const ANSWERS_DIR = path.join(__dirname, '..', 'lecture_cache', 'answers');
 const PROFBRAIN_DIR = path.join(__dirname, '..', '..', '..', 'profbrain', 'lectures');
 const PDFS_BASE = path.join(__dirname, '..', 'data', 'courses');
-const RHUBARB_BIN = path.join(__dirname, '..', 'bin', 'rhubarb');
 
 const ANIMATIONS = ['explain', 'explain2', 'explain3'];
 const EXPRESSIONS = ['smile', 'neutral', 'smile', 'happy'];
@@ -195,13 +194,16 @@ async function generateSegmentAudio(lectureId, index, text, lang = null) {
   const lipsyncPath = segmentLipSyncPath(lectureId, index);
   const ttsText = cleanTextForTts(text);
 
-  if (existsSync(audioPath) && existsSync(lipsyncPath)) {
-    try {
-      return { audioPath, lipsync: JSON.parse(await fs.readFile(lipsyncPath, 'utf-8')) };
-    } catch (err) {
-      console.error(`[segments] Cached lipsync invalid for ${lectureId}/${index}:`, err);
+  if (existsSync(audioPath)) {
+    let cached = null;
+    if (existsSync(lipsyncPath)) {
+      try {
+        cached = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+      } catch (err) {
+        console.error(`[segments] Cached lipsync invalid for ${lectureId}/${index}:`, err);
+      }
     }
-    return { audioPath, lipsync: null };
+    return { audioPath, lipsync: cached };
   }
 
   const voiceId = await getDefaultVoice();
@@ -230,17 +232,6 @@ async function generateSegmentAudio(lectureId, index, text, lang = null) {
     throw lastError || new Error('TTS generation failed');
   }
   await fs.writeFile(audioPath, audioBuffer);
-
-  if (!existsSync(lipsyncPath)) {
-    try {
-      await execCommand({
-        command: `${RHUBARB_BIN} -f json -o "${lipsyncPath}" "${audioPath}" -r phonetic`,
-      });
-    } catch (err) {
-      console.error(`[segments] Rhubarb failed for ${lectureId}/${index}:`, err);
-      // Continue without lipsync
-    }
-  }
 
   let lipsync = null;
   if (existsSync(lipsyncPath)) {
@@ -293,7 +284,7 @@ async function loadLectureManifest(lectureId, lang = 'en') {
     // Fast path: translated text + audio + lipsync all cached — no LLM/TTS.
     let segText = null;
     let lipsync = null;
-    if (existsSync(textPath) && existsSync(audioPath) && existsSync(lipsyncPath)) {
+    if (existsSync(textPath) && existsSync(audioPath)) {
       try {
         segText = await fs.readFile(textPath, 'utf-8');
         lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
@@ -306,7 +297,7 @@ async function loadLectureManifest(lectureId, lang = 'en') {
     // Audio exists but the translated text wasn't persisted (older bake):
     // serve the audio now and fill the text cache in the background so the
     // NEXT request shows the translated transcript.
-    if (segText === null && lang !== 'en' && existsSync(audioPath) && existsSync(lipsyncPath)) {
+    if (segText === null && lang !== 'en' && existsSync(audioPath)) {
       segText = texts[i];
       try {
         lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
@@ -477,15 +468,6 @@ router.get('/lecture/summary/:lectureId', async (req, res) => {
 
   if (audioReady) {
     const lipsyncPath = path.join(PROFBRAIN_DIR, lectureId, 'lipsync.json');
-    if (!existsSync(lipsyncPath)) {
-      try {
-        await execCommand({
-          command: `${RHUBARB_BIN} -f json -o "${lipsyncPath}" "${audioPath}" -r phonetic`,
-        });
-      } catch (err) {
-        console.error(`[lecture/summary] Rhubarb failed for ${lectureId}:`, err);
-      }
-    }
     if (existsSync(lipsyncPath)) {
       try {
         lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
@@ -612,7 +594,7 @@ ${context}
 Student question: ${question}`;
 }
 
-// Student question during a lecture: Ollama answer + VoxCPM2 (abed101) + Rhubarb.
+// Student question during a lecture: Ollama answer + VoxCPM2 (abed101) TTS.
 // Cached per (lectureId, question) so repeated interruptions are instant.
 router.post('/ask', async (req, res) => {
   const { question, lectureId, language } = req.body || {};
@@ -650,7 +632,7 @@ router.post('/ask', async (req, res) => {
     const audioPath = path.join(ANSWERS_DIR, `${key}.wav`);
     const lipsyncPath = path.join(ANSWERS_DIR, `${key}_lipsync.json`);
 
-    if (!(existsSync(audioPath) && existsSync(lipsyncPath))) {
+    if (!existsSync(audioPath)) {
       if (!existsSync(ANSWERS_DIR)) {
         await fs.mkdir(ANSWERS_DIR, { recursive: true });
       }
@@ -660,13 +642,6 @@ router.post('/ask', async (req, res) => {
       }
       const audioBuffer = await synthesizeVerified(cleanTextForTts(answerText), voiceId, lang);
       await fs.writeFile(audioPath, audioBuffer);
-      try {
-        await execCommand({
-          command: `${RHUBARB_BIN} -f json -o "${lipsyncPath}" "${audioPath}" -r phonetic`,
-        });
-      } catch (err) {
-        console.error('[ask] Rhubarb failed:', err);
-      }
     }
 
     let lipsync = null;
@@ -780,7 +755,7 @@ ${material}`;
     const audioPath = path.join(ANSWERS_DIR, `${key}.wav`);
     const lipsyncPath = path.join(ANSWERS_DIR, `${key}_lipsync.json`);
 
-    if (!(existsSync(audioPath) && existsSync(lipsyncPath))) {
+    if (!existsSync(audioPath)) {
       if (!existsSync(ANSWERS_DIR)) {
         await fs.mkdir(ANSWERS_DIR, { recursive: true });
       }
@@ -790,13 +765,6 @@ ${material}`;
       }
       const audioBuffer = await synthesizeVerified(cleanTextForTts(recapText), voiceId, lang);
       await fs.writeFile(audioPath, audioBuffer);
-      try {
-        await execCommand({
-          command: `${RHUBARB_BIN} -f json -o "${lipsyncPath}" "${audioPath}" -r phonetic`,
-        });
-      } catch (err) {
-        console.error('[recap] Rhubarb failed:', err);
-      }
     }
 
     let lipsync = null;

@@ -6,9 +6,14 @@ import { useSpeech } from "../classroom/hooks/useSpeech";
 import facialExpressions from "./constants/facialExpressions";
 import visemesMapping from "./constants/visemesMapping";
 import morphTargets from "./constants/morphTargets";
+import { attachAnalyser, detachAnalyser, analyseViseme } from "./utils/realtimeLipSync";
 
 const DEFAULT_AVATAR_PATH = '/assets/avatar/ProfAbed_suit.glb';
 const EXTRA_ANIMATIONS_URL = '/models/animations.glb';
+
+// Every viseme morph the real-time classifier or legacy mouthCues can emit —
+// reset each frame before applying the active one.
+const ALL_VISEME_TARGETS = morphTargets.filter((t) => t.startsWith('viseme_'));
 
 const ANIMATION_MAP = {
   explain: 'TalkingOne',
@@ -69,6 +74,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const [blink, setBlink] = useState(false);
   const [facialExpression, setFacialExpression] = useState("");
   const [audio, setAudio] = useState();
+  const analyserRef = useRef(null);
 
   const lerpMorphTarget = (target, value, speed = 0.1) => {
     group.current.traverse((child) => {
@@ -90,6 +96,8 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       if (audio) {
         audio.pause();
         audio.currentTime = 0;
+        detachAnalyser(audio);
+        analyserRef.current = null;
       }
       setAudio(undefined);
       if (audioElementRef) audioElementRef.current = null;
@@ -99,11 +107,20 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     setAnimation(resolved || "Idle");
     setFacialExpression(message.facialExpression);
     setLipsync(message.lipsync);
-    const nextAudio = message.audio
-      ? new Audio("data:audio/mp3;base64," + message.audio)
-      : message.audioUrl
-      ? new Audio(message.audioUrl)
-      : null;
+    const audioSrc = message.audio
+      ? "data:audio/mp3;base64," + message.audio
+      : message.audioUrl || null;
+    let nextAudio = null;
+    if (audioSrc) {
+      nextAudio = new Audio();
+      // crossOrigin must precede src, otherwise a MediaElementSource taps
+      // silence (tainted CORS). Server sends permissive CORS headers.
+      nextAudio.crossOrigin = 'anonymous';
+      nextAudio.src = audioSrc;
+    }
+    // Real-time lipsync: tap the element with an analyser before playback so
+    // visemes are derived from the actual output signal each frame.
+    analyserRef.current = nextAudio ? attachAnalyser(nextAudio) : null;
     if (nextAudio) {
       const savedResumeAt =
         typeof message.resumeAt === 'number' && message.resumeAt > 0 ? message.resumeAt : null;
@@ -149,6 +166,8 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         nextAudio.onerror = null;
         nextAudio.pause();
         nextAudio.currentTime = 0;
+        detachAnalyser(nextAudio);
+        analyserRef.current = null;
       }
     };
   }, [message]);
@@ -244,8 +263,20 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       lerpMorphTarget("eyeBlinkLeft", blink ? 1 : 0, 0.5);
       lerpMorphTarget("eyeBlinkRight", blink ? 1 : 0, 0.5);
 
+      // Lipsync: prefer the real-time analyser (always in lock-step with the
+      // audible output); fall back to legacy Rhubarb mouthCues when the
+      // element could not be tapped (e.g. no Web Audio support).
       const appliedMorphTargets = [];
-      if (message && lipsync && !pausedLecture) {
+      const analyser = analyserRef.current;
+      if (message && audio && analyser && !pausedLecture && !audio.paused) {
+        const { viseme, level } = analyseViseme(analyser);
+        if (viseme && level > 0) {
+          appliedMorphTargets.push(viseme);
+          lerpMorphTarget(viseme, level, 0.35);
+          // A little jaw drive makes the viseme shapes read as speech.
+          lerpMorphTarget('mouthOpen', level * 0.6, 0.35);
+        }
+      } else if (message && lipsync && !pausedLecture && audio) {
         const currentAudioTime = audio.currentTime;
         for (let i = 0; i < lipsync.mouthCues.length; i++) {
           const mouthCue = lipsync.mouthCues[i];
@@ -257,12 +288,15 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         }
       }
 
-      Object.values(visemesMapping).forEach((value) => {
+      ALL_VISEME_TARGETS.forEach((value) => {
         if (appliedMorphTargets.includes(value)) {
           return;
         }
         lerpMorphTarget(value, 0, 0.1);
       });
+      if (!appliedMorphTargets.length) {
+        lerpMorphTarget('mouthOpen', 0, 0.1);
+      }
   });
 
   return (
