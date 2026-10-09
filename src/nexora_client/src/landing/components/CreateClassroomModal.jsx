@@ -1,32 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
-import { API_URL, CLASSROOM_LANGUAGES, getParticipantId, validateClassroomDraft } from '../../shared/config';
-import { SCENE_CONFIG } from '../../classroom/sceneConfig';
+import { API_URL, getParticipantId, validateClassroomDraft } from '../../shared/config';
+import { SCENE_CONFIG, PRIMARY_COURSES } from '../../classroom/sceneConfig';
 
 // Unified classroom creation: one form produces either a public gallery
 // classroom or a private invite-only room — same scene, same NCIP underneath.
 export default function CreateClassroomModal({ onClose, onCreated }) {
-  const courses = Object.entries(SCENE_CONFIG).map(([id, c]) => ({ id, label: c.title }));
+  const courses = PRIMARY_COURSES.map((id) => ({ id, label: SCENE_CONFIG[id].title }));
   const [className, setClassName] = useState('');
   const [courseId, setCourseId] = useState(courses[0]?.id || 'Multimedia');
-  const [lectures, setLectures] = useState([]);
-  const [lectureId, setLectureId] = useState('');
-  const [language, setLanguage] = useState('en');
-  const [roomType, setRoomType] = useState('public');
+  const [isPublic, setIsPublic] = useState(false); // default: private
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetch(`${API_URL}/api/lectures`)
-      .then((r) => r.json())
-      .then((d) => {
-        setLectures(d.lectures || []);
-        setLectureId(d.lectures?.[0]?.lecture_id || '');
-      })
-      .catch(() => setError('Could not load lectures.'));
-  }, []);
-
-  const valid = validateClassroomDraft({ className, lectureId, language });
+  const valid = validateClassroomDraft({ className });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -40,9 +27,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         body: JSON.stringify({
           className: className.trim(),
           courseId,
-          lectureId,
-          language,
-          roomType,
+          roomType: isPublic ? 'public' : 'private',
           scene: courseId,
           hostId: getParticipantId(),
         }),
@@ -84,31 +69,20 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           </select>
         </label>
 
-        <label className="ccmodal__label">
-          Lecture
-          <select value={lectureId} onChange={(e) => setLectureId(e.target.value)}>
-            {lectures.map((l) => <option key={l.lecture_id} value={l.lecture_id}>{l.title}</option>)}
-          </select>
-        </label>
-
-        <label className="ccmodal__label">
-          Language
-          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            {CLASSROOM_LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-          </select>
-        </label>
-
-        <fieldset className="ccmodal__radios">
-          <legend>Visibility</legend>
-          <label>
-            <input type="radio" checked={roomType === 'public'} onChange={() => setRoomType('public')} />
-            Public — listed in the gallery, anyone can join
-          </label>
-          <label>
-            <input type="radio" checked={roomType === 'private'} onChange={() => setRoomType('private')} />
-            Private — invite link only, never listed
-          </label>
-        </fieldset>
+        <div className="ccmodal__toggle">
+          <div>
+            <span className="ccmodal__toggle-label">Public classroom</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={isPublic}
+            className={`ccmodal__switch ${isPublic ? 'ccmodal__switch--on' : ''}`}
+            onClick={() => setIsPublic((v) => !v)}
+          >
+            <span className="ccmodal__switch-knob" />
+          </button>
+        </div>
 
         {error && <p className="ccmodal__error">{error}</p>}
 

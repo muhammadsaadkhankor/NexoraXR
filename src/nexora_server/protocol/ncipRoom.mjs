@@ -615,6 +615,11 @@ export class NcipRoom {
     if (this.interruption.checkpoint) {
       this.interruption.checkpoint.language = language;
     }
+    // Keep the live playback language aligned — late joiners recover the
+    // lecture from this projection and would otherwise hear the OLD language.
+    if (this.playback) {
+      this.playback.language = language;
+    }
     return {
       ok: true,
       effects: [

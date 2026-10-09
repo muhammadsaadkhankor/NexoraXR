@@ -39,7 +39,8 @@ const RAY_OFFSET = 0.35;
 const RAY_HEIGHT = 2.0;
 const WALL_MARGIN = 0.3;
 const MOUSE_SENSITIVITY = 0.005;
-export const DEFAULT_AVATAR_PATH = '/assets/useravatar/UserAvatar.glb';
+// Morph-bearing rig — UserAvatar.glb lacks mouthOpen targets.
+export const DEFAULT_AVATAR_PATH = '/assets/useravatar/avatars/anim_male_1.glb';
 
 export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, modelPath = DEFAULT_AVATAR_PATH, visible = true, onStateUpdate, joystick, ...props }, ref) => {
   const group = useRef();

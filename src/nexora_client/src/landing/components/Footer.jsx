@@ -1,9 +1,7 @@
-import { Box } from 'lucide-react'
-
 const footerLinks = {
-  Platform: ['Explore', 'Experiences', 'WebXR'],
-  Resources: ['Documentation', 'Research', 'Support'],
-  Company: ['About', 'Contact'],
+  Platform: ['Classrooms', 'Create a room', 'WebXR'],
+  Learning: ['Courses', 'Catch Me Up', 'Multilingual lectures'],
+  Company: ['Philosophy', 'Research', 'Contact'],
 }
 
 export default function Footer() {
@@ -13,12 +11,12 @@ export default function Footer() {
         <div className="footer__grid">
           <div className="footer__brand">
             <a href="#home" className="footer__logo">
-              <Box size={24} />
-              NexoraXR
+              <span className="navbar__seal">W</span>
+              WuFlux
             </a>
             <p className="footer__desc">
-              Immersive WebXR platform for intelligent virtual experiences,
-              education, training, and collaboration.
+              Flow without barriers — a boundless classroom for every place,
+              language, pace and person.
             </p>
           </div>
 
@@ -28,7 +26,7 @@ export default function Footer() {
               <ul>
                 {links.map((l) => (
                   <li key={l}>
-                    <a href="#">{l}</a>
+                    <a href="#explore">{l}</a>
                   </li>
                 ))}
               </ul>
@@ -37,7 +35,7 @@ export default function Footer() {
         </div>
 
         <div className="footer__bottom">
-          <span>© 2026 NexoraXR. All rights reserved.</span>
+          <span>© 2026 WuFlux. Learning without limits.</span>
           <div className="footer__legal">
             <a href="#">Privacy</a>
             <a href="#">Terms</a>

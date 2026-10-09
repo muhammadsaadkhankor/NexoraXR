@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Box, Menu, X } from 'lucide-react'
+import { Menu, X } from 'lucide-react'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -15,17 +15,16 @@ export default function Navbar() {
     <header className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}>
       <div className="container navbar__inner">
         <a href="#home" className="navbar__brand">
-          <Box className="navbar__logo" size={26} />
-          <span>NexoraXR</span>
+          <span className="navbar__seal">W</span>
+          <span className="navbar__wordmark">WuFlux</span>
         </a>
         <nav className={`navbar__nav ${open ? 'navbar__nav--open' : ''}`}>
-          <a href="#home" onClick={() => setOpen(false)}>Home</a>
-          <a href="#explore" onClick={() => setOpen(false)}>Explore</a>
-          <a href="#experiences" onClick={() => setOpen(false)}>Experiences</a>
-          <a href="#about" onClick={() => setOpen(false)}>About</a>
+          <a href="#explore" onClick={() => setOpen(false)}>Classrooms</a>
+          <a href="#platform" onClick={() => setOpen(false)}>Platform</a>
+          <a href="#philosophy" onClick={() => setOpen(false)}>Philosophy</a>
         </nav>
         <div className="navbar__actions">
-          <a href="#" className="btn btn-ghost">Sign In</a>
+          <a href="#explore" className="btn btn-secondary btn-sm">Enter a class</a>
           <button
             className="navbar__toggle"
             onClick={() => setOpen((v) => !v)}

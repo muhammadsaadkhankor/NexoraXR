@@ -56,6 +56,19 @@ export function useVoiceChat() {
       }
     };
 
+    // Track added while a peer already exists (mic acquired after connecting)
+    // → renegotiate automatically.
+    pc.onnegotiationneeded = async () => {
+      if (pc.signalingState !== 'stable' || !socket) return;
+      try {
+        await pc.setLocalDescription();
+        pc._offerAt = Date.now();
+        socket.emit('webrtc-signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription.sdp } });
+      } catch (err) {
+        console.error('[voice] renegotiation failed:', err);
+      }
+    };
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, localStreamRef.current));
     } else {
@@ -73,6 +86,7 @@ export function useVoiceChat() {
     const pc = createPeer(userId);
     try {
       await pc.setLocalDescription();
+      pc._offerAt = Date.now();
       socket.emit('webrtc-signal', { to: userId, data: { type: 'offer', sdp: pc.localDescription.sdp } });
     } catch (err) {
       console.error('[voice] offer failed:', err);
@@ -82,14 +96,20 @@ export function useVoiceChat() {
 
   const handleSignal = useCallback(async ({ from, data }) => {
     const socket = socketRef.current;
-    if (!socket || !voiceOnRef.current || !data?.type) return;
+    // Always answer signaling — even while our mic is muted we must accept the
+    // remote's audio (recvonly transceiver) so we can hear + lipsync them.
+    if (!socket || !data?.type) return;
     try {
       const pc = createPeer(from);
       if (data.type === 'offer') {
         // Offer collision: the peer with the lexicographically smaller id wins;
         // the larger id rolls back its own pending offer and answers.
+        // EXCEPTION: a stale pending offer (>4s unanswered — e.g. sent while
+        // the remote had voice off and dropped it) always yields to the fresh
+        // offer, otherwise both sides deadlock in have-local-offer.
         if (pc.signalingState !== 'stable') {
-          if (socket.id < from) return;
+          const stale = Date.now() - (pc._offerAt || 0) > 4000;
+          if (socket.id < from && !stale) return;
           await pc.setLocalDescription({ type: 'rollback' });
         }
         await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
@@ -128,15 +148,18 @@ export function useVoiceChat() {
     remotePlayersRef.current = players || [];
   }, []);
 
+  // Mute-style toggle: the peer mesh and remote audio STAY connected — only
+  // the local mic track is enabled/disabled. Each device is independent: one
+  // browser muting never tears down anyone else's link.
   const toggleVoice = useCallback(async () => {
     if (voiceOnRef.current) {
-      // Leave voice: tear down every peer and release the mic.
-      peersRef.current.forEach((pc) => { try { pc.close(); } catch {} });
-      peersRef.current.clear();
-      setRemoteStreams({});
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
+      localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = false; });
       setVoiceOn(false);
+      return;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach((t) => { t.enabled = true; });
+      setVoiceOn(true);
       return;
     }
     try {
@@ -148,7 +171,11 @@ export function useVoiceChat() {
       });
       localStreamRef.current = stream;
       setVoiceOn(true);
-      // Call everyone already in the room; newcomers get called via user-joined.
+      // Attach the mic to existing peers (onnegotiationneeded fires) and call
+      // everyone else; newcomers get called via user-joined.
+      peersRef.current.forEach((pc) => {
+        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      });
       remotePlayersRef.current.forEach((p) => { if (p?.userId) callPeer(p.userId); });
     } catch (err) {
       console.error('[voice] microphone access failed:', err);

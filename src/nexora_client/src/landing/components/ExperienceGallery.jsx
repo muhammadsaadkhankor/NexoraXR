@@ -1,19 +1,48 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowUpRight, Plus, Users, Globe } from 'lucide-react'
+import {
+  Plus, Users, Globe, ArrowRight,
+  Clapperboard, ScanEye, BrainCircuit, TerminalSquare, MousePointerClick, Scale,
+} from 'lucide-react'
 import { API_URL, CLASSROOM_LANGUAGES } from '../../shared/config'
+import { SCENE_CONFIG, PRIMARY_COURSES } from '../../classroom/sceneConfig'
 import CreateClassroomModal from './CreateClassroomModal'
 
-// Static course/experience cards — unchanged; they navigate into course pages.
-const experiences = [
-  { title: 'Multimedia', category: 'Multimedia Computing' },
-  { title: 'ELG 5121', category: 'Engineering' },
-  { title: 'CS 401', category: 'Computer Science' },
-  { title: 'MED 320', category: 'Healthcare' },
-  { title: 'BIO 210', category: 'Science' },
-  { title: 'MTH 150', category: 'Mathematics' },
-  { title: 'VR 101', category: 'Virtual Labs' },
-]
+// Per-course card identity — accent color, icon and tagline give each course
+// its own visual design instead of one shared photo template.
+const COURSE_STYLE = {
+  Multimedia: {
+    icon: Clapperboard, accent: '#7C5CFC',
+    tagline: 'Interactive media systems and immersive storytelling.',
+  },
+  ComputerVision: {
+    icon: ScanEye, accent: '#38BDF8',
+    tagline: 'Teach machines to see — detection, tracking, recognition.',
+  },
+  MachineLearning: {
+    icon: BrainCircuit, accent: '#34D399',
+    tagline: 'Models, gradients and data — from theory to deployment.',
+  },
+  ComputerScience: {
+    icon: TerminalSquare, accent: '#F59E0B',
+    tagline: 'Algorithms, systems and software fundamentals.',
+  },
+  HCI: {
+    icon: MousePointerClick, accent: '#F472B6',
+    tagline: 'Designing interfaces where humans and computers meet.',
+  },
+  Ethics: {
+    icon: Scale, accent: '#2DD4BF',
+    tagline: 'Technology, society and the questions that matter.',
+  },
+}
+
+const courses = PRIMARY_COURSES.map((code) => ({
+  code,
+  title: SCENE_CONFIG[code].title,
+  category: SCENE_CONFIG[code].category,
+  style: COURSE_STYLE[code],
+}))
 
 const LANG_LABEL = Object.fromEntries(CLASSROOM_LANGUAGES.map((l) => [l.code, l.label]))
 
@@ -53,10 +82,11 @@ export default function ExperienceGallery({ onCourse }) {
       <div className="container">
         <div className="section__header section__header--row">
           <div>
-            <h2 className="section__title">Immersive Experiences</h2>
+            <span className="section__eyebrow">Learning without walls</span>
+            <h2 className="section__title">Classrooms</h2>
             <p className="section__desc">
-              Discover interactive environments designed for learning, exploration,
-              collaboration, and intelligent virtual interaction.
+              Pick a course and step inside — or spin up your own room and
+              invite your cohort. Public, private, always flowing.
             </p>
           </div>
           <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
@@ -70,37 +100,53 @@ export default function ExperienceGallery({ onCourse }) {
               <Globe size={16} /> Live Classrooms
             </h3>
             <div className="liverooms__grid">
-              {liveRooms.map((r) => (
-                <div key={r.roomId} className="liverooms__card">
-                  <div className="liverooms__badge">
-                    <Globe size={12} /> Public
+              {liveRooms.map((r) => {
+                const accent = COURSE_STYLE[r.courseId]?.accent || '#7C5CFC'
+                return (
+                  <div key={r.roomId} className="liverooms__card" style={{ '--live-accent': accent }}>
+                    <div className="liverooms__badge">
+                      <span className="liverooms__dot" /> Live · Public
+                    </div>
+                    <h4>{r.className}</h4>
+                    <p>{SCENE_CONFIG[r.courseId]?.title || r.courseId || 'General'} · {LANG_LABEL[r.language] || r.language}</p>
+                    <button
+                      className="liverooms__join"
+                      onClick={() => navigate(`/scene/${r.scene}?room=${r.roomId}${r.lectureId ? `&lecture=${r.lectureId}` : ''}`)}
+                    >
+                      Join Class <ArrowRight size={14} />
+                    </button>
                   </div>
-                  <h4>{r.className}</h4>
-                  <p>{r.courseId || 'General'} · {LANG_LABEL[r.language] || r.language}</p>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => navigate(`/scene/${r.scene}?room=${r.roomId}&lecture=${r.lectureId}`)}
-                  >
-                    <Users size={14} /> Join Class
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </>
         )}
 
         <div className="gallery__grid">
-          {experiences.map((ex, i) => (
-            <a key={i} href="#" onClick={(e) => { e.preventDefault(); onCourse(ex.title) }} className="gallery__item">
-              <img src="/assets/heroposter.png" alt={ex.title} />
-              <div className="gallery__overlay" />
-              <div className="gallery__content">
-                <span className="gallery__category">{ex.category}</span>
-                <h3 className="gallery__title">{ex.title}</h3>
-              </div>
-              <ArrowUpRight className="gallery__arrow" size={20} />
-            </a>
-          ))}
+          {courses.map((c) => {
+            const Icon = c.style.icon
+            return (
+              <button
+                key={c.code}
+                onClick={() => onCourse(c.code)}
+                className="course-card"
+                style={{ '--course-accent': c.style.accent }}
+              >
+                <span className="course-card__glow" />
+                <span className="course-card__icon">
+                  <Icon size={26} strokeWidth={1.75} />
+                </span>
+                <span className="course-card__body">
+                  <span className="course-card__category">{c.category}</span>
+                  <span className="course-card__title">{c.title}</span>
+                  <span className="course-card__tagline">{c.style.tagline}</span>
+                </span>
+                <span className="course-card__cta">
+                  Enter classroom <ArrowRight size={15} />
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 

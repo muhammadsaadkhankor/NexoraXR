@@ -1,6 +1,9 @@
 // Base URL of the NexoraXR backend (Express + Socket.IO).
 // Override via VITE_API_URL (see .env.example); falls back to local dev default.
-export const API_URL = import.meta.env?.VITE_API_URL || 'http://localhost:3000';
+// Same-origin by default: Vite proxies /api and /socket.io to the backend,
+// so tunnelling the dev port (cloudflared → :5173) exposes the whole app —
+// phone, LAN, or public link — with zero extra config. VITE_API_URL overrides.
+export const API_URL = import.meta.env?.VITE_API_URL ?? '';
 
 // Stable per-browser participant identity (survives socket reconnects).
 const PARTICIPANT_ID_KEY = 'nexoraxr_participant_id';
@@ -39,7 +42,7 @@ export const CLASSROOM_LANGUAGES = [
 export function validateClassroomDraft({ className, lectureId, language } = {}) {
   return (
     typeof className === 'string' && className.trim().length > 0 &&
-    /^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '') &&
-    CLASSROOM_LANGUAGES.some((l) => l.code === language)
+    (lectureId == null || /^[A-Za-z0-9_-]{1,64}$/.test(lectureId)) &&
+    (language == null || CLASSROOM_LANGUAGES.some((l) => l.code === language))
   );
 }

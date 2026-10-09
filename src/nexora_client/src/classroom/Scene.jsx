@@ -4,7 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages, Lock, Copy } from 'lucide-react';
+import { User, UserX, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages, Lock, Copy } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
@@ -20,7 +20,9 @@ import { API_URL, getParticipantId } from '../shared/config';
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
 
 const USER_AVATARS = [
-  { path: '/assets/useravatar/avatars/UserAvatar.glb', name: 'Alex' },
+  // NOTE: UserAvatar.glb is excluded — it has no mouth morph targets, so it
+  // can never lipsync (bind-pose mouth). All anim_* rigs carry mouthOpen.
+
   { path: '/assets/useravatar/avatars/anim_female_1.glb', name: 'Ava' },
   { path: '/assets/useravatar/avatars/anim_female_2.glb', name: 'Luna' },
   { path: '/assets/useravatar/avatars/anim_female_3.glb', name: 'Sofia' },
@@ -92,86 +94,6 @@ function LoadingOverlay({ visible }) {
   );
 }
 
-function AvatarPreviewModel({ path }) {
-  const group = useRef();
-  const { scene } = useGLTF(path);
-  const model = useMemo(() => scene.clone(), [scene]);
-
-  useLayoutEffect(() => {
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    const max = Math.max(size.x, size.y, size.z);
-    const s = 2.2 / max;
-    model.position.set(-center.x, -1 - box.min.y * s, -center.z);
-    model.scale.set(s, s, s);
-  }, [model]);
-
-  useFrame((_, delta) => {
-    if (group.current) {
-      group.current.rotation.y += delta * 0.8;
-    }
-  });
-
-  return (
-    <group ref={group} position={[0, 0, 0]}>
-      <primitive object={model} />
-    </group>
-  );
-}
-
-function AvatarPreview({ path }) {
-  return (
-    <div className='h-28 w-28 overflow-hidden rounded-full bg-slate-800 shadow-inner'>
-      <Canvas
-        camera={{ position: [0, 0.6, 3.5], fov: 40 }}
-        gl={{ antialias: false, alpha: false }}
-        frameloop='always'
-        className='h-full w-full'
-      >
-        <color attach='background' args={['#0f172a']} />
-        <ambientLight intensity={0.8} />
-        <directionalLight position={[2, 4, 3]} intensity={1.2} />
-        <AvatarPreviewModel path={path} />
-      </Canvas>
-    </div>
-  );
-}
-
-function AvatarPicker({ avatars, onPick, onClose }) {
-  return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 text-white backdrop-blur-sm'>
-      <div className='relative w-full max-w-2xl rounded-3xl border border-slate-700/50 bg-slate-900/70 p-6 shadow-2xl sm:p-8'>
-        <button
-          onClick={onClose}
-          className='absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-800 hover:text-white'
-          aria-label='Close'
-        >
-          <X size={20} />
-        </button>
-        <h2 className='text-center text-3xl font-bold text-white'>Change Your Avatar</h2>
-        <p className='mt-2 text-center text-slate-400'>Pick a different avatar.</p>
-        <div className='mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4'>
-          {avatars.map((a) => (
-            <button
-              key={a.path}
-              onClick={() => onPick(a.path)}
-              className='group flex flex-col items-center gap-3 rounded-2xl border border-slate-700 bg-slate-800/50 p-4 transition hover:border-cyan-500/50 hover:bg-slate-800'
-            >
-              <div className='flex h-28 w-28 items-center justify-center rounded-full ring-2 ring-slate-700/50'>
-                <AvatarPreview path={a.path} />
-              </div>
-              <span className='text-base font-semibold text-slate-100'>{a.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ClassroomPanel({
   course,
   lectureId,
@@ -181,12 +103,6 @@ function ClassroomPanel({
   onStart,
   onChat,
   chatOpen,
-  onUserAvatar,
-  onOutfits,
-  outfitsOpen,
-  outfits,
-  currentOutfit,
-  onPickOutfit,
   displayName,
   floorQueue,
   activeSpeaker,
@@ -200,11 +116,10 @@ function ClassroomPanel({
   onLanguage,
   canCatchUp = false,
   onCatchUp,
-  onCreatePrivate,
-  creatingPrivate = false,
-  canCreatePrivate = false,
   isPrivateRoom = false,
   isRoomHost = false,
+  roomMembers = [],
+  onKick,
   pauseReason = null,
   onCopyInvite,
   inviteCopied = false,
@@ -216,6 +131,7 @@ function ClassroomPanel({
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
   const [handMenuOpen, setHandMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   const LANGUAGES = [
     { code: 'en', label: 'English' },
@@ -242,13 +158,13 @@ function ClassroomPanel({
 
   return (
     <>
-      {(handMenuOpen || outfitsOpen || langMenuOpen) && (
+      {(handMenuOpen || langMenuOpen || membersOpen) && (
         <div
           className='fixed inset-0 z-40'
           onClick={() => {
             setHandMenuOpen(false);
             setLangMenuOpen(false);
-            if (outfitsOpen) onOutfits();
+            setMembersOpen(false);
           }}
         />
       )}
@@ -386,41 +302,6 @@ function ClassroomPanel({
             )}
           </div>
 
-          <div className='relative'>
-            <button onClick={onOutfits} className={pillBase}>
-              <User size={20} className='text-slate-300' />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>Avatar</p>
-                <p className='text-[11px] text-slate-400'>Professor outfit</p>
-              </div>
-              <ChevronDown size={14} className={`text-slate-500 transition ${outfitsOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {outfitsOpen && (
-              <div className='absolute right-0 top-full z-50 mt-2 w-56 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur'>
-                {outfits.map((o) => (
-                  <button
-                    key={o.path}
-                    onClick={() => onPickOutfit(o.path)}
-                    className={`w-full rounded-lg px-3 py-2 text-left transition hover:bg-slate-800 ${
-                      o.path === currentOutfit ? 'text-cyan-400' : 'text-slate-200'
-                    }`}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button onClick={onUserAvatar} className={pillBase}>
-            <Users size={20} className='text-slate-300' />
-            <div className='leading-tight'>
-              <p className='text-xs font-semibold'>My Avatar</p>
-              <p className='text-[11px] text-slate-400'>Change look</p>
-            </div>
-          </button>
-
           <button onClick={onChat} className={`${pillBase} ${chatOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}>
             <MessageSquare size={20} className='text-slate-300' />
             <div className='leading-tight'>
@@ -431,7 +312,7 @@ function ClassroomPanel({
 
           <button
             onClick={onVoice}
-            title={voiceOn ? 'Leave voice chat' : 'Join voice chat (proximity audio)'}
+            title={voiceOn ? 'Mute microphone' : 'Unmute microphone (joins voice chat)'}
             className={`${pillBase} ${voiceOn ? 'bg-slate-800/80 ring-1 ring-emerald-400/50' : ''}`}
           >
             {voiceOn
@@ -443,19 +324,39 @@ function ClassroomPanel({
             </div>
           </button>
 
-          {!isPrivateRoom && (
-            <button
-              onClick={onCreatePrivate}
-              disabled={creatingPrivate || !canCreatePrivate}
-              title='Create a private room and get an invite link'
-              className={`${pillBase} disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <Lock size={20} className='text-violet-300' />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>{creatingPrivate ? 'Creating…' : 'Private Room'}</p>
-                <p className='text-[11px] text-slate-400'>Invite-only session</p>
-              </div>
-            </button>
+          {isPrivateRoom && (
+            <div className='relative'>
+              <button onClick={() => setMembersOpen((v) => !v)} className={pillBase}>
+                <Users size={20} className='text-slate-300' />
+                <div className='leading-tight'>
+                  <p className='text-xs font-semibold'>Participants</p>
+                  <p className='text-[11px] text-slate-400'>{roomMembers.length} in this class</p>
+                </div>
+                <ChevronDown size={14} className={`text-slate-500 transition ${membersOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {membersOpen && (
+                <div className='absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur'>
+                  {roomMembers.map((m) => (
+                    <div key={m.userId} className='flex items-center justify-between rounded-lg px-3 py-2 hover:bg-slate-800'>
+                      <span className='truncate text-slate-200'>
+                        {m.name || 'User'}
+                        {m.isHost && <span className='ml-2 text-[10px] font-semibold uppercase tracking-wide text-violet-300'>host</span>}
+                        {m.isSelf && <span className='ml-2 text-[10px] text-slate-500'>you</span>}
+                      </span>
+                      {isRoomHost && !m.isSelf && !m.isHost && onKick && (
+                        <button
+                          onClick={() => onKick(m.userId)}
+                          title={`Remove ${m.name || 'this user'} from the room`}
+                          className='ml-2 rounded-md p-1 text-slate-500 transition hover:bg-rose-500/15 hover:text-rose-300'
+                        >
+                          <UserX size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {isPrivateRoom && onCopyInvite && (
@@ -686,13 +587,12 @@ function SceneRoom({ sceneName, baseConfig }) {
     };
   }, [baseConfig, runtimeConfig]);
 
-  const [currentAvatarPath, setCurrentAvatarPath] = useState('/assets/avatar/ProfAbed_suit.glb');
+  const [currentAvatarPath] = useState('/assets/avatar/ProfAbed_suit.glb');
   const [userAvatarPath, setUserAvatarPath] = useState(() => {
     const i = Math.floor(Math.random() * USER_AVATARS.length);
     return USER_AVATARS[i].path;
   });
   const [cameraPreset, setCameraPreset] = useState('third-person');
-  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [inRange, setInRange] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [lectureLang, setLectureLang] = useState('en');
@@ -715,12 +615,6 @@ function SceneRoom({ sceneName, baseConfig }) {
   // Private-room flow: access errors replace the scene; created invite links
   // are shown to the host for sharing.
   const [accessError, setAccessError] = useState(null);
-  // The invite banner is shown only to the creator: the URL is stored under a
-  // per-room sessionStorage key set at creation time, so guests who open the
-  // same link never see a "you created this" banner.
-  const [privateInviteUrl, setPrivateInviteUrl] = useState(() =>
-    privateRoomId ? sessionStorage.getItem(`nexoraxr_invite_${privateRoomId}`) : null);
-  const [creatingPrivate, setCreatingPrivate] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   // Private-room guest admission: guests wait for host approval; the host sees
   // pending requests and approves/declines each one.
@@ -730,6 +624,41 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [pauseReason, setPauseReason] = useState(null); // 'host' during a host discussion pause
   const isPrivateRoom = roomMeta?.roomType === 'private';
   const isRoomHost = isPrivateRoom && roomMeta?.hostId === getParticipantId();
+
+  // Room joins without a lecture yet go through the course picker — the
+  // lecture is chosen on entry, then the room/invite params are carried back.
+  useEffect(() => {
+    if (privateRoomId && !lectureId) {
+      const q = new URLSearchParams({ room: privateRoomId, ...(inviteToken ? { invite: inviteToken } : {}) });
+      navigate(`/course/${encodeURIComponent(sceneName)}?${q}`, { replace: true });
+    }
+  }, [privateRoomId, lectureId, inviteToken, sceneName, navigate]);
+
+  // Canonical scene check: a ?room= link must render the room's registered
+  // scene — if the URL path drifted (stale link, fallback scene), redirect to
+  // the authoritative classroom while preserving room/invite/lecture params.
+  useEffect(() => {
+    if (!privateRoomId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/rooms/${privateRoomId}`);
+        if (!res.ok) return;
+        const meta = await res.json();
+        if (!cancelled && meta?.scene && meta.scene !== sceneName) {
+          const q = new URLSearchParams({
+            room: privateRoomId,
+            ...(inviteToken ? { invite: inviteToken } : {}),
+            ...(lectureId ? { lecture: lectureId } : {}),
+          });
+          navigate(`/scene/${encodeURIComponent(meta.scene)}?${q}`, { replace: true });
+        }
+      } catch (err) {
+        console.warn('[room-meta]', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [privateRoomId, sceneName, inviteToken, lectureId, navigate]);
 
   // Invite links are single-use: the host mints a fresh one on each share
   // (server rotates the token). Guests never see this control.
@@ -759,7 +688,6 @@ function SceneRoom({ sceneName, baseConfig }) {
   const joystick = useRef({ x: 0, y: 0 });
   const [showJoystick, setShowJoystick] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showOutfitList, setShowOutfitList] = useState(false);
   const [lectureStatus, setLectureStatus] = useState('idle');
 
   const [lectureError, setLectureError] = useState(null);
@@ -1128,6 +1056,22 @@ function SceneRoom({ sceneName, baseConfig }) {
       setPendingRequests((l) => (l.some((r) => r.socketId === socketId) ? l : [...l, { name, socketId }]));
     });
 
+    // Same participant opened a second tab — this socket was evicted so the
+    // two can't share presence/voice/floor state.
+    socket.on('session-taken-over', () => {
+      speechCtlRef.current?.stopAudio?.();
+      setJoinPending(false);
+      setAccessError('This classroom was opened in another tab — this window was disconnected.');
+    });
+
+    socket.on('room-kicked', () => {
+      // Host removed us (private room): leave the classroom UI cleanly.
+      speechCtlRef.current?.stopAudio?.();
+      speechCtlRef.current?.clearMessages?.();
+      setJoinPending(false);
+      setAccessError('The host removed you from this room.');
+    });
+
     socket.on('join-error', (data) => {
       console.warn('[client] join rejected:', data?.error);
       joinedRef.current = false;
@@ -1275,6 +1219,12 @@ function SceneRoom({ sceneName, baseConfig }) {
 
       // Lecture recovery at the canonical server position — never seg 0.
       const plan = planLectureRecovery(snap, speechCtlRef.current.messages);
+      if (plan.action === 'resume' || plan.action === 'reload') {
+        // The room is actively lecturing — reflect that in the panel so a
+        // late joiner sees "Class in Progress", not "Start Class", and so a
+        // room-wide language change applies to this client too.
+        setLectureStatus('teaching');
+      }
       if (plan.action === 'resume') {
         if (floorHeld) {
           positionLectureAtCheckpoint(plan.checkpoint, true);
@@ -1359,6 +1309,11 @@ function SceneRoom({ sceneName, baseConfig }) {
   }, []);
 
   const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
+  // Private-room member list for the participants pill — self first.
+  const roomMembers = useMemo(() => [
+    { userId: myId, name: displayName || 'You', isSelf: true, isHost: roomMeta?.hostId === myId },
+    ...others.map((p) => ({ userId: p.userId, name: p.name, isHost: roomMeta?.hostId === p.userId })),
+  ], [myId, displayName, others, roomMeta]);
 
   // Keep the voice hook aware of who's in the room so voice can be enabled
   // after joining and still connect to existing members.
@@ -1397,49 +1352,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   }, [canCatchUp, isActiveSpeaker]);
 
   // Create a private room bound to the currently selected lecture/language —
-  // the server returns an invite URL; the host navigates into the private
-  // room and gets the shareable link to copy.
-  const createPrivateRoom = async () => {
-    if (!lectureId || creatingPrivate) return;
-    setCreatingPrivate(true);
-    try {
-      const res = await fetch(`${API_URL}/api/rooms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          className: lectureTitle || lectureId,
-          courseId: sceneName,
-          lectureId,
-          language: lectureLang,
-          roomType: 'private',
-          hostId: getParticipantId(),
-          scene: sceneName,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create private room');
-      const fullUrl = `${window.location.origin}${data.inviteUrl}`;
-      sessionStorage.setItem(`nexoraxr_invite_${data.roomId}`, fullUrl);
-      setPrivateInviteUrl(fullUrl);
-      navigate(data.inviteUrl); // host enters the private room
-    } catch (err) {
-      console.error('[private-room]', err);
-      setLectureError(err.message || 'Failed to create private room');
-    } finally {
-      setCreatingPrivate(false);
-    }
-  };
+
 
   const raisedHands = useMemo(() => new Set(floorQueue.map((p) => p.userId)), [floorQueue]);
 
-  const OUTFITS = [
-    { path: '/assets/avatar/ProfAbed_suit.glb', label: 'Suit' },
-    { path: '/assets/avatar/ProfAbed_arabdress.glb', label: 'Arab Dress' },
-    { path: '/assets/avatar/ProfAbed_BlackTshirt.glb', label: 'Black T-Shirt' },
-    { path: '/assets/avatar/ProfAbed_Soccer.glb', label: 'Soccer' },
-    { path: '/assets/avatar/ProfAbed_VR.glb', label: 'VR' },
-    { path: '/assets/avatar/ProfRalf.glb', label: 'Prof Ralf' },
-  ];
 
   if (accessError) {
     return (
@@ -1457,31 +1373,6 @@ function SceneRoom({ sceneName, baseConfig }) {
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
       <LoadingOverlay visible={!sceneReady} />
-
-      {privateInviteUrl && (
-        <div className='fixed inset-x-0 top-3 z-50 flex justify-center px-4'>
-          <div className='flex max-w-full items-center gap-3 rounded-xl border border-violet-500/40 bg-slate-900/95 px-4 py-2.5 shadow-2xl backdrop-blur'>
-            <Lock size={16} className='shrink-0 text-violet-300' />
-            <div className='min-w-0'>
-              <p className='text-xs font-semibold text-white'>Private room created</p>
-              <p className='truncate text-[11px] text-slate-400'>{privateInviteUrl}</p>
-            </div>
-            <button
-              onClick={() => navigator.clipboard?.writeText(privateInviteUrl)}
-              title='Copy invite link'
-              className='flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500'
-            >
-              <Copy size={13} /> Copy link
-            </button>
-            <button
-              onClick={() => setPrivateInviteUrl(null)}
-              className='shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white'
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Guest waiting on host approval (private rooms) */}
       {joinPending && (
@@ -1534,17 +1425,6 @@ function SceneRoom({ sceneName, baseConfig }) {
         />
       )}
 
-      {showAvatarPicker && (
-        <AvatarPicker
-          avatars={USER_AVATARS}
-          onClose={() => setShowAvatarPicker(false)}
-          onPick={(path) => {
-            setUserAvatarPath(path);
-            setShowAvatarPicker(false);
-          }}
-        />
-      )}
-
       {sceneReady && camHint && (
         <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center'>
           <div className='rounded-2xl border border-slate-700/60 bg-slate-900/85 px-8 py-5 text-center shadow-2xl backdrop-blur'>
@@ -1567,11 +1447,6 @@ function SceneRoom({ sceneName, baseConfig }) {
             onStart={handleStartClass}
             onChat={() => setChatOpen((v) => !v)}
             chatOpen={chatOpen}
-            onUserAvatar={() => setShowAvatarPicker(true)}
-            onOutfits={() => setShowOutfitList((v) => !v)}
-            outfitsOpen={showOutfitList}
-            outfits={OUTFITS}
-            currentOutfit={currentAvatarPath}
             displayName={displayName}
             floorQueue={floorQueue}
             activeSpeaker={activeSpeaker}
@@ -1585,21 +1460,16 @@ function SceneRoom({ sceneName, baseConfig }) {
             onLanguage={requestLanguageChange}
             canCatchUp={canCatchUp}
             onCatchUp={requestCatchUp}
-            onCreatePrivate={createPrivateRoom}
-            creatingPrivate={creatingPrivate}
-            canCreatePrivate={!!lectureId && !privateRoomId}
             isPrivateRoom={isPrivateRoom}
             isRoomHost={isRoomHost}
+            roomMembers={roomMembers}
+            onKick={(userId) => socketRef.current?.emit('room.kick', { userId })}
             pauseReason={pauseReason}
             onCopyInvite={isRoomHost ? copyInvite : null}
             inviteCopied={inviteCopied}
             onHostPause={() => socketRef.current?.emit('lecture-control', { action: 'pause' })}
             onHostResume={() => socketRef.current?.emit('lecture-control', { action: 'resume' })}
             onHostEnd={() => socketRef.current?.emit('lecture-control', { action: 'end' })}
-            onPickOutfit={(path) => {
-              setCurrentAvatarPath(path);
-              setShowOutfitList(false);
-            }}
           />
 
           <ChatInterface

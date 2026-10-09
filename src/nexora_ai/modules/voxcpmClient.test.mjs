@@ -101,3 +101,15 @@ test('synthesizeVerified: detection result is returned only as accept/reject —
   });
   assert.ok(Buffer.isBuffer(result)); // just audio bytes
 });
+
+test('synthesizeVerified: a mid-segment language blip is rejected (windowed)', async () => {
+  // Regression: dominant-language detection passed a mostly-Arabic clip with a
+  // few-second Chinese drift; windowed detection must reject and retry.
+  let calls = 0;
+  const wav = await synthesizeVerified('نص', 'v', 'ar', {
+    synthesize: async () => Buffer.from('wav'),
+    detect: async () => (++calls === 1 ? ['ar', 'zh', 'ar'] : ['ar', 'ar', 'ar']),
+  });
+  assert.equal(calls, 2); // first wav rejected due to the 'zh' window
+  assert.ok(wav.length);
+});

@@ -3,26 +3,61 @@ import { useGLTF, useAnimations, Html } from '@react-three/drei';
 import { useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { DEFAULT_AVATAR_PATH, ANIMATION_URLS, ANIMATION_NAMES } from './UserAvatar';
 
 const MIN_INTERP_MS = 60;
 const MAX_INTERP_MS = 400;
 const _listenerPos = new THREE.Vector3();
 const _localPos = new THREE.Vector3();
+const _voiceBuf = new Uint8Array(512); // analyser.fftSize
 
 const VOICE_REF_DIST = 1.5;   // full volume within this radius (meters)
 const VOICE_MAX_DIST = 15;    // silent beyond this distance
 const VOICE_ROLLOFF = 1.8;
 
-export function RemoteAvatar({ state, handRaised, audioStream, audioListener }) {
+export function RemoteAvatar(props) {
+  // Keyed remount on model change: an AnimationMixer binds clip tracks to the
+  // skeleton present at bind time — if the GLB scene swaps under a live mixer
+  // the bindings keep driving the detached bones and the avatar freezes in
+  // bind pose. Remounting guarantees mixer, clone and actions are built for
+  // the same skeleton instance.
+  return <RemoteAvatarInner key={props.state?.avatar || 'default'} {...props} />;
+}
+
+function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
   const group = useRef();
-  const voiceRef = useRef(null); // { source, panner, gain }
+  const voiceRef = useRef(null); // { source, panner, gain, analyser }
+  const mouthLevelRef = useRef(0);
 
   // Load the same avatar model the remote user selected, and a unique GLTF instance
   // so skinned meshes/animations bind to their own bones
   const avatarUrl = state?.avatar || DEFAULT_AVATAR_PATH;
-  const uniqueUrl = `${avatarUrl}?_=${state?.userId || 'remote'}`;
-  const { scene } = useGLTF(uniqueUrl);
+  const { scene: sourceScene } = useGLTF(avatarUrl);
+  // SkeletonUtils.clone gives every remote avatar its OWN skeleton/skinning —
+  // without it, cached GLTF scenes can share bones across mixers and a remote
+  // avatar can freeze in bind (T/A) pose when the mixer binds the shared copy.
+  const scene = useMemo(
+    () => SkeletonUtils.clone(sourceScene),
+    [sourceScene]
+  );
+
+  // Mouth morph targets (Wolf3D_Head.mouthOpen/mouthSmile) — driven per-frame
+  // by the remote voice stream's amplitude for live lipsync.
+  const mouthTargets = useMemo(() => {
+    const list = [];
+    scene.traverse((c) => {
+      const dict = c.morphTargetDictionary;
+      if (c.isMesh && dict && ('mouthOpen' in dict || 'mouthSmile' in dict)) {
+        list.push({
+          influences: c.morphTargetInfluences,
+          open: dict.mouthOpen,
+          smile: dict.mouthSmile,
+        });
+      }
+    });
+    return list;
+  }, [scene]);
 
   const animGltfs = useLoader(GLTFLoader, ANIMATION_URLS);
   const allAnimations = useMemo(() =>
@@ -109,22 +144,22 @@ export function RemoteAvatar({ state, handRaised, audioStream, audioListener }) 
     if (nextAnim !== currentAnimation) setCurrentAnimation(nextAnim);
   }, [state, currentAnimation]);
 
+  // Fall back to Idle when the remote sends an animation name this model's
+  // clip set doesn't contain — otherwise the avatar stays in bind pose.
+  const resolvedAnimation = actions[currentAnimation] ? currentAnimation : 'Idle';
   useEffect(() => {
-    if (actions[currentAnimation]) {
-      actions[currentAnimation]
-        .reset()
-        .fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5)
-        .play();
-      return () => {
-        if (actions[currentAnimation]) actions[currentAnimation].fadeOut(0.5);
-      };
-    }
-  }, [currentAnimation, actions, mixer]);
+    const action = actions[resolvedAnimation];
+    if (!action) return;
+    action.reset().fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5).play();
+    return () => {
+      if (actions[resolvedAnimation]) actions[resolvedAnimation].fadeOut(0.5);
+    };
+  }, [resolvedAnimation, actions, mixer]);
 
   useFrame(() => {
     if (!group.current) return;
 
-    if (actions[currentAnimation]) actions[currentAnimation].play().setEffectiveWeight(1);
+    if (actions[resolvedAnimation]) actions[resolvedAnimation].play().setEffectiveWeight(1);
 
     const now = Date.now();
     const cur = buffer.current;
@@ -153,6 +188,25 @@ export function RemoteAvatar({ state, handRaised, audioStream, audioListener }) 
       audioListener.worldToLocal(_localPos);
       voiceRef.current.panner.pan.value = THREE.MathUtils.clamp(_localPos.x * 0.35, -1, 1);
     }
+
+    // Lipsync: read the voice stream's instantaneous level, smooth it, map to
+    // mouthOpen (+ a touch of mouthSmile while speaking).
+    let level = 0;
+    const analyser = voiceRef.current?.analyser;
+    if (analyser) {
+      analyser.getByteTimeDomainData(_voiceBuf);
+      let sum = 0;
+      for (let i = 0; i < _voiceBuf.length; i++) {
+        const v = (_voiceBuf[i] - 128) / 128;
+        sum += v * v;
+      }
+      level = Math.sqrt(sum / _voiceBuf.length);
+    }
+    mouthLevelRef.current += (Math.min(1, level * 4) - mouthLevelRef.current) * 0.35;
+    for (const t of mouthTargets) {
+      if (t.open != null) t.influences[t.open] = mouthLevelRef.current;
+      if (t.smile != null) t.influences[t.smile] = mouthLevelRef.current * 0.25;
+    }
   });
 
   // Proximity voice: route the remote user's WebRTC stream through a
@@ -162,16 +216,21 @@ export function RemoteAvatar({ state, handRaised, audioStream, audioListener }) 
     const ctx = audioListener.context;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(audioStream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = _voiceBuf.length;
+    analyser.smoothingTimeConstant = 0.4;
     const panner = ctx.createStereoPanner();
     const gain = ctx.createGain();
     gain.gain.value = 0;
+    source.connect(analyser); // taps the stream for lipsync levels
     source.connect(panner);
     panner.connect(gain);
     gain.connect(audioListener.getInput());
-    voiceRef.current = { source, panner, gain };
+    voiceRef.current = { source, panner, gain, analyser };
     return () => {
       voiceRef.current = null;
       try { source.disconnect(); } catch {}
+      try { analyser.disconnect(); } catch {}
       try { panner.disconnect(); } catch {}
       try { gain.disconnect(); } catch {}
     };

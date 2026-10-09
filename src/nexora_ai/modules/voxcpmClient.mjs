@@ -96,14 +96,20 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
   if (!lang || lang === 'en') {
     return synth(text, voiceId, lang);
   }
-  const detect = opts.detect || (await import('./langDetect.mjs')).detectLanguageFromWav;
+  // Windowed detection catches mid-segment drift (e.g. an Arabic clip with a
+  // few-second Chinese blip) that a dominant-language check would pass.
+  // opts.detect may return a single code or an array of per-window codes.
+  const detect = opts.detect || (await import('./langDetect.mjs')).detectLanguagesWindowed;
   const attempts = opts.attempts ?? 3; // 1 initial + 2 retries
   let lastError = null;
   for (let i = 0; i < attempts; i++) {
     const wav = await synth(text, voiceId, lang);
     const detected = await detect(wav);
-    if (detected === lang) return wav;
-    lastError = new Error(`TTS language mismatch: expected '${lang}', detected '${detected}'`);
+    const ok = Array.isArray(detected)
+      ? detected.every((l) => l === lang)
+      : detected === lang;
+    if (ok) return wav;
+    lastError = new Error(`TTS language mismatch: expected '${lang}', detected '${JSON.stringify(detected)}'`);
   }
   throw lastError;
 }

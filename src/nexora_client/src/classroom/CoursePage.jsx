@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { getLectures } from './services/lectureApi';
 
 export default function CoursePage() {
   const { courseId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Room joins carry their identity through the picker — guests keep their
+  // invite token so private admission still applies after lecture selection.
+  const roomQuery = ['room', 'invite']
+    .filter((k) => searchParams.get(k))
+    .map((k) => `${k}=${encodeURIComponent(searchParams.get(k))}`)
+    .join('&');
   const [lectures, setLectures] = useState([]);
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +32,7 @@ export default function CoursePage() {
   }, []);
 
   const handleSelect = (lecture) => {
-    navigate(`/scene/${courseId}?lecture=${lecture.lecture_id}`);
+    navigate(`/scene/${courseId}?lecture=${lecture.lecture_id}${roomQuery ? `&${roomQuery}` : ''}`);
   };
 
   return (

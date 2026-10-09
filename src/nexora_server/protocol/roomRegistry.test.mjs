@@ -172,19 +172,16 @@ test('admitted public and private rooms share the plain NcipRoom machinery', () 
 // Single-use invites + host approval lifecycle
 // ---------------------------------------------------------------------------
 
-test('invite link is single-use: consumed tokens reject further guests', () => {
+test('invite link is reusable: many guests can request with the same link', () => {
   const { reg, room } = mkPrivate();
   assert.equal(reg.authorize(room.roomId, room.inviteToken).ok, true);
-  reg.consumeInvite(room.roomId); // parked pending host approval
-  assert.equal(reg.authorize(room.roomId, room.inviteToken).ok, false); // dead link
-  // even the "same" guest re-trying gets rejected
-  assert.equal(reg.admit(room.roomId, room.inviteToken).ok, false);
+  assert.equal(reg.authorize(room.roomId, room.inviteToken).ok, true); // still valid
+  assert.equal(reg.admit(room.roomId, room.inviteToken).ok, true);     // and again
 });
 
-test('host can rotate the invite to mint a fresh single-use link', () => {
+test('host can rotate the invite to mint a fresh link (old link dies)', () => {
   const { reg, room } = mkPrivate();
   const oldToken = room.inviteToken;
-  reg.consumeInvite(room.roomId);
   const rot = reg.rotateInvite(room.roomId, 'host-pid');
   assert.equal(rot.ok, true);
   assert.notEqual(rot.room.inviteToken, oldToken);

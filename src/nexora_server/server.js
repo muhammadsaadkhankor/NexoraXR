@@ -195,7 +195,7 @@ app.post('/api/rooms', (req, res) => {
   if (error) return res.status(400).json({ error });
   // Never log the invite token.
   console.log(`[rooms] ${room.roomType} room ${room.roomId} '${room.className}' created (lecture ${room.lectureId}, lang ${room.language})`);
-  const scenePath = `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}`;
+  const scenePath = `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}${room.lectureId ? `&lecture=${room.lectureId}` : ''}`;
   res.status(201).json({
     roomId: room.roomId,
     roomType: room.roomType,
@@ -225,15 +225,31 @@ app.get('/api/rooms/public', (_req, res) => {
   res.json({ rooms: roomRegistry.listPublic() });
 });
 
-// Rotate a private room's invite — links are single-use, so the host calls
-// this each time they want to let someone new in. hostId must match the
+// Room meta for clients that followed an invite link — the registry scene is
+// authoritative, so a link built with a bad/fallback scene can't drop guests
+// into a different classroom model. Safe fields only (never inviteToken).
+app.get('/api/rooms/:roomId', (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Not found' });
+  const { roomId, roomType, className, courseId, lectureId, language, scene } = room;
+  res.json({ roomId, roomType, className, courseId, lectureId, language, scene });
+});
+
+// Returns the room's current invite link (stable, reusable — host approval
+// gates entry). rotate:true mints a new link and kills the old one — the host
+// uses that to revoke a link that spread too far. hostId must match the
 // registry record (no client-supplied authority).
 app.post('/api/rooms/:roomId/invite', (req, res) => {
   const room = roomRegistry.get(req.params.roomId);
   if (!room || room.roomType !== 'private') {
     return res.status(404).json({ error: 'Not found' });
   }
-  const rot = roomRegistry.rotateInvite(req.params.roomId, req.body?.hostId);
+  if (room.hostId !== req.body?.hostId) {
+    return res.status(403).json({ error: 'Only the host can generate invite links' });
+  }
+  const rot = req.body?.rotate === true
+    ? roomRegistry.rotateInvite(req.params.roomId, req.body?.hostId)
+    : { ok: true, room };
   if (!rot.ok) return res.status(403).json({ error: 'Only the host can generate invite links' });
   res.json({
     inviteUrl: `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}&invite=${rot.room.inviteToken}`,
@@ -483,6 +499,17 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
     ? data.participantId
     : socket.id;
 
+  // Same participantId on a second live socket (duplicated tab copies
+  // sessionStorage): take over — the stale socket is evicted so the two
+  // contexts can't fight over presence, voice peers, or floor state.
+  for (const [sid, c] of socketCtx) {
+    if (sid !== socket.id && c.roomId === roomId && c.participantId === pid) {
+      io.to(sid).emit('session-taken-over', { roomId });
+      io.sockets.sockets.get(sid)?.leave(roomId);
+      socketCtx.delete(sid);
+    }
+  }
+
   socket.join(roomId);
   socketCtx.set(socket.id, { roomId, participantId: pid });
 
@@ -508,7 +535,7 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
     userId: pid,
     roomId,
     name: safeName,
-    avatar: data.avatar || '/assets/useravatar/avatars/UserAvatar.glb',
+    avatar: data.avatar || '/assets/useravatar/avatars/anim_male_1.glb',
     position: data.position || [0, 0, 0],
     rotation: data.rotation || [0, 0, 0],
     animation: data.animation || 'Idle',
@@ -552,8 +579,8 @@ io.on('connection', (socket) => {
           finishJoin(socket, data, roomId, registryRoom);
           return;
         }
-        // New guest: needs a valid unused invite AND host approval. The token
-        // is consumed the moment the request is parked (single-use).
+        // New guest: needs a valid invite AND host approval. The link is
+        // reusable — every holder's request is parked for the host to decide.
         const auth = roomRegistry.authorize(meta.roomId, data.invite);
         if (!auth.ok) {
           socket.emit('join-error', { error: auth.error, private: true });
@@ -561,11 +588,9 @@ io.on('connection', (socket) => {
         }
         const hostSock = socketFor(meta.roomId, meta.hostId);
         if (!hostSock) {
-          // No host to approve — don't burn the link so it can be retried.
           socket.emit('join-error', { error: 'The host is not in the room right now. Try again later.', private: true });
           return;
         }
-        roomRegistry.consumeInvite(meta.roomId);
         pendingJoins.set(socket.id, { data, roomId: meta.roomId });
         socket.emit('join-pending', { roomId: meta.roomId });
         io.to(hostSock).emit('private-join-request', {
@@ -606,6 +631,35 @@ io.on('connection', (socket) => {
       console.log(`[server] host ${ctx.participantId} declined join for '${pending.roomId}'`);
       guest.emit('join-error', { error: 'The host declined your join request.', private: true });
     }
+  });
+
+  // Host kick (private rooms only): authority is resolved server-side from the
+  // registry hostId — the client flag is never trusted. The kicked participant
+  // is notified, removed from presence + NCIP state, and leaves the socket room.
+  socket.on('room.kick', ({ userId } = {}) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId } = ctx;
+    if (!isRoomHost(roomId, ctx.participantId)) return;
+    if (!userId || userId === ctx.participantId) return;
+    const target = rooms[roomId]?.[userId];
+    if (!target) return;
+    console.log(`[server] host ${ctx.participantId} kicked ${userId} from '${roomId}'`);
+
+    const graceKey = `${roomId} ${userId}`;
+    if (graceTimers.has(graceKey)) {
+      clearTimeout(graceTimers.get(graceKey));
+      graceTimers.delete(graceKey);
+    }
+    for (const [sid, c] of socketCtx) {
+      if (c.roomId === roomId && c.participantId === userId) {
+        io.to(sid).emit('room-kicked', { roomId });
+        io.sockets.sockets.get(sid)?.leave(roomId);
+        socketCtx.delete(sid);
+      }
+    }
+    applyEffects(roomId, getNcipRoom(roomId).leave(userId));
+    cleanupAfterRemoval(roomId, userId);
   });
 
   // Explicit intentional leave: immediate removal, no grace window.

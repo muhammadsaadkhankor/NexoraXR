@@ -2,24 +2,24 @@ import { ArrowRight } from 'lucide-react'
 
 export default function CTASection() {
   return (
-    <section id="experiences" className="cta">
+    <section id="philosophy" className="cta">
       <div className="container">
         <div className="cta__inner">
-          <img
-            className="cta__bg"
-            src="/assets/heroposter.png"
-            alt=""
-          />
-          <div className="cta__overlay" />
+          <div className="cta__flow" aria-hidden="true" />
+          <span className="cta__wu" aria-hidden="true">∞</span>
           <div className="cta__content">
-            <h2 className="cta__title">Ready to Enter the Experience?</h2>
+            <h2 className="cta__title">
+              Learning should flow
+              <span className="grad-text"> without barriers.</span>
+            </h2>
             <p className="cta__desc">
-              Launch directly from your browser and explore an immersive
-              environment built for interaction, learning, and discovery.
+              The world is in constant flux — jobs, challenges, even whole
+              business models that don't exist yet. Education should move with
+              it. Create a classroom, share a link, and start teaching.
             </p>
             <div className="cta__actions">
-              <a href="#explore" className="btn btn-secondary btn-lg">
-                Explore Experiences
+              <a href="#explore" className="btn btn-primary btn-lg">
+                Browse classrooms
                 <ArrowRight className="btn__arrow" size={18} />
               </a>
             </div>

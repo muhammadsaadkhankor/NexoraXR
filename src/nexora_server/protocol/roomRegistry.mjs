@@ -26,7 +26,9 @@ export class RoomRegistry {
     if (typeof className !== 'string' || !className.trim() || className.length > CLASS_NAME_MAX) {
       return { error: 'A class name (1–80 characters) is required' };
     }
-    if (!SAFE_ID_RE.test(lectureId || '')) {
+    // lectureId is optional — the room's lecture is picked on entry via the
+    // course picker; a supplied id is still validated when present.
+    if (lectureId != null && lectureId !== '' && !SAFE_ID_RE.test(lectureId)) {
       return { error: 'Invalid lectureId' };
     }
     if (courseId != null && !SAFE_ID_RE.test(courseId)) {
@@ -41,7 +43,7 @@ export class RoomRegistry {
       roomType,
       className: className.trim(),
       courseId: courseId || null,
-      lectureId,
+      lectureId: lectureId || null,
       language: language || 'en',
       scene: scene && SAFE_ID_RE.test(scene) ? scene : 'Multimedia',
       hostId: typeof hostId === 'string' && hostId.length <= 64 ? hostId : null,
@@ -49,7 +51,7 @@ export class RoomRegistry {
     };
     if (roomType === 'private') {
       room.inviteToken = randomBytes(24).toString('base64url'); // 192-bit
-      room.inviteUsed = false; // single-use: consumed when a guest requests entry
+      // Reusable link: any holder may REQUEST entry; the host approves each.
     }
     this.rooms.set(roomId, room);
     return { room };
@@ -84,33 +86,27 @@ export class RoomRegistry {
     return { ok: true, room };
   }
 
-  // Private invite check: token must match AND be unused (single-use links).
+  // Private invite check: the token must match the current invite. Links are
+  // reusable — admission is decided by the host, not by token consumption.
   authorize(roomId, inviteToken) {
     const room = this.rooms.get(roomId);
     if (!room || room.roomType !== 'private') {
       return { ok: false, error: 'This classroom link is invalid or has expired.' };
     }
-    if (typeof inviteToken !== 'string' || inviteToken !== room.inviteToken || room.inviteUsed) {
+    if (typeof inviteToken !== 'string' || inviteToken !== room.inviteToken) {
       return { ok: false, error: 'Invalid or expired invite link.' };
     }
     return { ok: true, room };
   }
 
-  // Burn the current invite — called when a guest's request is handed to the
-  // host for approval. A rejected guest cannot retry the same link.
-  consumeInvite(roomId) {
-    const room = this.rooms.get(roomId);
-    if (room?.roomType === 'private') room.inviteUsed = true;
-  }
-
-  // Mint a fresh single-use invite. Only the host may rotate.
+  // Mint a fresh invite link. Only the host may rotate; the previous link
+  // stops working — the way a host revokes a link that spread too far.
   rotateInvite(roomId, hostId) {
     const room = this.rooms.get(roomId);
     if (!room || room.roomType !== 'private' || room.hostId !== hostId) {
       return { ok: false };
     }
     room.inviteToken = randomBytes(24).toString('base64url');
-    room.inviteUsed = false;
     return { ok: true, room };
   }
 
