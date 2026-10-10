@@ -2,5 +2,25 @@
   "abed101": {
     "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101/prompt.wav",
     "prompt_text": "I teach a couple of exciting courses. At the undergraduate level, I offer SEG3125, analysis and design of user interfaces, focusing on the fascinating realm of human-computer interaction and usability."
+  },
+  "abed101_ar": {
+    "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101_ar/prompt.wav",
+    "prompt_text": "أهلاً بكم في مقرر الوسائط المتعددة. في هذه المحاضرة سنتعرف على المفاهيم الأساسية للوسائط المتعددة وتطبيقاتها في حياتنا اليومية، وسنناقش كيف تتكامل النصوص والصوت والصورة في تجربة واحدة."
+  },
+  "abed101_zh": {
+    "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101_zh/prompt.wav",
+    "prompt_text": "大家好，欢迎来到多媒体计算课程。在今天的讲座中，我们将学习多媒体的基本概念，以及文本、音频和图像如何融合在一起。"
+  },
+  "abed101_es": {
+    "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101_es/prompt.wav",
+    "prompt_text": "Bienvenidos al curso de computación multimedia. En esta clase veremos los conceptos básicos del multimedia y sus aplicaciones en la vida diaria."
+  },
+  "abed101_fr": {
+    "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101_fr/prompt.wav",
+    "prompt_text": "Mes chers étudiants, aujourd'hui nous parlons du multimédia, c'est-à-dire la combinaison du texte, du son et de l'image dans une même présentation numérique."
+  },
+  "abed101_de": {
+    "prompt_wav": "/home/msaad/MuhammadSaad_Workspace/Master-Research/NexoraXR/voxcpm_data/voices/abed101_de/prompt.wav",
+    "prompt_text": "Guten Tag liebe Studierende, heute beschäftigen wir uns mit Multimedia, also der Kombination von Text, Audio und Bild in einer digitalen Präsentation."
   }
 }

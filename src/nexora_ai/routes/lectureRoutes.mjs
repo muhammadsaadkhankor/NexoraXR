@@ -282,12 +282,16 @@ async function loadLectureManifest(lectureId, lang = 'en') {
     const textPath = path.join(segmentCacheDir(cacheKey), `segment_${String(i).padStart(3, '0')}.txt`);
 
     // Fast path: translated text + audio + lipsync all cached — no LLM/TTS.
+    // Serve persisted segment text on its own — audio is lazy, so requiring
+    // the wav here would re-translate every segment on each manifest load.
     let segText = null;
     let lipsync = null;
-    if (existsSync(textPath) && existsSync(audioPath)) {
+    if (existsSync(textPath)) {
       try {
         segText = await fs.readFile(textPath, 'utf-8');
-        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+        if (existsSync(lipsyncPath)) {
+          lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
+        }
       } catch (err) {
         console.error(`[segments] Cache read failed for ${cacheKey}/${i}:`, err);
         segText = null;

@@ -81,8 +81,9 @@ export async function detectLanguageFromWav(wavBuffer) {
 }
 
 // Returns an array of per-window ISO codes (e.g. ['ar','ar','zh']) or throws.
-// windowSec defaults to 5s — short enough to catch a few-second drift blip.
-export async function detectLanguagesWindowed(wavBuffer, windowSec = 5) {
+// windowSec defaults to 3s — VoxCPM2 can drift for only a couple of seconds,
+// and a 5s window hides a sub-window blip inside the dominant language.
+export async function detectLanguagesWindowed(wavBuffer, windowSec = 3) {
   return withTmpWav(wavBuffer, async (tmp) => {
     const out = await runWhisper(['-c', PY_SNIPPET_WINDOWED, tmp, String(windowSec)], tmp);
     return out.split('\n').map((l) => l.trim()).filter(Boolean);
