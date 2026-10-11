@@ -1,4 +1,5 @@
 import { CameraControls, Environment, Html, useGLTF, useTexture } from "@react-three/drei";
+import { EffectComposer, SMAA, Bloom, Vignette } from "@react-three/postprocessing";
 import { Component, Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
@@ -156,6 +157,16 @@ export const Scenario = ({
   const boundarySet = useRef(false);
   const [ringY, setRingY] = useState(0.05);
   const { scene, nodes } = useGLTF(modelUrl);
+
+  // Real-time shadows: the room receives, avatars/furniture cast.
+  useEffect(() => {
+    scene?.traverse((o) => {
+      if (o.isMesh) {
+        o.receiveShadow = true;
+        o.castShadow = true;
+      }
+    });
+  }, [scene]);
   const { camera } = useThree();
 
   // Shared WebAudio listener bound to the camera — drives spatial panning and
@@ -269,6 +280,29 @@ export const Scenario = ({
     <>
       <CameraControls ref={cameraControls} enabled={false} />
       <Environment preset={environmentPreset} />
+      {/* Key light — casts real shadows so avatars feel grounded in the room */}
+      <directionalLight
+        position={[4, 9, 6]}
+        intensity={1.15}
+        color="#fff5ea"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={0.5}
+        shadow-camera-far={30}
+        shadow-camera-left={-12}
+        shadow-camera-right={12}
+        shadow-camera-top={12}
+        shadow-camera-bottom={-12}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+      />
+      {/* Gentle fill so shadowed areas keep detail */}
+      <ambientLight intensity={0.25} />
+      <EffectComposer multisampling={0}>
+        <SMAA />
+        <Bloom mipmapBlur intensity={0.2} luminanceThreshold={1.0} luminanceSmoothing={0.3} />
+        <Vignette eskil={false} offset={0.25} darkness={0.35} />
+      </EffectComposer>
       <group position={modelTransform.position} rotation={modelTransform.rotation} scale={modelTransform.scale}>
         <primitive object={scene} />
       </group>

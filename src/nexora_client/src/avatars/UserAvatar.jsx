@@ -38,6 +38,11 @@ const MAX_STEP_DELTA = 0.18;
 const RAY_OFFSET = 0.35;
 const RAY_HEIGHT = 2.0;
 const WALL_MARGIN = 0.3;
+// Authored clip ground speeds — nominal move speed at which a clip looks
+// right. timeScale = actualSpeed / authoredSpeed keeps feet synced to real
+// velocity (slowed by walls/steps) instead of sliding. THE "floating" fix.
+const WALK_CLIP_SPEED = 3.5;
+const RUN_CLIP_SPEED = 7.0;
 const MOUSE_SENSITIVITY = 0.005;
 // Morph-bearing rig — UserAvatar.glb lacks mouthOpen targets.
 export const DEFAULT_AVATAR_PATH = '/assets/useravatar/avatars/anim_male_1.glb';
@@ -45,9 +50,14 @@ export const DEFAULT_AVATAR_PATH = '/assets/useravatar/avatars/anim_male_1.glb';
 export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", floorScene, avatarYawRef, modelPath = DEFAULT_AVATAR_PATH, visible = true, onStateUpdate, joystick, ...props }, ref) => {
   const group = useRef();
   const { scene } = useGLTF(modelPath);
+  useEffect(() => {
+    scene?.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) o.castShadow = true; });
+  }, [scene]);
   const { gl } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
   const groundedRef = useRef(false); // snaps to floor height on first raycast hit
+  const prevPosRef = useRef(null);   // for measured ground speed
+  const speedEMA = useRef(0);        // smoothed actual m/s for clip timeScale
   const wallRaycaster = useRef(new THREE.Raycaster());
   const isDragging = useRef(false);
   const lastX = useRef(0);
@@ -189,7 +199,16 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   useFrame((state, delta) => {
     if (!group.current) return;
 
-    if (actions[animation]) actions[animation].play().setEffectiveWeight(1);
+    const act = actions[animation];
+    if (act) {
+      act.play().setEffectiveWeight(1);
+      // Feet match ground speed: scale clip playback by measured velocity.
+      act.timeScale = /walk/i.test(animation)
+        ? THREE.MathUtils.clamp(speedEMA.current / WALK_CLIP_SPEED, 0.35, 2.0)
+        : /run/i.test(animation)
+          ? THREE.MathUtils.clamp(speedEMA.current / RUN_CLIP_SPEED, 0.35, 2.0)
+          : 1;
+    }
 
     const k = keys.current;
     const isShift = !!k["shift"];
@@ -296,6 +315,16 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
           pos.y = THREE.MathUtils.lerp(pos.y, desiredY, t);
         }
       }
+    }
+
+    // Measured ground speed (horizontal) -> clip timeScale next frame
+    {
+      const inst = prevPosRef.current
+        ? Math.hypot(pos.x - prevPosRef.current.x, pos.z - prevPosRef.current.z) / Math.max(delta, 1e-4)
+        : 0;
+      speedEMA.current += (inst - speedEMA.current) * Math.min(1, delta * 10);
+      prevPosRef.current = prevPosRef.current || new THREE.Vector3();
+      prevPosRef.current.copy(pos);
     }
 
     // Until grounded, stay hidden and emit nothing — otherwise remote clients

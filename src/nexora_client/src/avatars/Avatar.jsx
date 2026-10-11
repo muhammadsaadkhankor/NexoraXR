@@ -49,6 +49,9 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, [modelPath]);
 
   const { scene, nodes, animations: avatarAnimations } = useGLTF(modelPath);
+  useEffect(() => {
+    scene?.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) o.castShadow = true; });
+  }, [scene]);
   const { animations: extraAnimations } = useGLTF(EXTRA_ANIMATIONS_URL);
 
   const animations = useMemo(() => {

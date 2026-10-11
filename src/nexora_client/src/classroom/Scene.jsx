@@ -1538,7 +1538,8 @@ function SceneRoom({ sceneName, baseConfig }) {
           proper loading screen, then the classroom fades in. */}
       {displayName && <Canvas
         ref={canvasRef}
-        dpr={[1, 1]}
+        dpr={[1, 2]}
+        shadows
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         camera={{ position: [0, 0, 0], fov: 35 }}
         className='fixed left-0 top-0 transition-opacity duration-500 ease-out'
@@ -1549,6 +1550,13 @@ function SceneRoom({ sceneName, baseConfig }) {
           pointerEvents: sceneReady ? 'auto' : 'none',
         }}
         onCreated={({ gl }) => {
+          // Filmic response curve — the single biggest "rendered look" upgrade:
+          // highlights roll off instead of clipping, colors read natural.
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.0;
+          gl.shadowMap.enabled = true;
+          gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.domElement.addEventListener('webglcontextlost', (e) => {
             e.preventDefault();
             console.error('[Canvas] WebGL context lost', e);

@@ -29,6 +29,10 @@ const OPENNESS_BY_VISEME = {
 const VOICE_REF_DIST = 1.5;   // full volume within this radius (meters)
 const VOICE_MAX_DIST = 15;    // silent beyond this distance
 const VOICE_ROLLOFF = 1.8;
+// Authored clip ground speeds (m/s) — same anchors as the local avatar so a
+// 'walk_forward' packet looks identical in cadence on both screens.
+const WALK_CLIP_SPEED = 3.5;
+const RUN_CLIP_SPEED = 7.0;
 
 export function RemoteAvatar(props) {
   // Keyed remount on model change: an AnimationMixer binds clip tracks to the
@@ -42,6 +46,9 @@ export function RemoteAvatar(props) {
 function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floorScene }) {
   const group = useRef();
   const floorRay = useRef(new THREE.Raycaster());
+  const prevFramePos = useRef(null);
+  const speedEMA = useRef(0);      // measured ground speed (m/s)
+  const playingAnim = useRef('Idle');
   const floorPos = useRef(null); // most recent floor height under this avatar
   const voiceRef = useRef(null); // { source, panner, gain, analyser }
   const mouthLevelRef = useRef(0);
@@ -53,10 +60,11 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
   // SkeletonUtils.clone gives every remote avatar its OWN skeleton/skinning —
   // without it, cached GLTF scenes can share bones across mixers and a remote
   // avatar can freeze in bind (T/A) pose when the mixer binds the shared copy.
-  const scene = useMemo(
-    () => SkeletonUtils.clone(sourceScene),
-    [sourceScene]
-  );
+  const scene = useMemo(() => {
+    const clone = SkeletonUtils.clone(sourceScene);
+    clone.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) o.castShadow = true; });
+    return clone;
+  }, [sourceScene]);
 
   // Some rigs originate at the hips — rendering them at the remote's
   // foot-level position sinks them under the floor. Bind-pose bounds lie for
@@ -174,6 +182,7 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
     const action = actions[resolvedAnimation];
     if (!action) return;
     action.reset().fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5).play();
+    playingAnim.current = resolvedAnimation;
     if (!liftComputed.current) {
       liftComputed.current = true;
       // Pose the skeleton once, then measure the SKINNED bounds — a bind-pose
@@ -195,10 +204,8 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
     };
   }, [resolvedAnimation, actions, mixer]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!group.current) return;
-
-    if (actions[resolvedAnimation]) actions[resolvedAnimation].play().setEffectiveWeight(1);
 
     const now = Date.now();
     const cur = buffer.current;
@@ -219,6 +226,38 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
       }
       if (hits.length > 0) pos.y = hits[0].point.y;
     }
+
+    // Measured ground speed from the interpolated position — drives clip
+    // timeScale so feet match real velocity instead of sliding (float look),
+    // and lets us sit in Idle when a stale 'walk' state arrives while stopped.
+    const dt = Math.max(1e-3, delta || 0.016);
+    if (prevFramePos.current) {
+      const inst = Math.hypot(pos.x - prevFramePos.current.x, pos.z - prevFramePos.current.z) / dt;
+      speedEMA.current += (inst - speedEMA.current) * Math.min(1, dt * 10);
+    } else {
+      prevFramePos.current = new THREE.Vector3();
+    }
+    prevFramePos.current.copy(pos);
+
+    const loco = /walk|run/i.test(resolvedAnimation);
+    const want = loco && speedEMA.current < 0.15 && actions['Idle'] ? 'Idle' : resolvedAnimation;
+    if (want !== playingAnim.current && actions[want]) {
+      const prev = actions[playingAnim.current];
+      if (prev && prev !== actions[want]) prev.fadeOut(0.25);
+      actions[want].reset().fadeIn(0.25).play();
+      playingAnim.current = want;
+    }
+    const act = actions[playingAnim.current];
+    if (act) {
+      act.play().setEffectiveWeight(1);
+      if (loco && playingAnim.current === resolvedAnimation) {
+        const authored = /run/i.test(resolvedAnimation) ? RUN_CLIP_SPEED : WALK_CLIP_SPEED;
+        act.timeScale = THREE.MathUtils.clamp(speedEMA.current / authored, 0.35, 2.0);
+      } else {
+        act.timeScale = 1;
+      }
+    }
+
     group.current.position.copy(pos);
 
     let diff = cur.targetYaw - cur.prevYaw;
