@@ -284,15 +284,17 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
       for (const origin of origins) {
         raycaster.current.set(origin, rayDir);
         let hits = raycaster.current.intersectObject(floorScene, true);
-        if (hits.length === 0 && !groundedRef.current) {
+        // First hit at/below the avatar — never the ceiling or an upper slab,
+        // which would snap the avatar up and make it visibly fall.
+        let hit = hits.find((h) => h.point.y <= pos.y + 0.4);
+        if (!hit && !groundedRef.current) {
           // Spawned under the floor (stale slot pos) — look UP for a surface
           // so the avatar climbs onto it instead of sinking forever.
           raycaster.current.set(origin, upRayDir);
-          hits = raycaster.current.intersectObject(floorScene, true);
+          const upHits = raycaster.current.intersectObject(floorScene, true);
+          hit = upHits[0];
         }
-        if (hits.length > 0) {
-          heights.push(hits[0].point.y);
-        }
+        if (hit) heights.push(hit.point.y);
       }
 
       if (heights.length > 0) {
