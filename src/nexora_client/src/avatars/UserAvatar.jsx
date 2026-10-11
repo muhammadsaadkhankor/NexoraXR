@@ -47,6 +47,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   const { scene } = useGLTF(modelPath);
   const { gl } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
+  const groundedRef = useRef(false); // snaps to floor height on first raycast hit
   const wallRaycaster = useRef(new THREE.Raycaster());
   const isDragging = useRef(false);
   const lastX = useRef(0);
@@ -272,16 +273,31 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
         const avgY = heights.reduce((a, b) => a + b, 0) / heights.length;
         const targetY = avgY + FOOT_OFFSET;
 
-        // Clamp per-frame height change to avoid pops
-        const diff = targetY - pos.y;
-        const clamped = Math.sign(diff) * Math.min(Math.abs(diff), MAX_STEP_DELTA);
-        const desiredY = pos.y + clamped;
+        if (!groundedRef.current) {
+          // First contact: snap straight to the floor — spawning mid-air and
+          // easing down makes every other client watch the avatar fall.
+          pos.y = targetY;
+          groundedRef.current = true;
+        } else {
+          // Clamp per-frame height change to avoid pops
+          const diff = targetY - pos.y;
+          const clamped = Math.sign(diff) * Math.min(Math.abs(diff), MAX_STEP_DELTA);
+          const desiredY = pos.y + clamped;
 
-        // Frame-rate independent exponential smoothing
-        const t = 1 - Math.exp(-SMOOTH_RATE * delta);
-        pos.y = THREE.MathUtils.lerp(pos.y, desiredY, t);
+          // Frame-rate independent exponential smoothing
+          const t = 1 - Math.exp(-SMOOTH_RATE * delta);
+          pos.y = THREE.MathUtils.lerp(pos.y, desiredY, t);
+        }
       }
     }
+
+    // Until grounded, stay hidden and emit nothing — otherwise remote clients
+    // (and the local camera) see the avatar drop from spawn height to floor.
+    if (!groundedRef.current) {
+      group.current.visible = false;
+      return;
+    }
+    group.current.visible = visible;
 
     if (animationRef.current !== nextAnim) {
       animationRef.current = nextAnim;

@@ -3,27 +3,26 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [chatHistory, setChatHistory] = useState([
-    {
-      role: "assistant",
-      text: "Hello! I'm LeProf, your Multimedia course assistant. How can I help you today?",
-      time: new Date(),
-    },
-  ]);
+  const [chatHistory, setChatHistory] = useState([]);
   const [isPressed, setIsPressed] = useState(false);
   const currentTranscriptionRef = useRef(null);
 
   const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef } = useSpeech();
-  const [lectureLine, setLectureLine] = useState(null);
+  // Accumulated lecture transcript — each segment appends, previous ones stay.
+  const [lectureLines, setLectureLines] = useState([]);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
     if (!message || !message.text) return;
     if (message.type === 'lecture') {
-      setLectureLine({ id: message.id, text: message.text, time: new Date() });
+      setLectureLines((prev) =>
+        prev.some((l) => l.id === message.id)
+          ? prev
+          : [...prev, { id: message.id, text: message.text, time: new Date() }]
+      );
       return;
     }
     setChatHistory((prev) => {
@@ -33,9 +32,22 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
     });
   }, [message]);
 
+  // Seed played segments (refresh/recovery) so the script shows everything
+  // already covered, not only the segments played since this client loaded.
+  useEffect(() => {
+    if (!scriptSeed?.length) return;
+    setLectureLines((prev) => {
+      const seeded = scriptSeed.map((l) =>
+        prev.find((p) => p.id === l.id) || { id: l.id, text: l.text, time: new Date() }
+      );
+      const extra = prev.filter((p) => !scriptSeed.some((s) => s.id === p.id));
+      return [...seeded, ...extra];
+    });
+  }, [scriptSeed]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory, lectureLine]);
+  }, [chatHistory, lectureLines]);
 
   const sendMessage = async () => {
     const text = input.current.value;
@@ -47,7 +59,8 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
     // the floor raises a hand first and the question is sent on grant.
     const interruptingLecture = message?.type === 'lecture';
     if (floorHolder || interruptingLecture) {
-      if ((floorHolder && !isFloorHolder) || floorAnswering || loading) return;
+      // Hard rule: only the floor holder may ask — no auto-raise shortcut.
+      if (!isFloorHolder || floorAnswering || loading) return;
       setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
       input.current.value = "";
       onFloorQuestion?.(text);
@@ -67,7 +80,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
   };
 
   const handleMicPress = async () => {
-    if (!loading && (!message || message.type === 'lecture') && speechSupported && !isPressed) {
+    if (!loading && !floorSendBlocked && (!message || message.type === 'lecture') && speechSupported && !isPressed) {
       setIsPressed(true);
       setIsTranscribing(true);
       startRecording();
@@ -146,8 +159,11 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
     };
   }, []);
 
-  const floorBlocked = !!floorHolder && !isFloorHolder;
-  const floorSendBlocked = !!floorHolder && (!isFloorHolder || floorAnswering || loading);
+  // During a lecture (or while anyone holds the floor) you MUST hold the
+  // floor to type or speak — no question without raising your hand first.
+  const floorRequired = !!floorHolder || (message?.type === 'lecture');
+  const floorBlocked = floorRequired && !isFloorHolder;
+  const floorSendBlocked = floorRequired && (!isFloorHolder || floorAnswering || loading);
 
   const formatTime = (date) =>
     date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -227,23 +243,33 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
             </div>
           ))}
 
-          {lectureLine && (!message || message.type === 'lecture') && (
+          {lectureLines.length > 0 && (
             <div className="flex items-end gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
                 <Bot size={14} />
               </div>
               <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-slate-800 text-slate-100 ring-1 ring-cyan-500/40">
                 <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
-                  Now speaking
+                  Lecture script
                 </div>
-                <SpeakingTranscript
-                  key={lectureLine.id}
-                  text={lectureLine.text}
-                  audioRef={audioElementRef}
-                />
-                <div className="text-[10px] mt-1 text-slate-500">
-                  {formatTime(lectureLine.time)}
-                </div>
+                {lectureLines.map((line, i) => (
+                  <div key={line.id} className={i > 0 ? 'mt-3 border-t border-slate-700/60 pt-3' : ''}>
+                    {/* Only the live segment animates word-by-word; earlier
+                        segments render fully so the script stays combined. */}
+                    {i === lectureLines.length - 1 ? (
+                      <SpeakingTranscript
+                        key={line.id}
+                        text={line.text}
+                        audioRef={audioElementRef}
+                      />
+                    ) : (
+                      <p className="text-slate-200">{line.text}</p>
+                    )}
+                    <div className="text-[10px] mt-1 text-slate-500">
+                      {formatTime(line.time)}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -263,7 +289,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
 
         {/* Input */}
         <div className="p-4 border-t border-slate-700/50">
-          {floorHolder && (
+          {floorHolder ? (
             <p className="mb-2 text-xs text-slate-400">
               {isFloorHolder
                 ? floorAnswering
@@ -271,6 +297,8 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
                   : "You have the floor — ask your question."
                 : `${floorHolder.name} has the floor`}
             </p>
+          ) : floorBlocked && (
+            <p className="mb-2 text-xs text-slate-400">Raise your hand to ask a question.</p>
           )}
           {floorError && <p className="mb-2 text-xs text-red-300">{floorError}</p>}
           <div className="flex items-center gap-2 bg-slate-800 rounded-full px-2 py-2">
@@ -296,7 +324,13 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
 
             <input
               className="flex-1 bg-transparent text-white placeholder-slate-400 text-sm px-2 outline-none disabled:opacity-50"
-              placeholder={floorBlocked ? `${floorHolder.name} has the floor...` : "Type your message to LeProf..."}
+              placeholder={
+        floorBlocked
+          ? floorHolder
+            ? `${floorHolder.name} has the floor...`
+            : "Raise your hand to ask a question..."
+          : "Type your message to LeProf..."
+      }
               disabled={floorBlocked}
               ref={input}
               onKeyDown={(e) => {

@@ -104,7 +104,6 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       return;
     }
     const resolved = resolveAnimation(message.animation, actions);
-    setAnimation(resolved || "Idle");
     setFacialExpression(message.facialExpression);
     setLipsync(message.lipsync);
     const audioSrc = message.audio
@@ -148,6 +147,14 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         console.error('[Avatar] audio error:', nextAudio.src);
         onMessagePlayed?.();
       };
+      // Talking animation starts only when audio actually begins — lazy TTS
+      // endpoints take seconds to stream, and animating during the fetch
+      // leaves the avatar gesturing in silence.
+      setAudioPlaying(false);
+      nextAudio.addEventListener('playing', () => {
+        setAudioPlaying(true);
+        setAnimation(resolved || 'Idle');
+      }, { once: true });
       // A lecture segment resumed while the floor is held stays paused until
       // the shared resume (release-floor) arrives.
       if (message.type === 'lecture' && floorPausedRef?.current) {
@@ -155,7 +162,9 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       } else {
         nextAudio.play().catch((err) => console.error('[Avatar] audio play error:', err));
       }
+      setAnimation('Idle'); // hold idle until 'playing' fires
     } else {
+      setAnimation(resolved || "Idle");
       onMessagePlayed?.();
     }
     setAudio(nextAudio);
@@ -190,10 +199,14 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       setLipsync(undefined);
       console.log('[ANIMATION]', 'lecture →', idleName);
     } else if (message) {
-      setAnimation(resolveAnimation(message.animation, actions) || 'Idle');
-      setLipsync(message.lipsync);
+      // Only re-apply the talking animation if audio is actually playing —
+      // a segment still buffering must stay in Idle, not gesture silently.
+      if (message.type !== 'lecture' || audioPlaying || !message.audioUrl && !message.audio) {
+        setAnimation(resolveAnimation(message.animation, actions) || 'Idle');
+        setLipsync(message.lipsync);
+      }
     }
-  }, [floorPaused, message, actions]);
+  }, [floorPaused, message, actions, audioPlaying]);
 
   // While a floor-paused lecture message is at the queue head the professor is
   // listening, not lecturing — force Idle regardless of message.animation.

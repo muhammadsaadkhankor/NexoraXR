@@ -56,6 +56,13 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
     [sourceScene]
   );
 
+  // Some rigs originate at the hips — rendering them at the remote's
+  // foot-level position sinks them under the floor. Bind-pose bounds lie for
+  // skinned meshes (vertices live near the origin; bones pose them), so we
+  // compute the SKINNED bounding box once the mixer has posed the skeleton.
+  const [modelLift, setModelLift] = useState(0);
+  const liftComputed = useRef(false);
+
   // Mouth morph targets (Wolf3D_Head.mouthOpen/mouthSmile) — driven per-frame
   // by the remote voice stream's amplitude for live lipsync.
   const mouthTargets = useMemo(() => {
@@ -165,6 +172,22 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
     const action = actions[resolvedAnimation];
     if (!action) return;
     action.reset().fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5).play();
+    if (!liftComputed.current) {
+      liftComputed.current = true;
+      // Pose the skeleton once, then measure the SKINNED bounds — a bind-pose
+      // Box3 lies because bones reposition the vertices on the GPU.
+      mixer.update(0.001);
+      scene.updateMatrixWorld(true);
+      const box = new THREE.Box3();
+      const tmp = new THREE.Box3();
+      scene.traverse((c) => {
+        if (c.isSkinnedMesh && c.computeBoundingBox) {
+          c.computeBoundingBox();
+          if (c.boundingBox) box.union(tmp.copy(c.boundingBox).applyMatrix4(c.matrixWorld));
+        }
+      });
+      if (Number.isFinite(box.min.y) && box.min.y < -0.01) setModelLift(-box.min.y);
+    }
     return () => {
       if (actions[resolvedAnimation]) actions[resolvedAnimation].fadeOut(0.5);
     };
@@ -250,7 +273,9 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
 
   return (
     <group ref={group} dispose={null}>
-      <primitive object={scene} />
+      <group position={[0, modelLift, 0]}>
+        <primitive object={scene} />
+      </group>
       <Html position={[0, 1.9, 0]} center className='pointer-events-none'>
         <div className='rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-cyan-300 ring-1 ring-cyan-500/50'>
           {handRaised ? '✋ ' : ''}{state?.name || 'User'}

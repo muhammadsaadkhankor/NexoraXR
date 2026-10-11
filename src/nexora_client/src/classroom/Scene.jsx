@@ -616,6 +616,9 @@ function SceneRoom({ sceneName, baseConfig }) {
   // are shown to the host for sharing.
   const [accessError, setAccessError] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const lectureManifestRef = useRef([]); // last fetched segments (any lang)
+  const maxSegRef = useRef(0);           // highest segment index reached
+  const [spawnPos, setSpawnPos] = useState(null); // server-assigned spawn slot
   // Private-room guest admission: guests wait for host approval; the host sees
   // pending requests and approves/declines each one.
   const [joinPending, setJoinPending] = useState(false);
@@ -773,6 +776,8 @@ function SceneRoom({ sceneName, baseConfig }) {
       }
 
       setLectureTitle(data.title);
+      lectureManifestRef.current = data.segments;
+      maxSegRef.current = 0;
       data.segments.forEach((seg, i) => {
         pushMessage({
           id: `${lectureId}_seg_${seg.id}`,
@@ -830,6 +835,7 @@ function SceneRoom({ sceneName, baseConfig }) {
       if (seq !== langSwitchSeqRef.current) return; // superseded by a newer switch
       if (!res.ok || !data.segments?.length) return;
 
+      lectureManifestRef.current = data.segments;
       const segs = data.segments
         .filter((seg) => seg.id >= plan.segmentIndex)
         .map((seg) => ({
@@ -923,6 +929,7 @@ function SceneRoom({ sceneName, baseConfig }) {
         console.error('[ncip] lecture recovery failed, no segments for', cp.lectureId);
         return;
       }
+      lectureManifestRef.current = data.segments;
       const segs = data.segments
         .filter((seg) => seg.id >= cp.segmentIndex)
         .map((seg) => ({
@@ -972,6 +979,12 @@ function SceneRoom({ sceneName, baseConfig }) {
       console.log('[client] socket connected, id:', socket.id);
       // Protocol identity is the stable participantId, not the socket.
       setMyId(getParticipantId());
+    });
+
+    // Server-assigned spawn slot — late joiners land spread around the room
+    // instead of stacked on the course's single spawn point.
+    socket.on('spawn-position', ({ position }) => {
+      if (Array.isArray(position)) setSpawnPos(position);
     });
 
     socket.on('room-state', (players) => {
@@ -1308,6 +1321,21 @@ function SceneRoom({ sceneName, baseConfig }) {
     socketRef.current?.emit('state-update', data);
   }, []);
 
+  // Transcript seed: segments already reached (<= current index) so a
+  // refreshed/late joiner sees the full script, not just the live tail.
+  const [scriptSeed, setScriptSeed] = useState([]);
+  useEffect(() => {
+    if (message?.type !== 'lecture' || !message.id) return;
+    const n = Number(String(message.id).split('_seg_').pop());
+    if (!Number.isFinite(n) || n <= maxSegRef.current) return;
+    maxSegRef.current = n;
+    setScriptSeed(
+      lectureManifestRef.current
+        .filter((seg) => seg.id <= n)
+        .map((seg) => ({ id: `${lectureIdRef.current}_seg_${seg.id}`, text: seg.text }))
+    );
+  }, [message]);
+
   const others = useMemo(() => Object.values(remotePlayers).filter((p) => p.userId !== myId), [remotePlayers, myId]);
   // Private-room member list for the participants pill — self first.
   const roomMembers = useMemo(() => [
@@ -1372,7 +1400,7 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
-      <LoadingOverlay visible={!sceneReady} />
+      <LoadingOverlay visible={!!displayName && !sceneReady} />
 
       {/* Guest waiting on host approval (private rooms) */}
       {joinPending && (
@@ -1476,6 +1504,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             hidden={!chatOpen}
             onMinimize={() => setChatOpen(false)}
             lectureId={lectureId}
+            scriptSeed={scriptSeed}
             floorHolder={activeSpeaker}
             isFloorHolder={isActiveSpeaker}
             floorAnswering={floorAnswering}
@@ -1504,7 +1533,10 @@ function SceneRoom({ sceneName, baseConfig }) {
         </>
       )}
 
-      <Canvas
+      {/* Scene assets (GLBs, environment, mixers) only start loading AFTER the
+          user submits a name — the name modal sits on a clean backdrop, then a
+          proper loading screen, then the classroom fades in. */}
+      {displayName && <Canvas
         ref={canvasRef}
         dpr={[1, 1]}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
@@ -1541,7 +1573,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onReady={onSceneReady}
             modelUrl={config.modelUrl}
             environmentPreset={config.environmentPreset}
-            userStart={config.userStart}
+            userStart={{ ...config.userStart, position: spawnPos || config.userStart.position }}
             professorStart={config.assistant}
             cameraBounds={config.cameraBounds}
             defaultLookAt={config.defaultLookAt}
@@ -1551,7 +1583,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             remoteStreams={voiceChat.remoteStreams}
           />
         </Suspense>
-      </Canvas>
+      </Canvas>}
     </div>
   );
 }

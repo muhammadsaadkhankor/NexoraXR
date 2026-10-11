@@ -531,18 +531,41 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
     graceTimers.delete(graceKey);
   }
 
+  // Spawn slots: member 1 lands exactly on the course's spawn point; each
+  // later member fans out on a ring (~1.4m steps, 45° apart) so joiners don't
+  // stack on one spot. Reconnects keep their previous slot.
+  let position = data.position || [0, 0, 0];
+  const priorMember = rooms[roomId][pid];
+  if (priorMember) {
+    position = priorMember.position;
+  } else {
+    const idx = Object.keys(rooms[roomId]).length;
+    if (idx > 0) {
+      const angle = (idx % 8) * (Math.PI / 4) + Math.PI / 2; // start behind spawn
+      const radius = 1.4 * Math.ceil(idx / 8);
+      position = [
+        position[0] + Math.cos(angle) * radius,
+        position[1],
+        position[2] + Math.sin(angle) * radius,
+      ];
+    }
+  }
+
   const user = {
     userId: pid,
     roomId,
     name: safeName,
     avatar: data.avatar || '/assets/useravatar/avatars/anim_male_1.glb',
-    position: data.position || [0, 0, 0],
+    position,
     rotation: data.rotation || [0, 0, 0],
     animation: data.animation || 'Idle',
     timestamp: Date.now()
   };
 
   rooms[roomId][pid] = user;
+  // Tell the joiner its assigned spawn slot — its local avatar spawns here
+  // so every member lands spread around the room instead of stacked.
+  socket.emit('spawn-position', { position });
   const members = Object.keys(rooms[roomId]);
   console.log(`[server] join: ${pid} (${socket.id}) joined room '${roomId}' (members: ${members.length}, reconnected: ${joinResult.reconnected})`);
 
