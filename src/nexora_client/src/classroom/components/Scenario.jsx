@@ -293,6 +293,7 @@ export const Scenario = ({
           handRaised={raisedHands?.has(p.userId)}
           audioStream={remoteStreams[p.userId]}
           audioListener={audioListener}
+          floorScene={scene}
         />
       ))}
       <group position={professorStart.position} rotation={professorStart.rotation} scale={professorStart.scale}>

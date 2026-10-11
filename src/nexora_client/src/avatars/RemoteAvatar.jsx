@@ -39,8 +39,10 @@ export function RemoteAvatar(props) {
   return <RemoteAvatarInner key={props.state?.avatar || 'default'} {...props} />;
 }
 
-function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
+function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floorScene }) {
   const group = useRef();
+  const floorRay = useRef(new THREE.Raycaster());
+  const floorPos = useRef(null); // most recent floor height under this avatar
   const voiceRef = useRef(null); // { source, panner, gain, analyser }
   const mouthLevelRef = useRef(0);
 
@@ -204,7 +206,19 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener }) {
 
     pos.lerpVectors(cur.prevPos, cur.targetPos, t);
 
-    // Trust the sender's Y (sender already ground-raycasts their own avatar)
+    // Ground clamp: raycast down from the avatar's position — feet always sit
+    // on whatever surface is below (floor, steps, raised platform). Falls back
+    // to the sender's reported Y only when no surface is hit.
+    if (floorScene) {
+      floorRay.current.set(new THREE.Vector3(pos.x, pos.y + 4, pos.z), new THREE.Vector3(0, -1, 0));
+      let hits = floorRay.current.intersectObject(floorScene, true);
+      if (hits.length === 0) {
+        // Reported position may sit below the floor (stale slot) — look up.
+        floorRay.current.set(new THREE.Vector3(pos.x, pos.y - 1, pos.z), new THREE.Vector3(0, 1, 0));
+        hits = floorRay.current.intersectObject(floorScene, true);
+      }
+      if (hits.length > 0) pos.y = hits[0].point.y;
+    }
     group.current.position.copy(pos);
 
     let diff = cur.targetYaw - cur.prevYaw;

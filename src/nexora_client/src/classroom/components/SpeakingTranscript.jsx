@@ -66,8 +66,10 @@ export function SpeakingTranscript({ text, audioRef }) {
       if (audio && duration > 0) {
         // progress synced to the real TTS audio; pauses/resumes naturally
         frac = audio.ended ? 1 : audio.currentTime / duration;
-      } else {
-        // duration not known yet (or no audio) -> estimate by elapsed play time
+      } else if (!audio || audio.readyState >= 2) {
+        // Duration not known yet but audio data exists — estimate by elapsed
+        // time. While the element is still fetching (readyState < 2) hold at
+        // 0 so the transcript never runs ahead of the voice.
         if (lastNowRef.current != null && (!audio || !audio.paused)) {
           playedSecRef.current += (now - lastNowRef.current) / 1000;
         }

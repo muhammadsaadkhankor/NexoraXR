@@ -252,6 +252,7 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     // Ground raycasting: keep the avatar's feet on the floor/steps
     if (floorScene && group.current) {
       const rayDir = new THREE.Vector3(0, -1, 0);
+      const upRayDir = new THREE.Vector3(0, 1, 0);
       const originY = pos.y + RAY_HEIGHT;
       const forwardOffset = forward.clone().multiplyScalar(RAY_OFFSET);
 
@@ -263,7 +264,13 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
       const heights = [];
       for (const origin of origins) {
         raycaster.current.set(origin, rayDir);
-        const hits = raycaster.current.intersectObject(floorScene, true);
+        let hits = raycaster.current.intersectObject(floorScene, true);
+        if (hits.length === 0 && !groundedRef.current) {
+          // Spawned under the floor (stale slot pos) — look UP for a surface
+          // so the avatar climbs onto it instead of sinking forever.
+          raycaster.current.set(origin, upRayDir);
+          hits = raycaster.current.intersectObject(floorScene, true);
+        }
         if (hits.length > 0) {
           heights.push(hits[0].point.y);
         }

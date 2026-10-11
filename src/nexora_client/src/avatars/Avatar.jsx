@@ -74,6 +74,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const [blink, setBlink] = useState(false);
   const [facialExpression, setFacialExpression] = useState("");
   const [audio, setAudio] = useState();
+  const [audioPlaying, setAudioPlaying] = useState(false);
   const analyserRef = useRef(null);
 
   const lerpMorphTarget = (target, value, speed = 0.1) => {

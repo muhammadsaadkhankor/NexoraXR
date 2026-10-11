@@ -1,54 +1,46 @@
 # Lecture 1 — Multimedia Computing: Concepts and Definitions
 
 **Course:** Multimedia Computing
-**Professor narration script** — each block is one spoken segment (maps 1:1 to slides).
+**Professor narration script** — each block is one spoken segment, mapped to a slide page.
 
 ---
 
-## Segment 1 — Welcome & Introduction
+## Segment 1 — Welcome
 
-Hello everyone, and welcome to Multimedia. Today we are starting Lecture 1, where we will build the foundation for the rest of the course. Before we look at specific media types such as images, audio, video, and animation, we first need to understand what multimedia actually means, how different forms of media are represented digitally, and why combining them is useful in modern interactive systems. By the end of today's lecture, you should have a clear understanding of the basic components of multimedia, how they work together, and where multimedia systems are used in practice. Let's begin with the most fundamental question: what do we mean by multimedia?
+Hello everyone, and welcome to Multimedia. Today we are starting Lecture 1, where we will build the foundation for the rest of the course. Before we look at specific media types such as images, audio, video, and animation, we first need to understand what multimedia actually means, how different forms of media are represented digitally, and why combining them is useful in modern interactive systems. Let's begin.
 
-## Segment 2 — What You Will Learn
+## Segment 2 — Objectives
 
-By the end of this course you will be able to do several things. You will have a strong understanding of multimedia technologies, services, and applications. You will understand both traditional media and emerging media, and how they differ. You will master the basic networking concepts and protocols that let multimedia travel across networks, and you will see how multimedia and communication systems depend on each other. Finally, you will learn about the digital twin concept — a virtual replica of a physical system — and the technologies that make it possible. Keep these objectives in mind as we move forward.
+By the end of this course you will have a strong understanding of multimedia technologies, services, and applications. You will know the traditional and emerging media, master basic networking concepts, understand how multimedia and communications work together, and learn the digital twin concept and the technologies behind it. Keep those goals in mind as we go.
 
-## Segment 4 — Defining Multimedia
+## Segment 3 — What Is Multimedia
 
-So, what is multimedia? Let us break the word down. "Multi" means many. "Media" comes from the Latin for "things in the middle" — the carriers that sit between information and the person receiving it. Those carriers can take many forms: text, graphics, animation, audio, video, and even touch-based media like haptics or smell. And they are delivered through devices — a computer, a television, a phone, a tablet. Multimedia, then, is simply the combination of several of these media forms, presented together by an electronic device, to create a richer experience than any single medium could provide on its own.
+So what is multimedia? "Multi" means many; "media" means things in the middle — the carriers between information and the person receiving it: text, graphics, animation, audio, video, even haptics and smell, delivered by computers, TVs, and phones. Applications come in two families — linear ones that play start to finish like a TV montage, and non-linear ones the user controls, like a game. And the word media itself has many interpretations: to a psychologist it is perception, to a computer scientist representation, to an engineer presentation, to a publisher storage, to a network transmission, and to the public dissemination through press and broadcast. Multimedia sits at the intersection of all of these.
 
-## Segment 5 — Linear vs. Non-Linear Applications
+## Segment 4 — Multimedia Systems
 
-Multimedia applications fall into two broad families. Linear applications run straight through from start to finish — the viewer watches but does not control anything. A montage on television is a good example: it begins, it plays, it ends, and you simply observe. Non-linear applications are interactive — the user can control what happens next, jump between sections, or influence the outcome. A video game is the classic example: you steer the experience, and the system responds to your input. This distinction matters because most modern multimedia — and almost everything we will study in this course — lives in the interactive, non-linear world.
+A multimedia system combines discrete media — static content like text — with continuous media like audio and video that unfold over time. Multimedia communications is the field covering the representation, storage, retrieval, and dissemination of this machine-processable information across many media. And multimedia is everywhere: education, entertainment, marketing, healthcare, military — anywhere people need to communicate rich information.
 
-## Segment 6 — Many Interpretations of "Media"
+## Segment 5 — Content and Haptics
 
-Interestingly, the word "media" means something slightly different depending on who you ask. A psychologist talks about perception — how humans receive information through the aural and visual senses. A computer scientist talks about representation — how information is coded, like ASCII text or JPEG images. An electronics engineer talks about presentation — which medium conveys information to us, such as paper, a monitor, or a loudspeaker. A publisher thinks about storage — hard disks and CD-ROMs. A network engineer thinks about transmission — coaxial cable and optical fiber. A content provider thinks about distribution, and the public thinks about dissemination — press, television, radio, and now the internet. Multimedia sits at the intersection of all these views.
+Multimedia content exists in many formats — text, audio, video — and modern devices capture, access, display, and let us interact with it. Multimedia is not limited to sight and sound either. Haptics is a technology that creates an experience of touch — vibrations, forces, and motion. From phone buzzers to haptic jackets, gloves, and force-feedback arms, haptics engages one more of our senses.
 
-## Segment 7 — Discrete and Continuous Media
+## Segment 6 — Data Sources
 
-Now let us look at multimedia systems through one more lens. A multimedia system combines two kinds of media. Discrete media are static — they exist at a single point in time, like text or a still image in a spreadsheet. Continuous media change over time — audio and video unfold second by second and must be delivered at the right pace. A true multimedia system weaves discrete and continuous media together — for example, a plain-text document paired with a narrated audio track. This combination is what separates multimedia from simply "multiple media sitting side by side."
+Where does all this data come from? Increasingly from sensors — hardware devices that detect or measure a physical property and report it to electronics. A single smartphone carries GPS, accelerometer, gyroscope, microphones, and cameras. Alongside hard sensors we have soft sources — social networks, medical records, financial feeds — all continuously generating multimedia data. The ecosystem of IoT and actuators turns that data into real-world action.
 
-## Segment 8 — Multimedia Communications
+## Segment 7 — Intelligence and Interaction
 
-When we say multimedia communications, we mean the field that deals with the representation, storage, retrieval, and dissemination of machine-processable information — expressed through multiple media such as text, voice, graphics, images, animation, audio, video, and even smell and touch. In short: it is everything involved in getting rich, multi-sensory content created, stored, and delivered to people through computers and networks. Nearly every modern digital service you use — from video calls to streaming to online learning — is a multimedia communication system.
+Artificial intelligence gives multimedia systems intelligence — recognizing content, understanding speech, making decisions. And interactions are multimodal: we communicate with systems through more than one channel at once — speech, gesture, gaze, touch — combining the strengths of each. This is what makes modern multimedia immersive rather than passive.
 
-## Segment 9 — Multimedia Is Everywhere
+## Segment 8 — Networking and Security
 
-And this is why multimedia matters so much today. Multimedia data presentation is used in almost every field you can think of. In education, it powers interactive lessons like this one. In entertainment, it drives films, games, and streaming. Marketing uses it for interactive advertising and virtual showrooms. Healthcare uses it for imaging, telemedicine, and training simulations. The military uses it for mission planning and virtual training environments. Wherever people need to communicate complex information quickly and clearly, multimedia is the tool of choice.
+None of this works without communications. Multimedia networking moves media over Bluetooth, Wi-Fi, cellular, and fiber — balancing bandwidth, latency, and reliability. And because media carries personal data, security matters: multimedia applications face real cybersecurity challenges, from protecting user privacy to securing the content itself. We will dig into that in a later lecture.
 
-## Segment 10 — Multimedia Content
+## Segment 9 — Digital Twin
 
-Multimedia content exists in many formats, and you already know most of them — text, audio, images, and video. What makes a system "multimedia-capable" is what its devices can do with that content. A modern device can capture content with cameras and microphones, access and retrieve it from storage, play and display it on screens and speakers, and — most importantly — let us interact with it. Interaction is the key difference between old broadcast media and the multimedia systems we study in this course: content that responds to the user.
+Now the concept that ties this course together: the digital twin — a digital replica of a living or non-living physical entity, synchronized through real-time data. What makes it unique is the continuous bridge between the physical twin and the digital one: sensors gather inputs, AI processes them into decisions, and actuators can act back on the world. Its characteristics include a unique identifier, real-time sensing, intelligent processing, near-real-time interaction, and privacy protection — powering applications from predictive maintenance in manufacturing to healthcare ecosystems that can forecast a stroke before it happens.
 
-## Segment 11 — Beyond Sight and Sound: Haptics
+## Segment 10 — Wrap-Up
 
-Multimedia is not limited to what you see and hear. Haptics is a technology that creates an experience of touch — vibrations, forces, and motion that you can feel. Think of the subtle buzz when your phone registers a tap — that is simple haptics. Researchers have built far richer devices: haptic jackets that let you feel impacts in a game, force-feedback arms that resist your motion, haptic gloves that simulate texture, and even vibrating sofas for immersive cinema. Haptics shows us where multimedia is heading — engaging more and more of the human senses.
-
-## Segment 12 — Where Multimedia Data Comes From
-
-Let us finish by looking at where all this multimedia data actually comes from. A huge share comes from sensors — hardware devices that detect or measure a physical property and report it to electronics. Sensors are everywhere, and their use keeps growing alongside actuators and the Internet of Things. Look at a single smartphone: it contains a GPS receiver, an accelerometer, a gyroscope, microphones, cameras, a light sensor, and more — each one a source of multimedia data. Beyond hardware sensors, we also have virtual sources: social networks, medical records, and financial data feeds — all generating multimedia content continuously.
-
-## Segment 13 — Wrap-Up
-
-To wrap up today: we defined multimedia as the combination of multiple media forms presented together by an electronic device. We distinguished linear from interactive applications, saw how different fields interpret the word "media," and separated discrete from continuous media. We defined multimedia communications, saw how deeply multimedia is embedded in every industry, touched on haptics, and looked at the sensors and data sources that feed these systems. Next lecture, we will dig into multimedia data sources in detail — see you then.
+To wrap up: we defined multimedia and its media types, distinguished linear from interactive applications, saw discrete and continuous media, surveyed content, haptics, and the sensors feeding it, touched on AI, multimodal interaction, networking, and security — and ended with the digital twin that converges all of these technologies. Next lecture we dig into multimedia data sources in detail. See you then.
