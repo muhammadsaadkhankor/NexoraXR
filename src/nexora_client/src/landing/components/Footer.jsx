@@ -6,7 +6,7 @@ const footerLinks = {
 
 export default function Footer() {
   return (
-    <footer className="footer">
+    <footer id="contact" className="footer">
       <div className="container">
         <div className="footer__grid">
           <div className="footer__brand">
