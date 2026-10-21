@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "prep:langs": "node scripts/prep_multilingual.mjs",
-    "test": "node --test routes/recap.test.mjs modules/voxcpmClient.test.mjs"
+    "test": "node --test routes/recap.test.mjs routes/utterance.test.mjs modules/voxcpmClient.test.mjs"
   },
   "dependencies": {
     "@langchain/openai": "^0.0.12",

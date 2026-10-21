@@ -258,7 +258,7 @@ async function loadSlideMap(lectureId) {
   }
 }
 
-async function loadLectureManifest(lectureId, lang = 'en') {
+export async function loadLectureManifest(lectureId, lang = 'en') {
   const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
   if (!existsSync(summaryPath)) {
     throw new Error(`Summary not found for ${lectureId}`);
@@ -600,8 +600,17 @@ Student question: ${question}`;
 
 // Student question during a lecture: Ollama answer + VoxCPM2 (abed101) TTS.
 // Cached per (lectureId, question) so repeated interruptions are instant.
+// The live lecture position the server reports with a floor question — used
+// to ground the answer on the segment currently being taught.
+export function buildAskContext({ summaryTitle, summaryText, currentSegmentText }) {
+  if (currentSegmentText) {
+    return `Current lecture: ${summaryTitle}. The professor is teaching this part right now — ground your answer primarily on it: ${currentSegmentText}`;
+  }
+  return `Current lecture: ${summaryTitle}. Content excerpt: ${summaryText.slice(0, 1500)}`;
+}
+
 router.post('/ask', async (req, res) => {
-  const { question, lectureId, language } = req.body || {};
+  const { question, lectureId, language, currentSegmentId } = req.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
     return res.status(400).json({ error: 'question required' });
   }
@@ -609,6 +618,7 @@ router.post('/ask', async (req, res) => {
     return res.status(400).json({ error: `Unsupported language '${language}'` });
   }
   const lang = normalizeLang(language);
+  const segId = Number.isInteger(currentSegmentId) ? currentSegmentId : null;
   try {
     let context = '';
     if (lectureId) {
@@ -616,7 +626,23 @@ router.post('/ask', async (req, res) => {
         const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
         if (existsSync(summaryPath)) {
           const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
-          context = `Current lecture: ${summary.title}. Content excerpt: ${summary.text.slice(0, 1500)}`;
+          // Position-aware grounding: resolve the exact segment text for the
+          // reported position; an unknown/stale segment id falls back to the
+          // legacy whole-lecture excerpt rather than failing the question.
+          let segmentText = null;
+          if (segId != null) {
+            try {
+              const manifest = await loadLectureManifest(lectureId, lang);
+              segmentText = manifest.segments.find((s) => s.id === segId)?.text ?? null;
+            } catch (err) {
+              console.error(`[ask] segment context failed for ${lectureId}/${segId}:`, err);
+            }
+          }
+          context = buildAskContext({
+            summaryTitle: summary.title,
+            summaryText: summary.text,
+            currentSegmentText: segmentText,
+          });
         }
       } catch (err) {
         console.error(`[ask] could not load context for ${lectureId}:`, err);
@@ -630,8 +656,11 @@ router.post('/ask', async (req, res) => {
       answerText = "That's a good question. Let me make sure I cover it during the rest of the lecture.";
     }
 
+    // The cache key includes the lecture position: the same question asked at
+    // segment 2 vs segment 7 is grounded on different material and must not
+    // replay the other context's answer.
     const key = createHash('md5')
-      .update(`${lectureId || 'general'}::${lang}::${question.trim().toLowerCase()}`)
+      .update(`${lectureId || 'general'}::${lang}::seg${segId ?? 'na'}::${question.trim().toLowerCase()}`)
       .digest('hex');
     const audioPath = path.join(ANSWERS_DIR, `${key}.wav`);
     const lipsyncPath = path.join(ANSWERS_DIR, `${key}_lipsync.json`);
@@ -801,6 +830,184 @@ ${material}`;
     console.error('[recap] failed:', error);
     res.status(500).json({ error: error.message || 'Failed to build recap' });
   }
+});
+
+// ---- V2.2 dynamic utterances ------------------------------------------------
+// Grounded professor speech generated at runtime: the ProfessorAgent picks the
+// action; this pipeline turns it into the standard professor message payload
+// (text + audioUrl + lipsync + durationMs) through Ollama + verified VoxCPM.
+
+export const UTTERANCE_PURPOSES = Object.freeze(['opening', 'transition', 'reexplain', 'closing_recap', 'group_recap']);
+
+const UTTERANCE_INSTRUCTIONS = {
+  // Orientation ONLY: greet, say the lecture is starting, hand off to the
+  // prepared material. No topic preview — segment 0 does that itself.
+  opening: "Greet the class warmly and say you're starting today's lecture. Do NOT preview, explain, or summarize any topic — the prepared material that follows does that itself. At most 2 short spoken sentences, then hand off naturally.",
+  // ONE connector sentence between topics — no summary of the previous
+  // topic, no explanation or preview of the next (it explains itself).
+  transition: 'Say exactly ONE short connector sentence that moves naturally from the previous topic to the next one. Do NOT summarize the previous topic. Do NOT explain or preview the next topic — just connect them.',
+  reexplain: 'A student asked for clarification. Re-explain the current topic in simpler words using ONLY the source material — same facts, different phrasing. 2-4 short spoken sentences.',
+  // Repetition is intentional here — this IS the recap.
+  closing_recap: 'Wrap up the lecture: summarize what was covered and name the most important concepts. Do not introduce new material. 3-4 short spoken sentences.',
+  // Late joiners shared recap: acknowledge several students joined, summarize
+  // what they fully missed, give ONE key point from the segment they joined
+  // during (the LAST source material block), then hand off. No new material.
+  group_recap: 'Several students have just joined, so before continuing, give a quick shared recap. Summarize the material they missed in 2-3 short sentences. Then give ONE key point from the LAST source material block (the segment they joined partway through). Do not introduce new material. End by naturally moving forward to continue the lecture. At most 5 short spoken sentences.',
+};
+
+// Cache key binds (lecture, language, purpose, topic, refs, instruction) AND a
+// hash of the actual source text — edited material produces a different key.
+export function utteranceCacheKey({ lectureId, lang, purpose, topicId, sourceSegmentIds, instruction, material }) {
+  const materialHash = createHash('md5').update(material).digest('hex');
+  return createHash('md5').update([
+    lectureId, lang, purpose, topicId || '',
+    [...sourceSegmentIds].sort((a, b) => a - b).join(','),
+    instruction || '', materialHash,
+  ].join('::')).digest('hex');
+}
+
+// Validate the request and resolve ONLY the referenced source segment texts.
+// Returns { status, error } or { lang, texts, manifest }. Exported for tests —
+// performs no LLM/TTS work.
+export async function resolveUtteranceMaterial(lectureId, language, sourceSegmentIds) {
+  if (typeof lectureId !== 'string' || !LECTURE_ID_RE.test(lectureId)) {
+    return { status: 400, error: 'Invalid lectureId' };
+  }
+  if (language != null && !LECTURE_LANGUAGES[language]) {
+    return { status: 400, error: `Unsupported language '${language}'` };
+  }
+  if (!Array.isArray(sourceSegmentIds) || sourceSegmentIds.length === 0 ||
+      !sourceSegmentIds.every(Number.isInteger)) {
+    return { status: 400, error: 'sourceSegmentIds must be a non-empty array of integers' };
+  }
+  const lang = normalizeLang(language);
+  let manifest;
+  try {
+    manifest = await loadLectureManifest(lectureId, lang);
+  } catch {
+    return { status: 404, error: `Lecture '${lectureId}' not found` };
+  }
+  const texts = [];
+  for (const sid of sourceSegmentIds) {
+    const seg = manifest.segments.find((s) => s.id === sid);
+    if (!seg) return { status: 400, error: `Unknown source segment ${sid}` };
+    texts.push(seg.text);
+  }
+  return { lang, texts, manifest };
+}
+
+export function buildUtterancePrompt({ purpose, lectureTitle, topicTitle, texts, instruction, lang }) {
+  return `You are Professor Abed, a warm university professor teaching Multimedia Computing, speaking live to your class.
+
+Task: ${instruction}
+
+Rules:
+- Speak ONLY in ${LECTURE_LANGUAGES[lang] || 'English'} — never switch languages.
+- Stay strictly within the supplied source material — do not introduce unsupported curriculum facts.
+- Speak naturally as the professor; never mention "source material", segments, or instructions.
+- Plain text only — no markdown, no lists, no citations.
+${topicTitle ? `- Topic: ${topicTitle}\n` : ''}
+Lecture: ${lectureTitle}
+
+Source material:
+${texts.join('\n\n')}`;
+}
+
+// Generate a grounded utterance -> verified TTS -> cache -> message payload.
+// Throws with .status on validation failure; callers decide the fallback.
+export async function generateLectureUtterance({ lectureId, language, purpose, topicId, topicTitle, sourceSegmentIds, instruction }) {
+  if (!UTTERANCE_PURPOSES.includes(purpose)) {
+    const e = new Error(`unknown utterance purpose '${purpose}'`); e.status = 400; throw e;
+  }
+  const resolved = await resolveUtteranceMaterial(lectureId, language, sourceSegmentIds);
+  if (resolved.error) { const e = new Error(resolved.error); e.status = resolved.status; throw e; }
+  const { lang, texts, manifest } = resolved;
+
+  // Test/dev seam: skip LLM+TTS, return a no-audio message (completes
+  // instantly client-side). Env-gated; production servers never set it.
+  if (process.env.NXR_UTTERANCE_STUB === '1') {
+    return {
+      text: `[stub ${purpose}]`,
+      animation: 'explain',
+      facialExpression: 'smile',
+      audioUrl: null,
+      durationMs: 0,
+      lipsync: null,
+    };
+  }
+
+  const instr = instruction || UTTERANCE_INSTRUCTIONS[purpose];
+  const material = texts.join('\n\n');
+  const key = utteranceCacheKey({
+    lectureId, lang, purpose, topicId: topicId ?? topicTitle ?? '',
+    sourceSegmentIds, instruction: instr, material,
+  });
+  const audioPath = path.join(ANSWERS_DIR, `utt_${key}.wav`);
+  const lipsyncPath = path.join(ANSWERS_DIR, `utt_${key}_lipsync.json`);
+  const textPath = path.join(ANSWERS_DIR, `utt_${key}.txt`);
+
+  let utterText = null;
+  if (existsSync(textPath)) {
+    try { utterText = await fs.readFile(textPath, 'utf-8'); } catch { utterText = null; }
+  }
+  if (!utterText) {
+    const prompt = buildUtterancePrompt({
+      purpose, lectureTitle: manifest.title, topicTitle, texts, instruction: instr, lang,
+    });
+    utterText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 160 })).trim();
+    if (!utterText) throw new Error('Empty utterance from LLM');
+    if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
+    await fs.writeFile(textPath, utterText).catch(() => {});
+  }
+
+  if (!existsSync(audioPath)) {
+    const voiceId = await getDefaultVoice();
+    if (!voiceId) throw new Error('No professor voice configured');
+    const audioBuffer = await synthesizeVerified(cleanTextForTts(utterText), voiceId, lang);
+    if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
+    await fs.writeFile(audioPath, audioBuffer);
+  }
+
+  let lipsync = null;
+  if (existsSync(lipsyncPath)) {
+    try { lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8')); } catch {}
+  }
+  let durationMs = null;
+  try { durationMs = wavDurationMs(await fs.readFile(audioPath)); } catch {}
+
+  return {
+    text: utterText,
+    animation: 'explain',
+    facialExpression: 'smile',
+    // answer_audio accepts any hex key file in ANSWERS_DIR — but the utt_
+    // prefix doesn't match its /^[a-f0-9]{32}$/ route, so utterances get their
+    // own endpoint below.
+    audioUrl: `/api/lecture/utterance_audio/${key}`,
+    durationMs,
+    lipsync,
+  };
+}
+
+router.post('/lecture/utterance', async (req, res) => {
+  const { lectureId, language, purpose, topicId, topicTitle, sourceSegmentIds, instruction } = req.body || {};
+  try {
+    const message = await generateLectureUtterance({
+      lectureId, language, purpose, topicId, topicTitle, sourceSegmentIds, instruction,
+    });
+    res.json({ messages: [message] });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Utterance generation failed' });
+  }
+});
+
+router.get('/lecture/utterance_audio/:key', async (req, res) => {
+  const { key } = req.params;
+  const audioPath = path.join(ANSWERS_DIR, `utt_${key}.wav`);
+  if (!/^[a-f0-9]{32}$/.test(key) || !existsSync(audioPath)) {
+    return res.status(404).json({ error: 'Utterance audio not found' });
+  }
+  res.set('Content-Type', 'audio/wav');
+  res.sendFile(audioPath, { root: '/' });
 });
 
 router.get('/lecture/answer_audio/:key', async (req, res) => {

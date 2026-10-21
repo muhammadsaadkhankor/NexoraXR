@@ -32,6 +32,10 @@ export const SpeechProvider = ({ children }) => {
   // server (NCIP answer.end).
   const answerEndedRef = useRef(null);
   const reportedAnswerEndsRef = useRef(new Set());
+  // Set by the socket owner (Scene) — invoked with each lecture message when
+  // its audio finishes so the client can report lecture-segment-ended to the
+  // server (V2 server-driven progression).
+  const lectureSegmentEndedRef = useRef(null);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -231,6 +235,9 @@ export const SpeechProvider = ({ children }) => {
         reportedAnswerEndsRef.current.add(played.id);
         answerEndedRef.current?.(played);
       }
+      if (played?.type === 'lecture') {
+        lectureSegmentEndedRef.current?.(played);
+      }
       return messages.slice(1);
     });
   };
@@ -391,6 +398,11 @@ export const SpeechProvider = ({ children }) => {
         recording,
         tts,
         message,
+        // Active-utterance contract (V2.2): the queue head IS the message
+        // whose Audio element Avatar creates — the queue only advances via
+        // onMessagePlayed (audio 'ended'/'error'), so this is never ahead
+        // of playback and never derived from history, seeds, or NCIP state.
+        activeMessage: message,
         messages,
         pushMessage,
         onMessagePlayed,
@@ -412,6 +424,7 @@ export const SpeechProvider = ({ children }) => {
         floorPaused,
         setFloorPaused,
         answerEndedRef,
+        lectureSegmentEndedRef,
         setRecognitionLang,
       }}
     >

@@ -15,6 +15,7 @@ import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage } from './services/ncipSync';
+import { syncLectureClock } from './lectureClock';
 import { API_URL, getParticipantId } from '../shared/config';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
@@ -697,7 +698,7 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, setRecognitionLang } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, setRecognitionLang } = useSpeech();
   const speechCtlRef = useRef({});
   speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages };
 
@@ -756,47 +757,33 @@ function SceneRoom({ sceneName, baseConfig }) {
     };
   }, [clearMessages]);
 
-  const handleStartClass = async () => {
-    if (!lectureId || !canStartClass) return;
+  // Lazily fetch the segment manifest for transcript-seeding and language-
+  // switch rebuilds — metadata only, NEVER pushed to the playback queue
+  // (V2: the server emits each segment itself via professor-speak).
+  const ensureLectureManifest = useCallback(async (lid, lang) => {
+    if (!lid || lectureManifestRef.current.length > 0) return;
+    try {
+      const res = await fetch(`${API_URL}/api/lecture/segments/${lid}?lang=${lang || 'en'}`);
+      const data = await res.json();
+      if (res.ok && data.segments?.length) {
+        lectureManifestRef.current = data.segments;
+        setLectureTitle((t) => t || data.title);
+      }
+    } catch (err) {
+      console.error('[manifest] fetch failed:', err);
+    }
+  }, []);
 
+  const handleStartClass = () => {
+    if (!lectureId || !canStartClass) return;
     clearMessages();
     setLectureStatus('loading');
     setLectureError(null);
-    // Replay of the same lectureId restarts at segment 0 — tell the server the
-    // previous playthrough ended so playback position and recap anchors reset
-    // (without this, the monotonic guard would reject the restart's seg 0).
-    socketRef.current?.emit('lecture-ended');
-
-    try {
-      const res = await fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lectureLang}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Lecture not available');
-      if (!data.segments || data.segments.length === 0) {
-        throw new Error('No segments found for this lecture');
-      }
-
-      setLectureTitle(data.title);
-      lectureManifestRef.current = data.segments;
-      maxSegRef.current = 0;
-      data.segments.forEach((seg, i) => {
-        pushMessage({
-          id: `${lectureId}_seg_${seg.id}`,
-          type: 'lecture',
-          text: seg.text,
-          audioUrl: seg.audioUrl ? `${API_URL}${seg.audioUrl}` : null,
-          animation: seg.animation || 'explain',
-          facialExpression: seg.facialExpression || 'smile',
-          lipsync: seg.lipsync,
-          slidePage: seg.slidePage ?? null,
-        });
-      });
-      setLectureStatus('teaching');
-      setChatOpen(true);
-    } catch (err) {
-      console.error('[handleStartClass]', err);
-      setLectureStatus('error');
-      setLectureError(err.message || 'Failed to load lecture');
-    }
+    maxSegRef.current = 0;
+    // V2: the server owns lecture progression — ask it to start the session;
+    // it emits one professor-speak message per segment to the whole room.
+    socketRef.current?.emit('lecture.start', { lectureId });
+    setChatOpen(true);
   };
 
   // Mid-lecture language switch — resumes at the SAME segment index:
@@ -866,14 +853,8 @@ function SceneRoom({ sceneName, baseConfig }) {
   };
   languageChangeRef.current = handleLanguageChange;
 
-  useEffect(() => {
-    if (lectureStatus === 'teaching' && messages.length === 0) {
-      setLectureStatus('completed');
-      // The queue drained — tell the server the live lecture is over so its
-      // snapshots stop offering a stale segment to late joiners.
-      socketRef.current?.emit('lecture-ended');
-    }
-  }, [messages, lectureStatus]);
+  // V2: lecture completion is server-authoritative ('lecture-complete') — an
+  // empty client queue between agent decisions must NOT end the lecture.
 
   useEffect(() => {
     const detect = () => {
@@ -974,6 +955,7 @@ function SceneRoom({ sceneName, baseConfig }) {
     });
     socketRef.current = socket;
     voiceChatRef.current.attachSocket(socket);
+    const stopClockSync = syncLectureClock(socket); // V2.4 shared lecture clock
 
     socket.on('connect', () => {
       console.log('[client] socket connected, id:', socket.id);
@@ -1122,6 +1104,37 @@ function SceneRoom({ sceneName, baseConfig }) {
       } else {
         pushMessage({ ...data, audioUrl }, true);
       }
+      // V2 server-driven lecture segment — reflect live state for every
+      // member (starters, late joiners, guests) and lazily grab the manifest
+      // for transcript seeding / language-switch rebuilds.
+      if (data?.type === 'lecture') {
+        setLectureStatus('teaching');
+        if (data?.title) setLectureTitle(data.title);
+        ensureLectureManifest(data.lectureId || lectureIdRef.current, lectureLangRef.current);
+      }
+    }));
+
+    // V2: a (re)start — clear any leftovers from a previous playthrough and
+    // reset the transcript seed so the script doesn't show stale/repeated rows.
+    socket.on('lecture-started', (data) => applyNcip(data, () => {
+      speechCtlRef.current.clearMessages();
+      setLectureStatus('teaching');
+      setLectureError(null);
+      setFloorAnswering(false);
+      maxSegRef.current = -1;
+      setScriptSeed([]);
+      setTranscriptEpoch((e) => e + 1);
+    }));
+
+    // V2: the agent decided the lecture is complete — the server is
+    // authoritative for completion, not an empty local queue.
+    socket.on('lecture-complete', (data) => applyNcip(data, () => {
+      console.log('[client] lecture-complete:', data?.reason);
+      speechCtlRef.current.floorPausedRef.current = false;
+      speechCtlRef.current.setFloorPaused(false);
+      speechCtlRef.current.clearMessages();
+      setLectureStatus('completed');
+      setFloorAnswering(false);
     }));
 
     socket.on('lecture-control', (data) => applyNcip(data, () => {
@@ -1133,6 +1146,14 @@ function SceneRoom({ sceneName, baseConfig }) {
         speechCtlRef.current.pauseLectureForFloor();
       } else if (data?.action === 'control-error') {
         setFloorError(data?.error || 'Lecture control rejected.');
+        // A rejected lecture.start surfaces here — show it in the panel.
+        setLectureStatus((s) => {
+          if (s === 'loading') {
+            setLectureError(data?.error || 'Failed to start the lecture.');
+            return 'error';
+          }
+          return s;
+        });
       } else if (data?.action === 'end') {
         // Host ended the class (private room): stop and clear local playback.
         speechCtlRef.current.floorPausedRef.current = false;
@@ -1258,8 +1279,23 @@ function SceneRoom({ sceneName, baseConfig }) {
       socket.emit('answer-ended', { id: msg.id });
     };
 
+    // V2: report each lecture segment's completion to the server — it
+    // idempotently advances to the next agent-selected unit.
+    lectureSegmentEndedRef.current = (msg) => {
+      const m = /^(.+)_seg_(\d+)$/.exec(msg?.id || '');
+      const lid = msg?.lectureId || (m ? m[1] : lectureIdRef.current);
+      if (!lid) return;
+      socket.emit('lecture-segment-ended', {
+        lectureId: lid,
+        segmentId: m ? Number(m[2]) : null,
+        messageId: msg.id,
+      });
+    };
+
     return () => {
       answerEndedRef.current = null;
+      lectureSegmentEndedRef.current = null;
+      stopClockSync();
       socket.disconnect();
       socketRef.current = null;
     };
@@ -1324,6 +1360,9 @@ function SceneRoom({ sceneName, baseConfig }) {
   // Transcript seed: segments already reached (<= current index) so a
   // refreshed/late joiner sees the full script, not just the live tail.
   const [scriptSeed, setScriptSeed] = useState([]);
+  // Bumped on each (re)start — ChatInterface clears accumulated transcript
+  // lines so a replayed lecture can't stack stale rows.
+  const [transcriptEpoch, setTranscriptEpoch] = useState(0);
   useEffect(() => {
     if (message?.type !== 'lecture' || !message.id) return;
     const n = Number(String(message.id).split('_seg_').pop());
@@ -1505,6 +1544,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onMinimize={() => setChatOpen(false)}
             lectureId={lectureId}
             scriptSeed={scriptSeed}
+            transcriptEpoch={transcriptEpoch}
             floorHolder={activeSpeaker}
             isFloorHolder={isActiveSpeaker}
             floorAnswering={floorAnswering}

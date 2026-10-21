@@ -3,15 +3,16 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
   const [isPressed, setIsPressed] = useState(false);
   const currentTranscriptionRef = useRef(null);
 
-  const { tts, loading, message, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef } = useSpeech();
-  // Accumulated lecture transcript — each segment appends, previous ones stay.
+  const { tts, loading, message, activeMessage, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef } = useSpeech();
+  // Transcript HISTORY — previously played lecture units only. The LIVE row
+  // is rendered from activeMessage directly (never from this list).
   const [lectureLines, setLectureLines] = useState([]);
   const messagesEndRef = useRef(null);
 
@@ -31,6 +32,20 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
       return [...prev, { role: "assistant", text: message.text, time: new Date() }];
     });
   }, [message]);
+
+  // V2.2 transcript instrumentation — the live row must always be the same
+  // message object whose audio is playing ([AUDIO START] pairs with this).
+  useEffect(() => {
+    if (activeMessage?.id) {
+      console.log('[TRANSCRIPT ACTIVE]', activeMessage.id, JSON.stringify((activeMessage.text || '').slice(0, 50)), 'slide', activeMessage.slidePage);
+    }
+  }, [activeMessage]);
+
+  // Lecture (re)start — drop the accumulated transcript so stale lines from a
+  // previous playthrough can't linger/repeat.
+  useEffect(() => {
+    if (transcriptEpoch > 0) setLectureLines([]);
+  }, [transcriptEpoch]);
 
   // Seed played segments (refresh/recovery) so the script shows everything
   // already covered, not only the segments played since this client loaded.
@@ -243,33 +258,42 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
             </div>
           ))}
 
-          {lectureLines.length > 0 && (
+          {(lectureLines.length > 0 || activeMessage?.text) && (
             <div className="flex items-end gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
                 <Bot size={14} />
               </div>
               <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-slate-800 text-slate-100 ring-1 ring-cyan-500/40">
                 <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
-                  Lecture script
+                  Live transcript
                 </div>
-                {lectureLines.map((line, i) => (
-                  <div key={line.id} className={i > 0 ? 'mt-3 border-t border-slate-700/60 pt-3' : ''}>
-                    {/* Only the live segment animates word-by-word; earlier
-                        segments render fully so the script stays combined. */}
-                    {i === lectureLines.length - 1 ? (
-                      <SpeakingTranscript
-                        key={line.id}
-                        text={line.text}
-                        audioRef={audioElementRef}
-                      />
-                    ) : (
-                      <p className="text-slate-200">{line.text}</p>
-                    )}
-                    <div className="text-[10px] mt-1 text-slate-500">
-                      {formatTime(line.time)}
-                    </div>
+                {/* HISTORY: previously spoken lecture units, deduped by
+                    message id — never used to render the live line. */}
+                {(() => {
+                  const seen = new Set();
+                  return lectureLines
+                    .filter((l) => l.id !== activeMessage?.id)
+                    .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
+                    .map((line) => (
+                      <div key={line.id} className="mt-3 border-t border-slate-700/60 pt-3">
+                        <p className="text-slate-200">{line.text}</p>
+                        <div className="text-[10px] mt-1 text-slate-500">{formatTime(line.time)}</div>
+                      </div>
+                    ));
+                })()}
+                {/* LIVE: the exact message whose audio is playing right now —
+                    SpeakingTranscript polls the same Audio element's
+                    currentTime for word highlighting. Covers lecture
+                    segments, dynamics, and floor answers uniformly. */}
+                {activeMessage?.text && (
+                  <div className="mt-3 border-t border-cyan-500/30 pt-3">
+                    <SpeakingTranscript
+                      key={activeMessage.id}
+                      text={activeMessage.text}
+                      audioRef={audioElementRef}
+                    />
                   </div>
-                ))}
+                )}
               </div>
             </div>
           )}

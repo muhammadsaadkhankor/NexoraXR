@@ -9,8 +9,22 @@ import { sendDefaultMessages, defaultResponse } from "../nexora_ai/modules/defau
 import { voice, initializeElevenLabs } from "../nexora_ai/modules/elevenLabs.mjs";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import lectureRouter from "../nexora_ai/routes/lectureRoutes.mjs";
+import lectureRouter, { loadLectureManifest, generateLectureUtterance } from "../nexora_ai/routes/lectureRoutes.mjs";
 import { NcipRoom, ProfessorStatus } from "./protocol/ncipRoom.mjs";
+import { randomUUID } from "node:crypto";
+import { getLecturePlan } from "./agent/lecturePlan.mjs";
+import { decide as professorDecide, validateAction } from "./agent/professorAgent.mjs";
+import { classifyClarification } from "./agent/reexplainPolicy.mjs";
+import {
+  createProfessorMemory, recordTopicTaught, recordQuestion,
+  incrementClarification, recordReexplanation, getProfessorMemorySummary,
+} from "./agent/professorMemory.mjs";
+import {
+  createUserMemoryStore, recordLectureJoin, recordTopicSeen, recordTopicMissed,
+  recordUserQuestion, recordUserClarification, recordUserReexplanation, recordUserGroupRecap,
+  getUserLearningSummary, hydrateUserMemory,
+} from "./agent/userLearningMemory.mjs";
+import { initUserMemoryDb, dbAvailable, persist, queries } from "./persistence/userMemoryDb.mjs";
 import { RoomRegistry } from "./protocol/roomRegistry.mjs";
 
 dotenv.config();
@@ -239,6 +253,18 @@ app.get('/api/rooms/:roomId', (req, res) => {
 // gates entry). rotate:true mints a new link and kills the old one — the host
 // uses that to revoke a link that spread too far. hostId must match the
 // registry record (no client-supplied authority).
+// V2.3: compact per-user learning-memory read API (server/debug use).
+app.get('/api/learning/user_memory/:participantId/:lectureId', (req, res) => {
+  const summary = getUserLearningSummary(userMemories, req.params.participantId, req.params.lectureId);
+  res.json(summary || {
+    participantId: req.params.participantId,
+    lectureId: req.params.lectureId,
+    topicsSeen: [], topicsMissed: [], questionCount: 0,
+    clarificationTopics: [], clarificationCountByTopic: {},
+    reexplainedTopics: [], recentQuestions: [],
+  });
+});
+
 app.post('/api/rooms/:roomId/invite', (req, res) => {
   const room = roomRegistry.get(req.params.roomId);
   if (!room || room.roomType !== 'private') {
@@ -269,6 +295,19 @@ const io = new Server(httpServer, {
 const rooms = {}; // roomId -> { [participantId]: player }
 const socketCtx = new Map(); // socketId -> { roomId, participantId }
 const ncipRooms = {};
+// V2.3 per-user learning memory — RAM-authoritative, async Postgres write-
+// behind. Server-level (not room-scoped): survives reconnect AND room teardown.
+const userMemories = createUserMemoryStore();
+
+// Lazily hydrate a user's persisted history on first touch (fire-and-forget —
+// hydration merges idempotently and never blocks the lecture path).
+function ensureUserLoaded(participantId) {
+  const m = userMemories.get(participantId);
+  if (!m || m.__hydrated || !dbAvailable()) return;
+  m.__hydrated = true;
+  persist((p) => hydrateUserMemory(userMemories, participantId,
+    (pid) => queries.loadUser(p, pid)));
+}
 // Room registry (public + private classroom metadata). Separate from NcipRoom:
 // registry entries carry the secret inviteToken, NcipRoom carries protocol
 // state and is what session.snapshot projects — tokens never leak into it.
@@ -322,6 +361,266 @@ function cleanupAfterRemoval(roomId, pid) {
       if (key.startsWith(`${roomId} `)) { clearTimeout(t); thinkingTimers.delete(key); }
     }
   }
+}
+
+// ---- V2 ProfessorAgent orchestration --------------------------------------
+//
+// Server-driven lecture progression. The agent decides the next lecture unit;
+// this code is the ONLY executor — it validates the action, updates NCIP
+// progress/playback, and emits a single professor-speak message to the room.
+// ncip.lectureRun = { lectureId, manifest, plan } — runtime only, never
+// projected into snapshots (manifest is large; snapshot carries progress).
+
+// (Re)load the run's manifest in the room's CURRENT language — called after
+// an accepted language.change so the next emitted segment is in the new
+// language. The segment index space is identical across languages.
+async function refreshLectureManifest(roomId) {
+  const ncip = ncipRooms[roomId];
+  const run = ncip?.lectureRun;
+  if (!run) return;
+  try {
+    const lang = ncip.language.roomLanguage;
+    const manifest = await loadLectureManifest(run.lectureId, lang);
+    // The room may have ended/restarted while the fetch was in flight — only
+    // swap when the same run is still active.
+    if (ncipRooms[roomId]?.lectureRun === run) run.manifest = manifest;
+  } catch (err) {
+    console.error(`[agent] manifest refresh failed for ${run.lectureId} in '${roomId}':`, err);
+  }
+}
+
+async function startLectureRun(roomId, lectureId) {
+  const ncip = getNcipRoom(roomId);
+  const manifest = await loadLectureManifest(lectureId, ncip.language.roomLanguage);
+  let plan = null;
+  try {
+    plan = getLecturePlan(lectureId);
+  } catch (err) {
+    // A malformed plan is logged loudly but must not block the lecture — the
+    // agent falls back to manifest order with topicId null.
+    console.error(`[agent] lecture plan for ${lectureId} unusable:`, err.message);
+  }
+  ncip.lectureRun = { lectureId, manifest, plan, dynSeq: 0, currentUnit: null, generating: false };
+  // V2.3: fresh session memory per lecture run — restarts reset it; it
+  // survives pause/resume/Q&A and dies with the room. Every run gets a uuid
+  // so user learning histories keep Run A and Run B separate.
+  const runId = randomUUID();
+  ncip.lectureRun.runId = runId;
+  for (const [pid, sess] of ncip.session.participants) {
+    if (sess.connected) {
+      ensureUserLoaded(pid);
+      recordLectureJoin(userMemories, pid, lectureId, runId);
+    }
+  }
+  ncip.professorMemory = createProfessorMemory(lectureId);
+  applyEffects(roomId, ncip.startLecture(lectureId));
+  // Tell every client to drop leftover units from any previous playthrough —
+  // a restart (or mid-lecture re-start) must not stack the new sequence on
+  // top of stale queued messages.
+  io.to(roomId).emit('lecture-started', { lectureId, stateVersion: ncip.stateVersion });
+  emitNextLectureUnit(roomId).catch((err) =>
+    console.error(`[agent] ${roomId}: start progression error:`, err));
+}
+
+// V2.2: after a floor answer commits, record the question interaction and
+// classify whether it signals confusion (background — a slow/failed classifier
+// simply means no re-explanation, never a stalled lecture).
+async function maybeRecordClarification(roomId, question, answerText, participantId) {
+  const ncip = ncipRooms[roomId];
+  const run = ncip?.lectureRun;
+  if (!ncip || !run) return;
+  const p = ncip.lectureProgress;
+  const topicId = p.currentTopicId;
+  const segmentId = p.currentSegmentId;
+  const segText = run.manifest?.segments.find((s) => s.id === segmentId)?.text || '';
+  const topicTitle = run.plan?.topics.find((t) => t.id === topicId)?.title || null;
+  const cls = await classifyClarification({ question, topicTitle, segmentText: segText });
+  const live = ncipRooms[roomId];
+  if (!live || live !== ncip) return; // room died mid-classify
+  const flagged = cls.needsReexamination === true || cls.needsReexplanation === true;
+  live.recordInteraction({
+    type: 'question', participantId, topicId, segmentId, question,
+    needsReexplanation: flagged,
+  });
+  // Per-user learning memory: only committed answers are stored.
+  if (live.lectureRun?.runId) {
+    recordUserQuestion(userMemories, participantId, live.lectureRun.lectureId, live.lectureRun.runId,
+      { topicId, segmentId, question, answer: answerText });
+    if (flagged) {
+      recordUserClarification(userMemories, participantId, live.lectureRun.lectureId, live.lectureRun.runId, topicId);
+    }
+  }
+  // Memory: store the answered question; bump the per-topic clarification
+  // counter when the classifier flagged confusion (decide() reads it).
+  if (live.professorMemory) {
+    recordQuestion(live.professorMemory, {
+      participantId, topicId, segmentId, question, answer: answerText,
+    });
+    if (flagged) incrementClarification(live.professorMemory, topicId);
+    console.log(`[PROF MEMORY] ${roomId}: question_answered topic=${topicId} clarifications=${live.professorMemory.clarificationCountByTopic[topicId] || 0}`,
+      JSON.stringify(getProfessorMemorySummary(live.professorMemory)));
+  }
+  console.log(`[agent] ${roomId}: question recorded on topic=${topicId} needsReexplanation=${cls.needsReexamination ?? cls.needsReexplanation}`);
+}
+
+const UTTERANCE_FALLBACK = {
+  opening: 'continue',        // -> proceed to prepared segment 0
+  transition: 'continue',     // -> proceed to next prepared segment
+  reexplain: 'continue',      // -> continue lecture
+  closing_recap: 'end',       // -> end_lecture
+};
+
+// Decide -> validate -> execute ONE lecture unit. Async: dynamic utterances
+// generate through Ollama+VoxCPM before emit. run.generating + run.currentUnit
+// serialize the loop — a completion report can only advance the unit whose id
+// is currently in flight, so concurrent reports never double-advance.
+async function emitNextLectureUnit(roomId) {
+  const ncip = ncipRooms[roomId];
+  const run = ncip?.lectureRun;
+  if (!run || run.generating) return;
+  run.generating = true;
+  try {
+    // The loop only iterates on a dynamic-utterance fallback — each failure
+    // marks the action applied (applyLectureAction) so decide() can't repeat it.
+    for (;;) {
+      const action = professorDecide({
+        plan: run.plan,
+        progress: ncip.lectureProgress,
+        memory: ncip.professorMemory,
+        userMemories,
+        manifest: run.manifest,
+        roomLanguage: ncip.language.roomLanguage,
+        roomType: ncip.roomType,
+        groupRecapMinUsers: Number(process.env.NXR_GROUP_RECAP_MIN_USERS || 2),
+      });
+      const check = validateAction(action, { plan: run.plan, manifest: run.manifest });
+      if (!check.ok) {
+        console.error(`[agent] ${roomId}: invalid action rejected:`, check.error, action);
+        finishLecture(roomId, 'invalid_action');
+        return;
+      }
+      console.log(`[agent] ${roomId}: ${action.action} seg=${action.segmentId ?? '-'} purpose=${action.purpose ?? '-'} topic=${action.topicId ?? '-'} (${action.reason}) pendingLateJoiners=${ncip.lectureProgress.groupRecap?.pendingLateJoiners?.length ?? 0}`);
+
+      if (action.action === 'end_lecture') {
+        finishLecture(roomId, 'lecture_complete');
+        return;
+      }
+
+      if (action.action === 'speak_segment') {
+        const seg = run.manifest.segments.find((s) => s.id === action.segmentId);
+        if (!seg) { finishLecture(roomId, 'error'); return; }
+        ncip.applyLectureAction(action);
+        // Memory: a topic is "taught" when its last prepared segment is emitted.
+        const topic = action.topicId && run.plan?.topics.find((t) => t.id === action.topicId);
+        // Attendance: the FIRST segment of a topic starts it — every currently
+        // connected participant "saw" this topic.
+        if (topic && topic.segmentIds[0] === action.segmentId) {
+          for (const [pid, sess] of ncip.session.participants) {
+            if (sess.connected) recordTopicSeen(userMemories, pid, run.lectureId, run.runId, topic.id);
+          }
+        }
+        if (topic && topic.segmentIds[topic.segmentIds.length - 1] === action.segmentId) {
+          recordTopicTaught(ncip.professorMemory, topic.id);
+          console.log(`[PROF MEMORY] ${roomId}: topic_taught ${topic.id}`,
+            JSON.stringify(getProfessorMemorySummary(ncip.professorMemory)));
+        }
+        const unitId = `${run.lectureId}_seg_${seg.id}`;
+        run.currentUnit = { id: unitId, action };
+        applyEffects(roomId, ncip.updatePlayback('agent', {
+          lectureId: run.lectureId,
+          segmentIndex: action.segmentId,
+          playbackOffsetMs: 0,
+        }));
+        io.to(roomId).emit('professor-speak', {
+          id: unitId,
+          type: 'lecture',
+          unitStartedAt: Date.now(),
+          lectureId: run.lectureId,
+          title: run.manifest.title,
+          text: seg.text,
+          audioUrl: seg.audioUrl,
+          animation: seg.animation,
+          facialExpression: seg.facialExpression,
+          lipsync: seg.lipsync,
+          slidePage: action.slidePage ?? seg.slidePage ?? null,
+          stateVersion: ncip.stateVersion,
+        });
+        return;
+      }
+
+      // speak_dynamic — flags committed BEFORE generation so a failure falls
+      // forward instead of retry-looping the same utterance.
+      // NXR_AGENT_DYNAMIC=0 disables dynamics entirely (pure prepared segments)
+      // — useful for A/B debugging "script vs. spoken" differences.
+      if (process.env.NXR_AGENT_DYNAMIC === '0') {
+        ncip.applyLectureAction(action);
+        // Dynamics disabled -> the group recap can never play; resolve the
+        // pending joiners so decide() doesn't return it forever.
+        if (action.purpose === 'group_recap') ncip.completeGroupRecap(action, { attempted: true });
+        continue;
+      }
+      ncip.applyLectureAction(action);
+      const pendingId = `${run.lectureId}_dyn_pending_${++run.dynSeq}`;
+      run.currentUnit = { id: pendingId, action };
+      try {
+        const topicTitle = run.plan?.topics.find((t) => t.id === action.topicId)?.title ?? null;
+        // Utterance timeout: a hung Ollama/TTS must never leave the room in a
+        // synthetic "lecturing but silent" state. Fallbacks below apply.
+        const msg = await Promise.race([
+          generateLectureUtterance({
+            lectureId: run.lectureId,
+            language: ncip.language.roomLanguage,
+            purpose: action.purpose,
+            topicId: action.topicId,
+            topicTitle,
+            sourceSegmentIds: action.sourceSegmentIds,
+          }),
+          new Promise((_, rej) => setTimeout(() =>
+            rej(new Error(`utterance timeout (${action.purpose})`)),
+            Number(process.env.NXR_UTTERANCE_TIMEOUT_MS || 45_000))),
+        ]);
+        if (ncipRooms[roomId]?.lectureRun !== run) return; // ended mid-generation
+        const unitId = `${run.lectureId}_dyn_${run.dynSeq}`;
+        run.currentUnit = { id: unitId, action };
+        applyEffects(roomId, ncip.lectureUnitStarted());
+        io.to(roomId).emit('professor-speak', {
+          id: unitId,
+          type: 'lecture',
+          unitStartedAt: Date.now(),
+          dynamic: action.purpose,
+          lectureId: run.lectureId,
+          title: run.manifest.title,
+          text: msg.text,
+          audioUrl: msg.audioUrl,
+          animation: msg.animation,
+          facialExpression: msg.facialExpression,
+          lipsync: msg.lipsync,
+          durationMs: msg.durationMs,
+          slidePage: action.slidePage ?? null,
+          stateVersion: ncip.stateVersion,
+        });
+        return;
+      } catch (err) {
+        console.error(`[agent] ${roomId}: ${action.purpose} generation failed (${err.message}) — falling back`);
+        // Group recap: mark the attempt so pending joiners don't retry-loop.
+        if (action.purpose === 'group_recap') ncip.completeGroupRecap(action, { attempted: true });
+        run.currentUnit = null;
+        if (UTTERANCE_FALLBACK[action.purpose] === 'end') { finishLecture(roomId, 'utterance_failed'); return; }
+        continue; // re-decide: committed flags make the next action the safe path
+      }
+    }
+  } finally {
+    run.generating = false;
+  }
+}
+
+function finishLecture(roomId, reason) {
+  const ncip = ncipRooms[roomId];
+  if (!ncip) return;
+  applyEffects(roomId, ncip.endLecture(null));
+  ncip.lectureRun = null;
+  io.to(roomId).emit('lecture-complete', { reason, stateVersion: ncip.stateVersion });
+  console.log(`[agent] ${roomId}: lecture finished (${reason})`);
 }
 
 function nameFor(roomId, userId) {
@@ -469,7 +768,10 @@ function applyEffects(roomId, effects) {
     }
     const data = enrichEffectData(roomId, e.event, e.data);
     // Every authoritative NCIP event carries the post-transition version.
-    const payload = { ...(data || {}), stateVersion: ncip.stateVersion };
+    // professor-speak additionally carries the server wall clock so clients
+    // can compute their clock offset and converge on one lecture timeline.
+    const payload = { ...(data || {}), stateVersion: ncip.stateVersion,
+      ...(e.event === 'professor-speak' ? { unitStartedAt: Date.now() } : {}) };
     if (e.to && e.to !== 'room') {
       io.to(socketFor(roomId, e.to)).emit(e.event, payload);
     } else {
@@ -523,6 +825,30 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
     ncip.language.roomLanguage = registryRoom.language;
   }
   const joinResult = ncip.joinParticipant(pid, socket.id);
+
+  // V2.3 user memory: hydrate on first touch; on joining an in-flight lecture,
+  // record the session join and mark topics already taught as missed
+  // (reconnects stay idempotent — seen/recorded topics are never re-marked).
+  if (ncip.lectureRun?.runId) {
+    ensureUserLoaded(pid);
+    recordLectureJoin(userMemories, pid, ncip.lectureRun.lectureId, ncip.lectureRun.runId);
+    for (const t of ncip.lectureProgress.taughtTopicIds) {
+      recordTopicMissed(userMemories, pid, ncip.lectureRun.lectureId, ncip.lectureRun.runId, t);
+    }
+    // V2.4 late-join tracking (group recap): first-time joiners only —
+    // reconnects are explicitly excluded. State only; never interrupts the
+    // in-flight segment.
+    const cur = ncip.lectureProgress.currentSegmentId;
+    if (joinResult.reconnected === false && Number.isInteger(cur)) {
+      const segs = ncip.lectureRun.manifest?.segments || [];
+      const missed = [];
+      for (let i = 0; i < cur; i++) if (segs[i]) missed.push(i);
+      const ok = ncip.recordLateJoiner(pid, cur, missed);
+      console.log(`[PROF MEMORY] ${roomId}: late-joiner ${pid} during seg ${cur}, missed=${JSON.stringify(missed)} recorded=${ok} pending=${ncip.lectureProgress.groupRecap.pendingLateJoiners.length}`);
+    } else {
+      console.log(`[PROF MEMORY] ${roomId}: join mid-lecture NOT counted (pid=${pid} reconnected=${joinResult.reconnected} currentSegmentId=${cur})`);
+    }
+  }
 
   // A reconnect during the grace window cancels the pending expiry.
   const graceKey = `${roomId} ${pid}`;
@@ -702,6 +1028,12 @@ io.on('connection', (socket) => {
 
   // NCIP Slice 2 recovery: a client that detects a version gap (or reconnects)
   // asks for the authoritative snapshot; only room members may sync.
+  // V2.4 clock sync: echo server time so each client can estimate its
+  // offset vs the authoritative lecture timeline (assumes symmetric RTT).
+  socket.on('time.ping', (t0) => {
+    socket.emit('time.pong', { t0, now: Date.now() });
+  });
+
   socket.on('session.sync', () => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
@@ -720,6 +1052,9 @@ io.on('connection', (socket) => {
       return;
     }
     applyEffects(ctx.roomId, result.effects);
+    // V2: the next agent-emitted segment must be in the new room language —
+    // swap the run's manifest asynchronously (index space is unchanged).
+    refreshLectureManifest(ctx.roomId);
   });
 
   // NCIP floor.request: dedupe; auto-grant when the floor is free, else FIFO queue.
@@ -792,6 +1127,8 @@ io.on('connection', (socket) => {
       question,
       lectureId: data.lectureId,
       language: ncip.language.roomLanguage, // answer text locked to room language
+      // V2 Phase 10: ground the answer on the segment currently being taught.
+      currentSegmentId: ncip.lectureProgress?.currentSegmentId ?? null,
     };
     if (data?.kind === 'recap') {
       const range = ncip.recapRange(pid);
@@ -852,6 +1189,11 @@ io.on('connection', (socket) => {
       clearThinkingTimers(roomId); // THINKING -> ANSWERING disarms the timeout
       console.log(`[ncip:metrics] ${roomId}: question.submit -> answer.start = ${Date.now() - submittedAt}ms`);
       scheduleAnswerEnd(roomId, answerId, durationMs);
+      // V2.2: record the interaction + run the clarification classifier in the
+      // background; the agent's decide() sees the flag on next advancement.
+      if (data?.kind !== 'recap') {
+        maybeRecordClarification(roomId, question, message?.text, ctx.participantId).catch(() => {});
+      }
     } catch (err) {
       console.error('[server] ask-floor-question failed:', err);
       clearThinkingTimers(roomId);
@@ -900,7 +1242,7 @@ io.on('connection', (socket) => {
         playbackOffsetMs: 0,
       }));
     }
-    io.to(ctx.roomId).emit('professor-speak', data);
+    io.to(ctx.roomId).emit('professor-speak', { ...data, unitStartedAt: Date.now() });
   });
 
   // The lecture queue drained on a client — clear the live position so
@@ -921,6 +1263,7 @@ io.on('connection', (socket) => {
     if (data?.action === 'pause') result = ncip.hostPause(ctx.participantId);
     else if (data?.action === 'resume') result = ncip.hostResume(ctx.participantId);
     else if (data?.action === 'end') {
+      ncip.lectureRun = null;
       applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
       // Tell every client to stop and clear its local lecture queue — unlike
       // endLecture's implicit drain path, this is an explicit host command.
@@ -937,7 +1280,77 @@ io.on('connection', (socket) => {
     // Private rooms: only the host may end the shared lecture — a guest's
     // local queue draining must not reset the room's position.
     if (roomRegistry.isPrivate(ctx.roomId) && !isRoomHost(ctx.roomId, ctx.participantId)) return;
-    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).endLecture(ctx.participantId));
+    const ncip = getNcipRoom(ctx.roomId);
+    ncip.lectureRun = null;
+    applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
+  });
+
+  // V2: start a server-driven lecture session. Public rooms: any member may
+  // start (V1 parity — the Start Class button was never gated). Private rooms:
+  // host only, resolved server-side like every other host authority check.
+  socket.on('lecture.start', async (data) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId } = ctx;
+    if (roomRegistry.isPrivate(roomId) && !isRoomHost(roomId, ctx.participantId)) {
+      socket.emit('lecture-control', { action: 'control-error', error: 'Only the host can start the lecture.' });
+      return;
+    }
+    const lectureId = data?.lectureId;
+    if (typeof lectureId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(lectureId)) return;
+    try {
+      await startLectureRun(roomId, lectureId);
+    } catch (err) {
+      console.error(`[agent] lecture start failed for ${lectureId} in '${roomId}':`, err);
+      socket.emit('lecture-control', { action: 'control-error', error: 'Failed to start the lecture.' });
+    }
+  });
+
+  // V2: segment completion report. Exactly-once advance: the report is only
+  // honored while the room is LECTURING and names the segment currently in
+  // flight — duplicates, late reports, and reports during PAUSED/THINKING/
+  // ANSWERING are all safe no-ops.
+  socket.on('lecture-segment-ended', (data) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId } = ctx;
+    const ncip = ncipRooms[roomId];
+    const run = ncip?.lectureRun;
+    if (!run) return;
+    if (ncip.professor.status !== ProfessorStatus.LECTURING) return;
+    if (data?.lectureId !== run.lectureId) return;
+    // Exactly-once: the report must name the unit currently in flight —
+    // works for segments ('_seg_N' ids), dynamic utterances ('_dyn_N'),
+    // and legacy reports that only carry segmentId.
+    const expected = run.currentUnit?.id;
+    const claimed = data?.messageId
+      || (Number.isInteger(Number(data?.segmentId)) ? `${run.lectureId}_seg_${Number(data.segmentId)}` : null);
+    if (!expected || claimed !== expected || expected.includes('_dyn_pending_')) return;
+    // Memory: a re-explanation "completes" when its unit actually finished
+    // playing — mark it now so decide() can never loop it.
+    if (run.currentUnit?.action?.purpose === 'group_recap') {
+      const act = run.currentUnit.action;
+      ncip.completeGroupRecap(act);
+      for (const pid of act.participantIds || []) {
+        recordUserGroupRecap(userMemories, pid, run.lectureId, run.runId,
+          { coveredSegmentIds: act.sourceSegmentIds, joinedDuringSegmentId: act.joinedDuringSegmentId });
+      }
+      console.log(`[PROF MEMORY] ${roomId}: group_recap given to ${JSON.stringify(act.participantIds)}`);
+    }
+    if (run.currentUnit?.action?.purpose === 'reexplain') {
+      const act = run.currentUnit.action;
+      recordReexplanation(ncip.professorMemory, act.topicId);
+      // Per-user: credit the re-explanation to the participant whose flagged
+      // interaction triggered it.
+      const it = Number.isInteger(act.interactionIndex)
+        ? ncip.lectureProgress.interactionHistory[act.interactionIndex] : null;
+      if (it?.participantId) {
+        recordUserReexplanation(userMemories, it.participantId, run.lectureId, run.runId, act.topicId);
+      }
+      console.log(`[PROF MEMORY] ${roomId}: reexplained ${act.topicId}`);
+    }
+    emitNextLectureUnit(roomId).catch((err) =>
+      console.error(`[agent] ${roomId}: progression error:`, err));
   });
 
   socket.on('chat', (data) => {
@@ -986,6 +1399,10 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// V2.3: init Postgres user-memory persistence — noop when DATABASE_URL is
+// unset; never blocks the lecture hot path (writes are queued fire-and-forget).
+initUserMemoryDb().catch((e) => console.error('[userMemoryDb] init failed:', e.message));
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Professor Abed is listening on port ${port}`);

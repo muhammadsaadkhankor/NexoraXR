@@ -1502,3 +1502,135 @@ test('28g. host endLecture clears host pause; same-lecture restart works', () =>
   assert.equal(room.professor.status, 'LECTURING');
   check(room);
 });
+
+// ---- V2 lectureProgress (ProfessorAgent pedagogical state) ----------------
+
+test('29a. startLecture initializes progress', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  assert.deepEqual(room.lectureProgress, {
+    lectureId: 'Lecture_1', currentTopicId: null, currentSegmentId: null,
+    taughtTopicIds: [], openingCompleted: false, completedTransitions: [],
+    closingCompleted: false, interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+  });
+  check(room);
+});
+
+test('29b. lectureAdvanced updates segment and topic', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  room.lectureAdvanced(0, 't0');
+  assert.equal(room.lectureProgress.currentSegmentId, 0);
+  assert.equal(room.lectureProgress.currentTopicId, 't0');
+  room.lectureAdvanced(1, 't1');
+  assert.equal(room.lectureProgress.currentSegmentId, 1);
+  assert.equal(room.lectureProgress.currentTopicId, 't1');
+  check(room);
+});
+
+test('29c. taughtTopicIds never duplicate', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  room.lectureAdvanced(0, 't0');
+  room.lectureAdvanced(1, 't0'); // re-speak same topic
+  room.lectureAdvanced(2, 't2');
+  room.lectureAdvanced(3, null); // plan-less segment — no topic tracked
+  assert.deepEqual(room.lectureProgress.taughtTopicIds, ['t0', 't2']);
+  assert.equal(room.lectureProgress.currentTopicId, null);
+  check(room);
+});
+
+test('29d. endLecture clears progress', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  room.lectureAdvanced(4, 't4');
+  room.endLecture('host');
+  assert.deepEqual(room.lectureProgress, {
+    lectureId: null, currentTopicId: null, currentSegmentId: null,
+    taughtTopicIds: [], openingCompleted: false, completedTransitions: [],
+    closingCompleted: false, interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+  });
+  check(room);
+});
+
+test('29e. same-lecture restart resets progress', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  room.updatePlayback('u', { lectureId: 'Lecture_1', segmentIndex: 0 });
+  room.lectureAdvanced(0, 't0');
+  room.lectureAdvanced(1, 't1');
+  room.startLecture('Lecture_1'); // restart
+  assert.equal(room.lectureProgress.lectureId, 'Lecture_1');
+  assert.equal(room.lectureProgress.currentSegmentId, null);
+  assert.deepEqual(room.lectureProgress.taughtTopicIds, []);
+  assert.equal(room.playback, null); // monotonic guard accepts seg 0 again
+  room.lectureAdvanced(0, 't0');
+  assert.equal(room.lectureProgress.currentSegmentId, 0);
+  check(room);
+});
+
+test('29f. snapshot carries lectureProgress', () => {
+  const room = new NcipRoom('p');
+  room.startLecture('Lecture_1');
+  room.lectureAdvanced(2, 't2');
+  const snap = room.snapshot();
+  assert.equal(snap.lectureProgress.lectureId, 'Lecture_1');
+  assert.equal(snap.lectureProgress.currentSegmentId, 2);
+  assert.equal(snap.lectureProgress.currentTopicId, 't2');
+  assert.deepEqual(snap.lectureProgress.taughtTopicIds, ['t2']);
+  check(room);
+});
+
+test('29g. reconnect preserves progress', () => {
+  const room = new NcipRoom('p');
+  room.joinParticipant('pid1', 'sock1');
+  room.startLecture('Lecture_1');
+  room.lectureAdvanced(3, 't3');
+  room.disconnect('pid1');           // socket drops -> grace window
+  room.joinParticipant('pid1', 'sock2'); // reconnect
+  assert.equal(room.lectureProgress.currentSegmentId, 3);
+  assert.equal(room.snapshot().lectureProgress.currentTopicId, 't3');
+  check(room);
+});
+
+test('29h. progress is identical for public and private rooms', () => {
+  const pub = new NcipRoom('pub_1');
+  const priv = new NcipRoom('priv_1');
+  priv.roomType = 'private';
+  for (const room of [pub, priv]) {
+    room.startLecture('Lecture_1');
+    room.lectureAdvanced(0, 't0');
+    assert.deepEqual(room.lectureProgress, {
+      lectureId: 'Lecture_1', currentTopicId: 't0',
+      currentSegmentId: 0, taughtTopicIds: ['t0'],
+      openingCompleted: false, completedTransitions: [],
+      closingCompleted: false, interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+    });
+    check(room);
+  }
+});
+
+test('V2.4: recordLateJoiner dedupes; completeGroupRecap resolves pending', () => {
+  const r = new NcipRoom('grp-1');
+  r.startLecture('Lecture_1');
+  r.lectureProgress.currentSegmentId = 1;
+  assert.equal(r.recordLateJoiner('B', 1, [0]), true);
+  assert.equal(r.recordLateJoiner('B', 1, [0]), false); // no double-count
+  assert.equal(r.recordLateJoiner('C', 1, [0]), true);
+  assert.equal(r.lectureProgress.groupRecap.pendingLateJoiners.length, 2);
+  r.completeGroupRecap({ participantIds: ['B', 'C'], sourceSegmentIds: [0, 1], joinedDuringSegmentId: 1 });
+  assert.equal(r.lectureProgress.groupRecap.pendingLateJoiners.length, 0);
+  assert.equal(r.lectureProgress.groupRecap.completedRecaps.length, 1);
+  assert.deepEqual(r.lectureProgress.groupRecap.completedRecaps[0].fullyMissedSegmentIds, [0]);
+  // previously-recapped user can never re-enter pending
+  assert.equal(r.recordLateJoiner('B', 4, [0, 1, 2, 3]), false);
+  // failed generation marks attempted but still resolves pending
+  r.recordLateJoiner('D', 4, [0, 1, 2, 3]);
+  r.recordLateJoiner('E', 4, [0, 1, 2, 3]);
+  r.completeGroupRecap({ participantIds: ['D', 'E'], sourceSegmentIds: [0, 1, 2, 3, 4], joinedDuringSegmentId: 4 }, { attempted: true });
+  assert.equal(r.lectureProgress.groupRecap.pendingLateJoiners.length, 0);
+  assert.equal(r.lectureProgress.groupRecap.completedRecaps.at(-1).attempted, true);
+});

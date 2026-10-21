@@ -3,6 +3,7 @@ import { useGLTF, useAnimations } from '@react-three/drei';
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useSpeech } from "../classroom/hooks/useSpeech";
+import { serverTimeNow } from "../classroom/lectureClock";
 import facialExpressions from "./constants/facialExpressions";
 import visemesMapping from "./constants/visemesMapping";
 import morphTargets from "./constants/morphTargets";
@@ -124,6 +125,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     // Real-time lipsync: tap the element with an analyser before playback so
     // visemes are derived from the actual output signal each frame.
     analyserRef.current = nextAudio ? attachAnalyser(nextAudio) : null;
+    let syncTimer = null;
     if (nextAudio) {
       const savedResumeAt =
         typeof message.resumeAt === 'number' && message.resumeAt > 0 ? message.resumeAt : null;
@@ -146,6 +148,11 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
           if (typeof message.resumeAt === 'number') delete message.resumeAt;
         }, { once: true });
       }
+      // V2.2 transcript instrumentation: the audio element that actually
+      // starts playing is the authoritative active utterance.
+      nextAudio.addEventListener('playing', () => {
+        console.log('[AUDIO START]', message.id, JSON.stringify((message.text || '').slice(0, 50)), 'slide', message.slidePage);
+      }, { once: true });
       nextAudio.onended = onMessagePlayed;
       nextAudio.onerror = () => {
         console.error('[Avatar] audio error:', nextAudio.src);
@@ -159,6 +166,43 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         setAudioPlaying(true);
         setAnimation(resolved || 'Idle');
       }, { once: true });
+      // Multi-client sync (V2.4): all clients receive the same professor-speak
+      // message at ~the same instant, but each browser's fetch/decode latency
+      // differs — that start-time skew becomes permanent word-level drift.
+      // Intended position = elapsed wall time since this message became the
+      // queue head (this effect run), minus floor-pause time, plus any
+      // resume offset. If local playback lags/lead beyond the threshold, snap
+      // the position — clients converge to the shared lecture clock.
+      const syncBase = savedResumeAt ?? 0;
+      const syncEpoch = performance.now();
+      // Server-anchored mode when unitStartedAt is present: it's the server's
+      // wall clock at emit; lectureClockOffset maps local time onto that clock
+      // so a late-arriving client (tunnel/proxy) converges onto the shared
+      // timeline instead of anchoring to its own delayed receipt.
+      const unitStartedAt = typeof message.unitStartedAt === 'number' ? message.unitStartedAt : null;
+      let pausedMs = 0;
+      let pauseStart = null;
+      const SYNC_INTERVAL_MS = 400;
+      const SYNC_TOLERANCE_S = 0.35;
+      syncTimer = setInterval(() => {
+        const el = nextAudio;
+        if (!el || el.ended) return;
+        if (el.paused) { if (pauseStart === null) pauseStart = performance.now(); return; }
+        if (pauseStart !== null) { pausedMs += performance.now() - pauseStart; pauseStart = null; }
+        if (el.readyState < 2) return; // still buffering — nothing to correct yet
+        const expected = syncBase + (unitStartedAt !== null
+          ? (serverTimeNow() - unitStartedAt - pausedMs) / 1000
+          : (performance.now() - syncEpoch - pausedMs) / 1000);
+        if (expected <= 0 || (Number.isFinite(el.duration) && expected > el.duration + 0.5)) return;
+        const diff = expected - el.currentTime;
+        if (Math.abs(diff) > SYNC_TOLERANCE_S) {
+          try {
+            el.currentTime = Math.max(0, Math.min(expected, el.duration || expected));
+            console.log('[LECTURE_SYNC]', `messageId=${message.id}`, `corrected ${diff.toFixed(2)}s`);
+          } catch { /* seek can throw while buffering — next tick retries */ }
+        }
+      }, SYNC_INTERVAL_MS);
+
       // A lecture segment resumed while the floor is held stays paused until
       // the shared resume (release-floor) arrives.
       if (message.type === 'lecture' && floorPausedRef?.current) {
@@ -174,6 +218,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     setAudio(nextAudio);
     if (audioElementRef) audioElementRef.current = nextAudio;
     return () => {
+      clearInterval(syncTimer);
       if (nextAudio) {
         nextAudio.onended = null;
         nextAudio.onerror = null;

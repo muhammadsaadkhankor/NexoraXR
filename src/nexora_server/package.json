@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "VOXCPM_BASE_URL=http://localhost:8010 nodemon server.js --ext js,mjs",
-    "test": "node --test protocol/ncipRoom.test.mjs protocol/roomRegistry.test.mjs",
-    "test:e2e": "node --test e2e/privateSocial.test.mjs --test-timeout=60000"
+    "test": "node --test protocol/ncipRoom.test.mjs protocol/roomRegistry.test.mjs agent/lecturePlan.test.mjs agent/professorAgent.test.mjs agent/professorMemory.test.mjs agent/userLearningMemory.test.mjs persistence/userMemoryDb.test.mjs",
+    "test:e2e": "node --test e2e/privateSocial.test.mjs e2e/agentProgression.test.mjs e2e/agentDynamic.test.mjs --test-timeout=60000"
   },
   "dependencies": {
     "@langchain/openai": "^0.0.12",
@@ -17,10 +17,12 @@
     "express": "^4.18.2",
     "langchain": "^0.1.4",
     "openai": "^4.11.1",
+    "pg": "^8.13.1",
     "socket.io": "^4.8.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "pg-mem": "^3.0.5"
   }
 }

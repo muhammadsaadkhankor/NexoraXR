@@ -47,6 +47,20 @@ export class NcipRoom {
     // the answer ends; client 'answer-ended' events are fallback telemetry.
     this.currentAnswer = null;
     this.lectureActive = false;
+    // V2 pedagogical progress — deliberately separate from professor.status
+    // (a sync/playback machine). Driven by the ProfessorAgent orchestrator in
+    // server.js; additive only, never gates V1 floor/answer behavior.
+    this.lectureProgress = {
+      lectureId: null,
+      currentTopicId: null,
+      currentSegmentId: null,
+      taughtTopicIds: [],
+      openingCompleted: false,
+      completedTransitions: [],
+      closingCompleted: false,
+      interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+    };
     // Live playback position reported by clients (segment-start broadcasts).
     // Feeds the snapshot when no floor interruption checkpoint exists so
     // late joiners can recover an in-progress lecture.
@@ -321,6 +335,10 @@ export class NcipRoom {
       },
       interruption: { checkpoint: cp, pauseReason: this.interruption.pauseReason },
       language: { roomLanguage: this.language.roomLanguage },
+      lectureProgress: {
+        ...this.lectureProgress,
+        taughtTopicIds: [...this.lectureProgress.taughtTopicIds],
+      },
       session: { participants: this.sessionParticipants() },
       currentAnswer: this.currentAnswer ? { ...this.currentAnswer } : null,
       // Server clock stamp — the client computes answer elapsed time against
@@ -400,6 +418,146 @@ export class NcipRoom {
     return [];
   }
 
+  // ---- V2 pedagogical progress (ProfessorAgent, additive) ------------------
+  //
+  // Called by the orchestrator when a (re)start is requested. Reuses
+  // endLecture so a replay of the same lectureId fully resets playback,
+  // active flag and recap anchors — identical to the V1 'lecture-ended'
+  // semantics the client used to emit before re-queueing.
+  startLecture(lectureId) {
+    const effects = this.endLecture(null);
+    this.lectureProgress = {
+      lectureId,
+      currentTopicId: null,
+      currentSegmentId: null,
+      taughtTopicIds: [],
+      openingCompleted: false,
+      completedTransitions: [],
+      closingCompleted: false,
+      interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+    };
+    return effects;
+  }
+
+  // Record the segment the agent just emitted. Returns no effects — the
+  // orchestrator broadcasts the professor-speak message itself. Deliberately
+  // does NOT bump stateVersion: every agent advance is announced by exactly
+  // one professor-speak carrying the current version, so versions stay
+  // contiguous for the client's stale/gap classifier (an unannounced bump
+  // would look like a missed transition). topicId is null without a plan.
+  lectureAdvanced(segmentId, topicId = null) {
+    this.lectureProgress.currentSegmentId = segmentId;
+    this.lectureProgress.currentTopicId = topicId;
+    if (topicId && !this.lectureProgress.taughtTopicIds.includes(topicId)) {
+      this.lectureProgress.taughtTopicIds.push(topicId);
+    }
+  }
+
+  // Commit an emitted agent action into pedagogical state. Called once, at
+  // emit time (the intent is committed; generation failure triggers a
+  // fallback decision, not a replay). Idempotent per-flag so duplicate
+  // completion reports or reconnects can never replay a dynamic unit.
+  applyLectureAction(action) {
+    const p = this.lectureProgress;
+    if (!action || !p.lectureId) return;
+    if (action.action === 'speak_segment') {
+      this.lectureAdvanced(action.segmentId, action.topicId ?? null);
+      return;
+    }
+    if (action.action !== 'speak_dynamic') return;
+    switch (action.purpose) {
+      case 'opening':
+        p.openingCompleted = true;
+        break;
+      case 'transition':
+        if (action.topicId && !p.completedTransitions.includes(action.topicId)) {
+          p.completedTransitions.push(action.topicId);
+        }
+        break;
+      case 'reexplain':
+        // Marks the specific question interaction — one re-explain max per
+        // interaction, and the topic cap is enforced by the flag itself.
+        if (Number.isInteger(action.interactionIndex) &&
+            p.interactionHistory[action.interactionIndex]) {
+          p.interactionHistory[action.interactionIndex].reexplained = true;
+        }
+        break;
+      case 'closing_recap':
+        p.closingCompleted = true;
+        break;
+    }
+  }
+
+  // Record a student interaction (currently only floor questions). Bounded:
+  // newest entries drop the oldest beyond MAX_INTERACTIONS.
+  recordInteraction(entry) {
+    const p = this.lectureProgress;
+    if (!entry || typeof entry !== 'object') return -1;
+    p.interactionHistory.push({
+      type: entry.type || 'question',
+      participantId: entry.participantId ?? null,
+      topicId: entry.topicId ?? null,
+      segmentId: entry.segmentId ?? null,
+      question: typeof entry.question === 'string' ? entry.question.slice(0, 500) : '',
+      needsReexplanation: entry.needsReexplanation === true,
+      reexplained: false,
+      timestamp: entry.timestamp ?? Date.now(),
+    });
+    while (p.interactionHistory.length > 20) p.interactionHistory.shift();
+    return p.interactionHistory.length - 1;
+  }
+
+  // V2.4 group recap: record a first-time joiner who entered mid-lecture.
+  // Called from the join path only when NOT a reconnect — so reconnects can
+  // never create a second pending entry or duplicate a recap.
+  recordLateJoiner(participantId, joinedDuringSegmentId, fullyMissedSegmentIds) {
+    const gr = this.lectureProgress?.groupRecap;
+    if (!this.lectureProgress?.lectureId || !participantId ||
+        !Number.isInteger(joinedDuringSegmentId)) return false;
+    if (gr.pendingLateJoiners.some((j) => j.participantId === participantId)) return false;
+    if (gr.completedRecaps.some((r) => r.participantIds.includes(participantId))) return false;
+    gr.pendingLateJoiners.push({
+      participantId,
+      joinedAtSegmentId: joinedDuringSegmentId,
+      joinedDuringSegmentId,
+      fullyMissedSegmentIds: (fullyMissedSegmentIds || []).slice(),
+      joinedAt: Date.now(),
+    });
+    return true;
+  }
+
+  // Resolve pending joiners after their shared recap played (or its
+  // generation failed — attempted:true prevents an infinite retry loop).
+  completeGroupRecap(action, { attempted = false } = {}) {
+    const gr = this.lectureProgress?.groupRecap;
+    if (!gr || !action) return;
+    const ids = action.participantIds || [];
+    gr.pendingLateJoiners = gr.pendingLateJoiners.filter(
+      (j) => !ids.includes(j.participantId));
+    gr.completedRecaps.push({
+      participantIds: ids,
+      fullyMissedSegmentIds: (action.sourceSegmentIds || [])
+        .filter((id) => id !== action.joinedDuringSegmentId),
+      joinedDuringSegmentId: action.joinedDuringSegmentId ?? null,
+      attempted,
+      completedAt: Date.now(),
+    });
+  }
+
+  // A non-segment (dynamic) unit started playing — flip IDLE -> LECTURING so
+  // completion reports are honored and floorState reflects reality. Mirrors
+  // updatePlayback's transition; emits floor-state so the room sees it.
+  lectureUnitStarted() {
+    this.lectureActive = true;
+    if (this.professor.status === ProfessorStatus.IDLE) {
+      this._bump();
+      this.professor.status = ProfessorStatus.LECTURING;
+      return [FLOOR_STATE];
+    }
+    return [];
+  }
+
   // ---- host-controlled manual pause (private rooms) ------------------------
   //
   // Distinct from floor interruptions: no floor grant, no question, no
@@ -467,6 +625,17 @@ export class NcipRoom {
     this.playback = null;
     const wasActive = this.lectureActive;
     this.lectureActive = false;
+    this.lectureProgress = {
+      lectureId: null,
+      currentTopicId: null,
+      currentSegmentId: null,
+      taughtTopicIds: [],
+      openingCompleted: false,
+      completedTransitions: [],
+      closingCompleted: false,
+      interactionHistory: [],
+      groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
+    };
     // The lecture definitively ended — anchors name positions in a finished
     // playthrough and must not leak into a replay or the next lecture.
     if (wasActive) this.recapAnchors.clear();
