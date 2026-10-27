@@ -2,6 +2,8 @@ import 'dotenv/config';
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from 'fs/promises';
 import { openAIChain, parser } from "../nexora_ai/modules/openAI.mjs";
 import { lipSync } from "../nexora_ai/modules/lip-sync.mjs";
@@ -24,15 +26,45 @@ import {
   recordUserQuestion, recordUserClarification, recordUserReexplanation, recordUserGroupRecap,
   getUserLearningSummary, hydrateUserMemory,
 } from "./agent/userLearningMemory.mjs";
-import { initUserMemoryDb, dbAvailable, persist, queries } from "./persistence/userMemoryDb.mjs";
+import { dbAvailable, persist, queries } from "./persistence/userMemoryDb.mjs";
+import { initDb, getPool } from "./db/pool.mjs";
+import authRouter from "./auth/routes.mjs";
+import { registerDocument, ingestDocument } from "./courses/pipeline.mjs";
+import { startBuild, runBuild, runAudioPhase, runTranslationPhase, buildRunning, buildStatus, resumeInterrupted } from "./courses/builds.mjs";
+import { loadLectureDraft, saveLectureDraft, saveLectureFullDraft, saveLectureLangDraft,
+         loadLectureLangDraft, invalidateSegmentAudio, textFingerprintForBake,
+         audioApprovalGate, TRANSLATION_LANGS } from "./courses/drafts.mjs";
+import { planFromDocuments } from "./courses/generator.mjs";
+import adminRouter from "./admin/routes.mjs";
+import brandingRouter from "./branding/routes.mjs";
+import { attachUser, socketAuth, requireAuth, requireRole } from "./auth/sessionMiddleware.mjs";
+import { resolveGuestToken, mintGuestToken } from "./auth/passwordless.mjs";
 import { RoomRegistry } from "./protocol/roomRegistry.mjs";
 
 dotenv.config();
 
+// Dev-only compatibility escape hatch: preserves the legacy client-supplied
+// participantId/hostId trust model so e2e tests and manual NCIP demos can run
+// without a database. NEVER set in a real deployment — off by default.
+const DEV_UNAUTH = process.env.NXR_DEV_UNAUTH_PROTOCOL === '1';
+if (DEV_UNAUTH) console.warn('[auth] NXR_DEV_UNAUTH_PROTOCOL=1 — legacy unauthenticated identity enabled (DEV ONLY)');
+
 const app = express();
 app.use(express.json({ limit: '50mb' }));
-app.use(cors());
+// Credentialed CORS needs an explicit origin list — never '*'.
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
+  .split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: CORS_ORIGINS, credentials: true }));
+app.use(attachUser);
+app.use('/auth', authRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api', brandingRouter);
 const port = process.env.PORT || 3000;
+
+// Legacy endpoints that predate auth stay open only while dev-compat is on or
+// no database is configured (no accounts exist to gate against).
+const legacyOrRole = (...roles) => (req, res, next) =>
+  (DEV_UNAUTH || !dbAvailable() ? next() : requireRole(...roles)(req, res, next));
 
 // Function to handle OpenAI response that might be an array or an object with a messages property
 function normalizeOpenAIResponse(response) {
@@ -54,7 +86,7 @@ function normalizeOpenAIResponse(response) {
 }
 
 // New endpoint to get current settings
-app.get("/settings", async (req, res) => {
+app.get("/settings", legacyOrRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const settings = {
       openaiModel: process.env.OPENAI_MODEL,
@@ -71,7 +103,7 @@ app.get("/settings", async (req, res) => {
 });
 
 // New endpoint to update settings
-app.post("/settings", async (req, res) => {
+app.post("/settings", legacyOrRole('SUPER_ADMIN'), async (req, res) => {
   try {
     const newSettings = req.body;
 
@@ -204,8 +236,20 @@ app.get("/voices", async (req, res) => {
 // Unified classroom creation — public rooms become discoverable, private rooms
 // return an invite URL whose token is the only way in.
 app.post('/api/rooms', (req, res) => {
-  const { className, courseId, lectureId, language, roomType, hostId, scene } = req.body || {};
-  const { room, error } = roomRegistry.create({ roomType, className, courseId, lectureId, language, hostId, scene });
+  // Room creation is a privileged operation: authenticated INSTRUCTOR or
+  // SUPER_ADMIN only (instructor workflows land in a later stage; STUDENT
+  // and guests cannot create classrooms). hostId is the authenticated user —
+  // the body's hostId field is ignored outside dev-compat mode.
+  if (!DEV_UNAUTH) {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (req.user.role === 'STUDENT') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+  }
+  const { className, courseId, courseName, lectureId, language, roomType, scene } = req.body || {};
+  const lectureCount = Number.parseInt(req.body?.lectureCount, 10) || null;
+  const hostId = DEV_UNAUTH ? req.body?.hostId : req.user.id;
+  const { room, error } = roomRegistry.create({ roomType, className, courseId, courseName, lectureId, language, hostId, scene, lectureCount });
   if (error) return res.status(400).json({ error });
   // Never log the invite token.
   console.log(`[rooms] ${room.roomType} room ${room.roomId} '${room.className}' created (lecture ${room.lectureId}, lang ${room.language})`);
@@ -213,6 +257,9 @@ app.post('/api/rooms', (req, res) => {
   res.status(201).json({
     roomId: room.roomId,
     roomType: room.roomType,
+    hostId: room.hostId, // server-derived from the authenticated session
+    courseName: room.courseName,
+    lectureCount: room.lectureCount,
     joinUrl: `${scenePath}`,
     ...(room.roomType === 'private' ? { inviteUrl: `${scenePath}&invite=${room.inviteToken}` } : {}),
   });
@@ -220,9 +267,16 @@ app.post('/api/rooms', (req, res) => {
 
 // Backward-compatible private-only endpoint (delegates to the unified path).
 app.post('/api/rooms/private', (req, res) => {
+  if (!DEV_UNAUTH) {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (req.user.role === 'STUDENT') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+  }
   const b = req.body || {};
   const { room, error } = roomRegistry.create({
     ...b,
+    hostId: DEV_UNAUTH ? b.hostId : req.user.id,
     roomType: 'private',
     className: b.className || `${b.lectureId || 'Lecture'} (private)`,
   });
@@ -234,19 +288,626 @@ app.post('/api/rooms/private', (req, res) => {
   });
 });
 
+// ---- instructor courses ------------------------------------------------------
+// Instructors own courses (name per owner is unique); classrooms reference a
+// course by id. INSTRUCTOR sees own courses; SUPER_ADMIN sees all.
+app.get('/api/courses', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const { rows } = req.user.role === 'SUPER_ADMIN'
+      ? await getPool().query(
+          `SELECT c.id, c.name, c.scene, c.created_at, u.display_name AS owner
+           FROM courses c JOIN users u ON u.id = c.owner_id ORDER BY c.created_at`)
+      : await getPool().query(
+          `SELECT id, name, scene, created_at FROM courses
+           WHERE owner_id = $1 ORDER BY created_at`, [req.user.id]);
+    res.json({ courses: rows.map((c) => ({ ...c, createdAt: c.created_at })) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to list courses' });
+  }
+});
+
+app.post('/api/courses', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'A course name is required' });
+  const scene = /^[A-Za-z0-9_-]{1,64}$/.test(req.body?.scene || '') ? req.body.scene : 'Multimedia';
+  try {
+    const { rows } = await getPool().query(
+      `INSERT INTO courses (id, owner_id, name, scene) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id, name, scene, created_at`,
+      [randomUUID(), req.user.id, name, scene]);
+    res.status(201).json({ course: rows[0] });
+  } catch (err) {
+    console.error('[courses] create failed:', err);
+    res.status(500).json({ error: 'Failed to create course' });
+  }
+});
+
+// ---- course build (durable state machine: ingest→plan→scripts→audio→ready) --
+
+app.get('/api/courses/:id/status', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'SUPER_ADMIN') {
+      const { rows } = await getPool().query(
+        `SELECT 1 FROM courses WHERE id=$1 AND owner_id=$2`, [req.params.id, req.user.id]);
+      if (!rows.length) return res.status(403).json({ error: 'You do not own this course' });
+    }
+    res.json(await buildStatus(req.params.id));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read status' });
+  }
+});
+
+app.post('/api/courses/:id/build', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const courseId = req.params.id;
+  const lectureCount = Math.max(1, Math.min(500, Number.parseInt(req.body?.lectureCount, 10) || 8));
+  const lang = /^[a-z]{2}$/.test(req.body?.lang || '') ? req.body.lang : 'en';
+  if (buildRunning(courseId)) {
+    return res.status(409).json({ error: 'A build is already running for this course' });
+  }
+  // Ownership check (SUPER_ADMIN bypasses).
+  if (req.user.role !== 'SUPER_ADMIN') {
+    const { rows } = await getPool().query(
+      `SELECT 1 FROM courses WHERE id=$1 AND owner_id=$2`, [courseId, req.user.id]);
+    if (!rows.length) return res.status(403).json({ error: 'You do not own this course' });
+  }
+  // Reviewer-confirmed plan: [{idx,title,sources:[{filename,documentId,pages}],
+  //   fullCoverage}] — one PDF per lecture, order/titles from the preview.
+  try {
+    const lecturePlan = Array.isArray(req.body?.lecturePlan) && req.body.lecturePlan.length
+      ? req.body.lecturePlan.map((e, i) => ({
+          idx: i + 1, title: String(e.title || `Lecture ${i + 1}`).slice(0, 190),
+          objectives: [], queries: [], fullCoverage: true,
+          sources: (Array.isArray(e.sources) ? e.sources : []).map((s) => ({
+            filename: String(s.filename), documentId: s.documentId,
+            pages: Array.isArray(s.pages) ? s.pages : [[1, 999]],
+          })),
+        }))
+      : null;
+    const buildId = await startBuild(courseId, lecturePlan?.length || lectureCount, lang, lecturePlan);
+    setImmediate(() => runBuild(buildId, courseId, lecturePlan?.length || lectureCount, lang, lecturePlan));
+    res.status(202).json({ ok: true, buildId, build: 'running' });
+  } catch (err) {
+    console.error('[course] build start failed:', err);
+    res.status(500).json({ error: `Build could not start: ${err.message}` });
+  }
+});
+
+// Preview the per-document lecture list BEFORE generation — deterministic
+// filename-number ordering + content-derived titles + ambiguity flags. The
+// reviewer edits order/titles in the modal and posts them back via
+// lecturePlan on /build.
+app.get('/api/courses/:id/plan-preview', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    if (!(await courseOwnerOrAdmin(req, res, req.params.id))) return;
+    const { rows: allDocs } = await getPool().query(
+      `SELECT id AS "documentId", filename, pages, summary, title, status, error, extraction
+         FROM course_documents WHERE course_id=$1 ORDER BY created_at`, [req.params.id]);
+    const docs = allDocs.filter((d) => d.status === 'ready');
+    const { rows: heads } = await getPool().query(
+      `SELECT document_id, title FROM course_sections
+        WHERE course_id=$1 AND idx=0`, [req.params.id]);
+    const headByDoc = Object.fromEntries(heads.map((h) => [h.document_id, h.title]));
+    for (const d of docs) d.firstHeading = headByDoc[d.documentId] && headByDoc[d.documentId] !== 'Document start'
+      ? headByDoc[d.documentId] : null;
+    const { lectures, ambiguousOrder } = planFromDocuments(docs);
+    const failed = allDocs.filter((d) => d.status === 'failed')
+      .map((d) => ({ filename: d.filename, error: d.error }));
+    res.json({ lectures, ambiguousOrder, documents: allDocs.length,
+      ready: docs.length, failed,
+      extractions: Object.fromEntries(docs.map((d) => [d.filename, d.extraction || 'text'])) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to preview lecture plan' });
+  }
+});
+
+// Retry ingestion for failed documents (e.g. a PDF that failed extraction).
+// Reuses registered docs — no re-upload needed. Returns 202; the client
+// re-polls plan-preview.
+app.post('/api/courses/:id/reingest', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    if (!(await courseOwnerOrAdmin(req, res, req.params.id))) return;
+    const { rows: failed } = await getPool().query(
+      `SELECT id FROM course_documents WHERE course_id=$1 AND status='failed'`, [req.params.id]);
+    if (!failed.length) return res.json({ ok: true, retried: 0 });
+    for (const d of failed) setImmediate(() => ingestDocument(d.id).catch(() => {}));
+    res.status(202).json({ ok: true, retried: failed.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retry ingestion' });
+  }
+});
+
+// ---- Script review stage -------------------------------------------------
+// Builds stop at 'awaiting_review' after scripts are emitted. The course
+// owner / SUPER_ADMIN reads drafts, edits segment text (ids + page mappings
+// preserved server-side), then approves — approval atomically flips the
+// build to 'audio' and bakes TTS for the exact reviewed text. Editing after
+// approval marks the affected audio outdated and requires re-approval.
+
+const courseOwnerOrAdmin = async (req, res, courseId) => {
+  if (req.user.role === 'SUPER_ADMIN') return true;
+  const { rows } = await getPool().query(
+    `SELECT 1 FROM courses WHERE id=$1 AND owner_id=$2`, [courseId, req.user.id]);
+  if (!rows.length) { res.status(403).json({ error: 'You do not own this course' }); return false; }
+  return true;
+};
+
+app.get('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    if (!(await courseOwnerOrAdmin(req, res, req.params.id))) return;
+    const { rows: lectures } = await getPool().query(
+      `SELECT idx, lecture_id, title, status, artifacts FROM course_lectures
+        WHERE course_id=$1 ORDER BY idx`, [req.params.id]);
+    const drafts = [];
+    for (const l of lectures) {
+      const d = await loadLectureDraft(l.lecture_id);
+      // Per-language reviewable translations — each keeps its canonical
+      // version + outdated flag relative to the current master script.
+      const langs = { en: { segments: d?.segments || [] } };
+      for (const lang of TRANSLATION_LANGS) {
+        const t = await loadLectureLangDraft(l.lecture_id, lang);
+        if (t) langs[lang] = {
+          segments: t.segments, edited: t.edited,
+          basedOnVersion: t.basedOnVersion,
+          outdated: (t.basedOnVersion ?? -1) !== (d?.version ?? 0),
+        };
+      }
+      drafts.push({
+        lectureId: l.lecture_id, title: d?.title || l.title, status: l.status,
+        version: d?.version ?? 0,
+        audioOutdated: l.artifacts?.audio_outdated === true,
+        coverage: l.artifacts?.coverage || null,
+        segments: d?.segments || [],
+        langs,
+      });
+    }
+    res.json({ drafts });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load drafts' });
+  }
+});
+
+app.put('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+    const pool = getPool();
+    const { rows: [build] } = await pool.query(
+      `SELECT id, status FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
+    if (!build || !['awaiting_review', 'ready', 'failed'].includes(build.status)) {
+      return res.status(409).json({ error: 'No reviewable draft scripts for this course' });
+    }
+    const edits = Array.isArray(req.body?.lectures) ? req.body.lectures : [];
+    const changed = [];
+    const uncertain = [];
+    for (const lec of edits) {
+      // Shapes:
+      //   {lang:'ar', fullText} — reviewed translation (ids stay aligned to
+      //     canonical; count mismatch rejected)
+      //   {fullText}            — whole canonical script, re-segmented +
+      //     re-aligned (versions bump → all translations marked outdated)
+      //   {segments:[{index,text}]} — legacy per-segment canonical edit
+      const lang = lec.lang === 'en' ? null : lec.lang;
+      const r = lang && typeof lec.fullText === 'string'
+        ? await saveLectureLangDraft(courseId, lec.lectureId, lang, lec.fullText)
+        : typeof lec.fullText === 'string'
+          ? await saveLectureFullDraft(courseId, lec.lectureId, lec.fullText)
+          : await saveLectureDraft(courseId, lec.lectureId, lec.segments);
+      if (!r.ok) return res.status(400).json({ error: `${lec.lectureId}: ${r.error}` });
+      if (r.changedIndexes.length) {
+        changed.push({ lectureId: lec.lectureId, changedIndexes: r.changedIndexes,
+          lang, validation: r.validation });
+      } else if (r.validation) {
+        // Whole-script save with no positional text change — still refresh
+        // the stored validation so a bad script can't slip through.
+        await pool.query(
+          `UPDATE course_lectures SET artifacts = COALESCE(artifacts,'{}'::jsonb) || $3::jsonb
+           WHERE course_id=$1 AND lecture_id=$2`,
+          [courseId, lec.lectureId, JSON.stringify({ validation: r.validation })]);
+      }
+      if (r.uncertainIndexes?.length) {
+        uncertain.push({ lectureId: lec.lectureId, uncertainIndexes: r.uncertainIndexes });
+      }
+    }
+    // Changed text => affected audio is outdated (canonical edits cascade to
+    // every language bucket; a lang edit invalidates only that language).
+    for (const c of changed) {
+      await invalidateSegmentAudio(c.lectureId, c.changedIndexes, c.lang || null);
+      await pool.query(
+        `UPDATE course_lectures
+           SET artifacts = COALESCE(artifacts,'{}'::jsonb)
+                 || $3::jsonb
+         WHERE course_id=$1 AND lecture_id=$2`,
+        [courseId, c.lectureId, JSON.stringify({
+          audio_outdated: true, outdated_segments: c.changedIndexes,
+          ...(c.validation ? { validation: c.validation } : {}) })]);
+    }
+    // Editing after approval reopens the review gate — audio must be
+    // re-approved before it counts as current.
+    if (changed.length && build.status === 'ready') {
+      await pool.query(
+        `UPDATE course_builds SET status='awaiting_review',
+           stats=COALESCE(stats,'{}'::jsonb) || $2::jsonb, updated_at=now()
+         WHERE id=$1`,
+        [build.id, JSON.stringify({ audio_outdated: true })]);
+    }
+    res.json({ ok: true, changed, uncertain });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save draft edits' });
+  }
+});
+
+// Approve canonical scripts → translation stage (atomic gate flip; a second
+// click can never start a duplicate job).
+app.post('/api/courses/:id/approve-scripts', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+    const pool = getPool();
+    const { rows: bad } = await pool.query(
+      `SELECT lecture_id FROM course_lectures WHERE course_id=$1
+         AND (artifacts->'validation'->>'ok')::boolean IS NOT TRUE`, [courseId]);
+    if (bad.length) {
+      return res.status(409).json({
+        error: `Cannot approve: ${bad.length} lecture(s) failed script validation` });
+    }
+    const { rows: [build] } = await pool.query(
+      `SELECT id, status FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
+    if (!build) return res.status(404).json({ error: 'No build for this course' });
+    const { rows: [flipped] } = await pool.query(
+      `UPDATE course_builds SET status='translating', updated_at=now()
+        WHERE id=$1 AND status='awaiting_review'
+          AND COALESCE(stats->>'stage','scripts')='scripts'
+        RETURNING id`, [build.id]);
+    if (!flipped) {
+      return res.status(409).json({ error: 'Scripts are not awaiting canonical review' });
+    }
+    setImmediate(() => runTranslationPhase(flipped.id, courseId));
+    res.status(202).json({ ok: true, buildId: flipped.id, build: 'translating' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to approve scripts' });
+  }
+});
+
+// Approve Scripts and Generate Audio — records the EXACT text fingerprints
+// being approved, then atomically flips to 'audio'. The bake verifies the
+// fingerprints again, so an edit racing approval can't publish mismatched
+// audio; repeated clicks can never start a second job.
+app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+    const pool = getPool();
+    // All draft lectures must exist and pass validation before audio starts.
+    const { rows: bad } = await pool.query(
+      `SELECT lecture_id FROM course_lectures WHERE course_id=$1
+         AND (artifacts->'validation'->>'ok')::boolean IS NOT TRUE`, [courseId]);
+    if (bad.length) {
+      return res.status(409).json({
+        error: `Cannot approve: ${bad.length} lecture(s) failed script validation` });
+    }
+    const { rows: [build] } = await pool.query(
+      `SELECT id, status, lecture_count, lang FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`,
+      [courseId]);
+    if (!build) return res.status(404).json({ error: 'No build for this course' });
+    // Instructor selects which languages get audio (default: teaching lang).
+    const audioLangs = (Array.isArray(req.body?.audioLangs) && req.body.audioLangs.length
+      ? req.body.audioLangs.filter((l) => l === 'en' || TRANSLATION_LANGS.includes(l))
+      : [build.lang || 'en']);
+    if (!audioLangs.length) audioLangs.push('en');
+    // Gate: every selected language needs a current, reviewed script tied to
+    // the canonical version; uncertain alignments need explicit confirmation.
+    const { rows: lecs } = await pool.query(
+      `SELECT lecture_id FROM course_lectures WHERE course_id=$1`, [courseId]);
+    const drafts = {}, langDocs = {};
+    for (const { lecture_id: lid } of lecs) {
+      const d = await loadLectureDraft(lid);
+      drafts[lid] = d ? { version: d.version, segments: d.segments.map((s) => ({ mapped: s.mapped })) } : null;
+      langDocs[lid] = {};
+      for (const lang of audioLangs) {
+        if (lang === 'en') continue;
+        const t = await loadLectureLangDraft(lid, lang);
+        if (t) langDocs[lid][lang] = t;
+      }
+    }
+    const gate = audioApprovalGate(drafts, langDocs, audioLangs,
+      { confirmUncertain: req.body?.confirmUncertain === true });
+    if (!gate.ok) {
+      return res.status(409).json({ error: 'Cannot approve audio', blocked: gate.blocked });
+    }
+    if (gate.warnings?.length) {
+      console.warn(`[course] audio approval warnings (non-blocking): ${gate.warnings.join('; ')}`);
+    }
+    // Fingerprint the exact text that will bake per (lecture, lang).
+    const approved = {};
+    for (const { lecture_id: lid } of lecs) {
+      for (const lang of audioLangs) {
+        const fp = await textFingerprintForBake(lid, lang);
+        if (fp) approved[`${lid}@${lang}`] = fp;
+      }
+    }
+    // Atomic transition — only ONE caller wins. 'failed' builds whose failure
+    // happened after script approval (translation/audio phase) are retryable;
+    // audio is skipped-per-segment, so retries reuse completed assets.
+    const { rows: [flipped] } = await pool.query(
+      `UPDATE course_builds SET status='audio',
+         stats=COALESCE(stats,'{}'::jsonb) || $2::jsonb, updated_at=now()
+        WHERE id=$1 AND (
+          status='awaiting_review'
+          OR (status='failed' AND stats->>'stage' IN ('translations','audio','validating'))
+        ) RETURNING id`,
+      [build.id, JSON.stringify({ approved, audio_langs: audioLangs })]);
+    if (!flipped) {
+      return res.status(409).json({
+        error: build.status === 'audio' || build.status === 'validating'
+          ? 'Audio generation is already running'
+          : build.status === 'failed'
+            ? `Build failed before script approval: ${build.stats?.error || 'unknown'} — fix and rebuild`
+            : 'Scripts are not awaiting review' });
+    }
+    const buildId = flipped.id;
+    setImmediate(() => runAudioPhase(buildId, courseId, build.lecture_count));
+    res.status(202).json({ ok: true, buildId, build: 'audio' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to approve scripts' });
+  }
+});
+
+// My classrooms — the caller's own rooms. SUPER_ADMIN sees everyone's.
+// inviteToken is safe to return here: only the host (or admin) gets it.
+app.get('/api/rooms/mine', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), (req, res) => {
+  const rooms = [...roomRegistry.rooms.values()]
+    .filter((r) => req.user.role === 'SUPER_ADMIN' || r.hostId === req.user.id)
+    .map((r) => ({
+      roomId: r.roomId, roomType: r.roomType, className: r.className,
+      courseId: r.courseId, courseName: r.courseName, lectureId: r.lectureId,
+      language: r.language, scene: r.scene, hostId: r.hostId, createdAt: r.createdAt,
+      ...(r.roomType === 'private' ? { inviteToken: r.inviteToken } : {}),
+    }));
+  res.json({ rooms });
+});
+
 // Gallery listing — safe public metadata only (no inviteToken/internals).
 app.get('/api/rooms/public', (_req, res) => {
   res.json({ rooms: roomRegistry.listPublic() });
 });
 
+// Course materials upload — instructors attach PDFs to their room so the
+// course can be built from them later (RAG pipeline). Host-only.
+const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SERVER_DIR, '..', '..');
+const MATERIALS_DIR = path.join(SERVER_DIR, 'uploads', 'materials');
+const PDF_MAX = 25 * 1024 * 1024;
+const FILES_MAX = 8;
+
+app.post('/api/rooms/:roomId/materials', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.hostId !== req.user.id && req.user.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'Only the classroom host can upload materials.' });
+  }
+  const files = req.body?.files;
+  if (!Array.isArray(files) || !files.length || files.length > FILES_MAX) {
+    return res.status(400).json({ error: `files must be 1–${FILES_MAX} PDF uploads` });
+  }
+  try {
+    const dir = path.join(MATERIALS_DIR, room.roomId);
+    await fs.mkdir(dir, { recursive: true });
+    const saved = [];
+    for (const f of files) {
+      const m = /^data:(application\/pdf);base64,(.+)$/i.exec(f?.dataUrl || '');
+      if (!m) return res.status(400).json({ error: 'Only PDF uploads are supported.' });
+      const buf = Buffer.from(m[2], 'base64');
+      if (!buf.length || buf.length > PDF_MAX) return res.status(400).json({ error: 'Each PDF must be ≤ 25 MB.' });
+      const name = String(f.name || 'document.pdf').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+      await fs.writeFile(path.join(dir, name), buf);
+      saved.push(name);
+      // Register as a course document and kick async ingestion when the room
+      // is bound to a real course (courseId = courses.id uuid).
+      if (dbAvailable() && room.courseId && /^[0-9a-f-]{36}$/i.test(room.courseId)) {
+        try {
+          const { doc, duplicate } = await registerDocument({
+            courseId: room.courseId, roomId: room.roomId, filename: name, buf, userId: req.user.id });
+          if (!duplicate) setImmediate(() => ingestDocument(doc.id));
+        } catch (e) { console.error('[course] document registration failed:', e.message); }
+      }
+    }
+    console.log(`[rooms] ${saved.length} PDF(s) uploaded for ${room.roomId} by ${req.user.email}`);
+    res.status(201).json({ ok: true, files: saved });
+  } catch (err) {
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+app.get('/api/rooms/:roomId/materials', requireAuth, async (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  const files = await fs.readdir(path.join(MATERIALS_DIR, room.roomId)).catch(() => []);
+  res.json({ files: files.filter((f) => f.endsWith('.pdf')) });
+});
+
 // Room meta for clients that followed an invite link — the registry scene is
 // authoritative, so a link built with a bad/fallback scene can't drop guests
 // into a different classroom model. Safe fields only (never inviteToken).
+// Public: generated lectures for a course resolved by NAME (normalized —
+// "MachineLearning" matches "Machine learning"). Lets the gallery's course
+// cards show generated lectures when a built course exists; otherwise the
+// caller falls back to the static scene lecture list.
+app.get('/api/courses/by-name/:name/lectures', async (req, res) => {
+  try {
+    const norm = decodeURIComponent(req.params.name)
+      .replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+    const { rows: [course] } = await getPool().query(
+      `SELECT id, name FROM courses WHERE lower(name)=$1 ORDER BY created_at DESC LIMIT 1`, [norm]);
+    if (!course) return res.json({ course: null, lectures: [] });
+    const { rows } = await getPool().query(
+      `SELECT lecture_id, title FROM course_lectures WHERE course_id=$1 AND status='ready' ORDER BY idx`,
+      [course.id]);
+    if (!rows.length) return res.json({ course: null, lectures: [] });
+    res.json({ course: { course_id: course.id, title: course.name },
+      lectures: rows.map(({ lecture_id, title }) => ({ lecture_id, title })) });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load lectures' });
+  }
+});
+
+// Generated lectures for a persistent course — used by the lecture picker when
+// a room is bound to a built course (keeps static /api/lectures untouched).
+app.get('/api/courses/:id/lectures', async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows: [course] } = await pool.query(`SELECT name FROM courses WHERE id=$1`, [req.params.id]);
+    const { rows } = await pool.query(
+      `SELECT lecture_id, title FROM course_lectures WHERE course_id=$1 AND status='ready' ORDER BY idx`,
+      [req.params.id]);
+    res.json({ course: { course_id: req.params.id, title: course?.name || 'Course' }, lectures: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load lectures' });
+  }
+});
+
+// Classroom visibility — the owner/instructor flips private↔public;
+// SUPER_ADMIN flips any. Persists in classrooms; takes effect immediately
+// for discovery (listPublic) and admission (admit/authorize).
+app.patch('/api/rooms/:roomId/visibility', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), (req, res) => {
+  const { visibility } = req.body || {};
+  if (visibility !== 'public' && visibility !== 'private') {
+    return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+  }
+  const r = roomRegistry.setVisibility(req.params.roomId, visibility,
+    req.user.id, req.user.role === 'SUPER_ADMIN');
+  if (!r.ok) return res.status(r.status || 403).json({ error: r.error });
+  res.json({ ok: true, roomType: r.room.roomType,
+    ...(r.room.roomType === 'private' ? { inviteToken: r.room.inviteToken } : {}) });
+});
+
+// Delete a classroom — ONLY: SUPER_ADMIN (any room), or an INSTRUCTOR
+// deleting their own PRIVATE room. Instructors cannot delete public rooms;
+// STUDENT/guest never reach this endpoint (requireRole above).
+app.delete('/api/rooms/:roomId', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  const isPrivate = room.roomType === 'private';
+  const allowed = req.user.role === 'SUPER_ADMIN'
+    || (isPrivate && room.hostId === req.user.id);
+  if (!allowed) {
+    return res.status(403).json({ error: isPrivate
+      ? 'You can only delete your own private classrooms'
+      : 'Only the super admin can delete classrooms' });
+  }
+  roomRegistry.remove(room.roomId);
+  console.log(`[rooms] ${room.roomId} deleted by ${req.user.email} (${req.user.role})`);
+  res.json({ ok: true });
+});
+
+// Delete a whole course — owner or SUPER_ADMIN. Cascades to documents, chunks,
+// sections, plans, lecture rows; removes lecture files + audio cache + uploads.
+app.delete('/api/courses/:id', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows: [course] } = await pool.query(`SELECT owner_id, name FROM courses WHERE id=$1`, [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+    if (req.user.role !== 'SUPER_ADMIN' && course.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete your own courses' });
+    }
+    const { rows: lecs } = await pool.query(`SELECT lecture_id FROM course_lectures WHERE course_id=$1`, [req.params.id]);
+    const { rows: docs } = await pool.query(`SELECT room_id, filename FROM course_documents WHERE course_id=$1`, [req.params.id]);
+    // End live classrooms bound to this course so they disappear everywhere.
+    for (const [rid, room] of roomRegistry.rooms) {
+      if (room.courseId === req.params.id) roomRegistry.remove(rid);
+    }
+    await pool.query(`DELETE FROM courses WHERE id=$1`, [req.params.id]);
+    for (const l of lecs) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(l.lecture_id)) continue;
+      await fs.rm(path.join(REPO_ROOT, 'profbrain', 'lectures', l.lecture_id), { recursive: true, force: true });
+      await fs.rm(path.join(REPO_ROOT, 'src', 'nexora_ai', 'lecture_cache', 'segments', l.lecture_id), { recursive: true, force: true });
+    }
+    for (const d of docs) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(d.filename)) continue;
+      await fs.rm(path.join(MATERIALS_DIR, d.room_id, d.filename), { force: true }).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete course' });
+  }
+});
+
+// Delete a generated lecture — course owner or SUPER_ADMIN. Removes the DB row
+// and the on-disk profbrain + audio-cache artifacts.
+app.delete('/api/courses/:id/lectures/:lectureId', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows: [course] } = await pool.query(`SELECT owner_id FROM courses WHERE id=$1`, [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+    if (req.user.role !== 'SUPER_ADMIN' && course.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only delete lectures from your own courses' });
+    }
+    const lid = req.params.lectureId;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(lid)) return res.status(400).json({ error: 'Invalid lecture id' });
+    const { rowCount } = await pool.query(
+      `DELETE FROM course_lectures WHERE course_id=$1 AND lecture_id=$2`, [req.params.id, lid]);
+    if (!rowCount) return res.status(404).json({ error: 'Lecture not found' });
+    await fs.rm(path.join(REPO_ROOT, 'profbrain', 'lectures', lid), { recursive: true, force: true });
+    await fs.rm(path.join(REPO_ROOT, 'src', 'nexora_ai', 'lecture_cache', 'segments', lid), { recursive: true, force: true });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete lecture' });
+  }
+});
+
+// Script review — the generated narration text for the creator to read
+// before approving. Owner or SUPER_ADMIN only.
+app.get('/api/courses/:id/lectures/:lectureId/script', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows: [lec] } = await pool.query(
+      `SELECT cl.title, cl.status, c.owner_id, cl.artifacts
+         FROM course_lectures cl JOIN courses c ON c.id = cl.course_id
+        WHERE cl.course_id=$1 AND cl.lecture_id=$2`, [req.params.id, req.params.lectureId]);
+    if (!lec) return res.status(404).json({ error: 'Lecture not found' });
+    if (req.user.role !== 'SUPER_ADMIN' && lec.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only review lectures from your own courses' });
+    }
+    const summaryPath = path.join(REPO_ROOT, 'profbrain', 'lectures', req.params.lectureId, 'summary.json');
+    const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
+    res.json({ title: lec.title, status: lec.status, artifacts: lec.artifacts,
+      text: summary.text, wordCount: summary.word_count });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load script' });
+  }
+});
+
+// Approve a draft lecture → becomes visible/playable for students.
+app.post('/api/courses/:id/lectures/:lectureId/approve', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows: [course] } = await pool.query(`SELECT owner_id FROM courses WHERE id=$1`, [req.params.id]);
+    if (!course) return res.status(404).json({ error: 'Course not found' });
+    if (req.user.role !== 'SUPER_ADMIN' && course.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only approve lectures from your own courses' });
+    }
+    const { rows: [lec] } = await pool.query(
+      `SELECT status, artifacts FROM course_lectures WHERE course_id=$1 AND lecture_id=$2`,
+      [req.params.id, req.params.lectureId]);
+    if (!lec) return res.status(404).json({ error: 'Lecture not found' });
+    if (lec.artifacts?.validation?.ok === false) {
+      const problems = (lec.artifacts.validation.problems || []).slice(0, 3).join('; ');
+      return res.status(409).json({ error: `Cannot publish: validation failed — ${problems}` });
+    }
+    await pool.query(
+      `UPDATE course_lectures SET status='ready' WHERE course_id=$1 AND lecture_id=$2`,
+      [req.params.id, req.params.lectureId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to approve lecture' });
+  }
+});
+
 app.get('/api/rooms/:roomId', (req, res) => {
   const room = roomRegistry.get(req.params.roomId);
   if (!room) return res.status(404).json({ error: 'Not found' });
-  const { roomId, roomType, className, courseId, lectureId, language, scene } = room;
-  res.json({ roomId, roomType, className, courseId, lectureId, language, scene });
+  const { roomId, roomType, className, courseId, courseName, lectureId, language, scene } = room;
+  res.json({ roomId, roomType, className, courseId, courseName, lectureId, language, scene });
 });
 
 // Returns the room's current invite link (stable, reusable — host approval
@@ -255,6 +916,15 @@ app.get('/api/rooms/:roomId', (req, res) => {
 // registry record (no client-supplied authority).
 // V2.3: compact per-user learning-memory read API (server/debug use).
 app.get('/api/learning/user_memory/:participantId/:lectureId', (req, res) => {
+  // Learning history is private: only the account owner or a SUPER_ADMIN may
+  // read it (instructor-scoped access lands with course ownership in a later
+  // stage). Open in dev-compat / no-DB mode only.
+  if (!DEV_UNAUTH && dbAvailable()) {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (req.user.id !== req.params.participantId && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+  }
   const summary = getUserLearningSummary(userMemories, req.params.participantId, req.params.lectureId);
   res.json(summary || {
     participantId: req.params.participantId,
@@ -270,11 +940,14 @@ app.post('/api/rooms/:roomId/invite', (req, res) => {
   if (!room || room.roomType !== 'private') {
     return res.status(404).json({ error: 'Not found' });
   }
-  if (room.hostId !== req.body?.hostId) {
+  // Host authority comes from the authenticated session — the body field is
+  // only honored under dev-compat.
+  const callerId = DEV_UNAUTH ? req.body?.hostId : req.user?.id;
+  if (!callerId || room.hostId !== callerId) {
     return res.status(403).json({ error: 'Only the host can generate invite links' });
   }
   const rot = req.body?.rotate === true
-    ? roomRegistry.rotateInvite(req.params.roomId, req.body?.hostId)
+    ? roomRegistry.rotateInvite(req.params.roomId, callerId)
     : { ok: true, room };
   if (!rot.ok) return res.status(403).json({ error: 'Only the host can generate invite links' });
   res.json({
@@ -287,10 +960,14 @@ app.use('/api', lectureRouter);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+    origin: CORS_ORIGINS,
+    methods: ['GET', 'POST'],
+    credentials: true,
   }
 });
+// Handshake auth: attaches socket.data.user from the session cookie.
+// Unauthenticated sockets connect as guests — event gates decide the rest.
+socketAuth(io);
 
 const rooms = {}; // roomId -> { [participantId]: player }
 const socketCtx = new Map(); // socketId -> { roomId, participantId }
@@ -322,6 +999,10 @@ const floorTimers = new Map();
 const thinkingTimers = new Map();
 // Answer-completion timers per room — cleared on room teardown.
 const roomTimers = {};
+// Microphone authorization, roomId -> Map(pid -> 'pending'|'granted').
+// Runtime-only by design: permission is a live-session grant, cleared on
+// leave/expiry and at room teardown — not durable state.
+const micPerms = new Map();
 
 function getNcipRoom(roomId) {
   if (!ncipRooms[roomId]) ncipRooms[roomId] = new NcipRoom(roomId);
@@ -343,12 +1024,15 @@ function cleanupAfterRemoval(roomId, pid) {
     delete rooms[roomId][pid];
     io.to(roomId).emit('user-left', { userId: pid });
   }
+  // Mic permission dies with presence — rejoining re-requests.
+  if (micPerms.get(roomId)?.delete(pid)) emitMicState(roomId);
   if (rooms[roomId] && Object.keys(rooms[roomId]).length === 0) {
     delete rooms[roomId];
     delete ncipRooms[roomId];
-    // Emptied registry room => it dies with the NCIP room (in-memory
-    // lifetime); public cards disappear, private invite links stop working.
-    roomRegistry.remove(roomId);
+    // Emptying a room must NOT destroy it: classrooms persist in the
+    // registry (public cards stay listed, private invite links keep
+    // working). Only an explicit DELETE — SUPER_ADMIN for any room, or an
+    // INSTRUCTOR for their own private room — removes a classroom.
     for (const t of roomTimers[roomId] || []) clearTimeout(t);
     delete roomTimers[roomId];
     for (const [key, t] of graceTimers) {
@@ -360,6 +1044,7 @@ function cleanupAfterRemoval(roomId, pid) {
     for (const [key, t] of thinkingTimers) {
       if (key.startsWith(`${roomId} `)) { clearTimeout(t); thinkingTimers.delete(key); }
     }
+    micPerms.delete(roomId);
   }
 }
 
@@ -400,7 +1085,10 @@ async function startLectureRun(roomId, lectureId) {
     // agent falls back to manifest order with topicId null.
     console.error(`[agent] lecture plan for ${lectureId} unusable:`, err.message);
   }
-  ncip.lectureRun = { lectureId, manifest, plan, dynSeq: 0, currentUnit: null, generating: false };
+  ncip.lectureRun = { lectureId, manifest, plan, dynSeq: 0, currentUnit: null, generating: false, completedIds: new Set() };
+  // Agent-driven room marker: once a V2 run has started, client-relayed
+  // lecture messages are position reports only — never rebroadcast speech.
+  ncip.agentRoom = true;
   // V2.3: fresh session memory per lecture run — restarts reset it; it
   // survives pause/resume/Q&A and dies with the room. Every run gets a uuid
   // so user learning histories keep Run A and Run B separate.
@@ -525,7 +1213,7 @@ async function emitNextLectureUnit(roomId) {
             JSON.stringify(getProfessorMemorySummary(ncip.professorMemory)));
         }
         const unitId = `${run.lectureId}_seg_${seg.id}`;
-        run.currentUnit = { id: unitId, action };
+        run.currentUnit = { id: unitId, kind: 'segment', segmentIndex: action.segmentId, action };
         applyEffects(roomId, ncip.updatePlayback('agent', {
           lectureId: run.lectureId,
           segmentIndex: action.segmentId,
@@ -536,13 +1224,17 @@ async function emitNextLectureUnit(roomId) {
           type: 'lecture',
           unitStartedAt: Date.now(),
           lectureId: run.lectureId,
+          runId: run.runId,
           title: run.manifest.title,
           text: seg.text,
           audioUrl: seg.audioUrl,
           animation: seg.animation,
           facialExpression: seg.facialExpression,
           lipsync: seg.lipsync,
-          slidePage: action.slidePage ?? seg.slidePage ?? null,
+          // Segment-level provenance wins over the topic's first page — the
+          // board must follow THIS segment's page/document.
+          slidePage: seg.slidePage ?? action.slidePage ?? null,
+          slideDoc: seg.slideDoc ?? null,
           stateVersion: ncip.stateVersion,
         });
         return;
@@ -560,8 +1252,16 @@ async function emitNextLectureUnit(roomId) {
         continue;
       }
       ncip.applyLectureAction(action);
+      // The segment AFTER this dynamic — the true recovery frontier. While a
+      // transition/recap plays, `playback` still names the finished segment;
+      // snapshots must anchor here so recovery never replays completed
+      // narration. (Opening -> 0; transition/reexplain -> next seg; closing
+      // -> one past the last = end of lecture.)
+      const curIdx = run.manifest.segments.findIndex(
+        (s) => s.id === ncip.lectureProgress.currentSegmentId);
+      const nextSegIndex = curIdx < 0 ? 0 : curIdx + 1;
       const pendingId = `${run.lectureId}_dyn_pending_${++run.dynSeq}`;
-      run.currentUnit = { id: pendingId, action };
+      run.currentUnit = { id: pendingId, kind: 'dynamic', purpose: action.purpose, nextSegIndex, action };
       try {
         const topicTitle = run.plan?.topics.find((t) => t.id === action.topicId)?.title ?? null;
         // Utterance timeout: a hung Ollama/TTS must never leave the room in a
@@ -581,7 +1281,7 @@ async function emitNextLectureUnit(roomId) {
         ]);
         if (ncipRooms[roomId]?.lectureRun !== run) return; // ended mid-generation
         const unitId = `${run.lectureId}_dyn_${run.dynSeq}`;
-        run.currentUnit = { id: unitId, action };
+        run.currentUnit = { id: unitId, kind: 'dynamic', purpose: action.purpose, nextSegIndex, action };
         applyEffects(roomId, ncip.lectureUnitStarted());
         io.to(roomId).emit('professor-speak', {
           id: unitId,
@@ -589,6 +1289,7 @@ async function emitNextLectureUnit(roomId) {
           unitStartedAt: Date.now(),
           dynamic: action.purpose,
           lectureId: run.lectureId,
+          runId: run.runId,
           title: run.manifest.title,
           text: msg.text,
           audioUrl: msg.audioUrl,
@@ -597,6 +1298,7 @@ async function emitNextLectureUnit(roomId) {
           lipsync: msg.lipsync,
           durationMs: msg.durationMs,
           slidePage: action.slidePage ?? null,
+          slideDoc: run.manifest.segments.find((s) => s.id === (action.sourceSegmentIds || [])[0])?.slideDoc ?? null,
           stateVersion: ncip.stateVersion,
         });
         return;
@@ -662,6 +1364,7 @@ function buildSnapshotPayload(roomId, pid = null) {
         : null,
       queue: s.floor.queue.map((id) => ({ userId: id, name: nameFor(roomId, id) })),
     },
+    mic: { permissions: Object.fromEntries(micPerms.get(roomId) || []) },
   };
 }
 
@@ -785,9 +1488,79 @@ function applyEffects(roomId, effects) {
 // rejected guest cannot retry the same link.
 const pendingJoins = new Map();
 
+// ---- Stage 2: authenticated vs guest identity -------------------------------
+//
+// A socket is "authenticated" when the handshake resolved a valid session
+// (socket.data.user) — pid = users.id and the participant inherits full NCIP
+// privileges subject to role checks. Everything else is a GUEST: pid is a
+// server-minted gst_<uuid>, reclaimed across reconnects only by presenting
+// the matching guestToken (a bearer credential the server hashes and stores).
+// Client-supplied participantId is trusted only under NXR_DEV_UNAUTH_PROTOCOL.
+const socketIsAuthed = (socket) => !!socket.data?.user || DEV_UNAUTH;
+// Registered room participants — signed-in users AND server-minted guests who
+// completed join (public: direct; private: invite + host approval). The join
+// gate is the authorization boundary; this just proves membership.
+const socketIsParticipant = (socket) => {
+  const ctx = socketCtx.get(socket.id);
+  return !!(ctx && rooms[ctx.roomId]?.[ctx.participantId]);
+};
+const questionRate = new Map(); // pid -> last submit timestamp (ms)
+const participantError = (socket, event) =>
+  socket.emit('auth-error', { event, error: 'Join the classroom first' });
+const authError = (socket, event) =>
+  socket.emit('auth-error', { event, error: 'Authentication required' });
+
+async function resolveParticipantId(socket, data) {
+  if (socket.data?.user) {
+    return { pid: socket.data.user.id, guest: false, user: socket.data.user };
+  }
+  if (DEV_UNAUTH || !dbAvailable()) {
+    // Legacy client-supplied identity (dev/test mode only).
+    const pid = typeof data.participantId === 'string' && data.participantId.length <= 64
+      ? data.participantId : socket.id;
+    return { pid, guest: !DEV_UNAUTH, user: null };
+  }
+  if (typeof data.guestToken === 'string') {
+    const pid = await resolveGuestToken(data.guestToken).catch(() => null);
+    if (pid) return { pid, guest: true, user: null };
+  }
+  const g = await mintGuestToken();
+  socket.emit('guest-session', g); // {guestToken, participantId} — client stores it
+  return { pid: g.participantId, guest: true, user: null };
+}
+
+// ---- microphone permission (runtime grants) ---------------------------------
+
+function micMap(roomId) {
+  let m = micPerms.get(roomId);
+  if (!m) { m = new Map(); micPerms.set(roomId, m); }
+  return m;
+}
+
+function emitMicState(roomId, target) {
+  (target || io.to(roomId)).emit('mic-state', {
+    permissions: Object.fromEntries(micPerms.get(roomId) || []),
+  });
+}
+
+function setMicPerm(roomId, pid, state) {
+  const m = micMap(roomId);
+  if (state == null) m.delete(pid); else m.set(pid, state);
+  emitMicState(roomId);
+}
+
+// Who may grant/deny/revoke: the private-room host (registry-resolved) or an
+// authenticated SUPER_ADMIN member. Public rooms have no approver yet —
+// instructor classroom-ownership arrives with Stage 4+, requests stay pending.
+function canModerateMic(roomId, socket, pid) {
+  if (isRoomHost(roomId, pid)) return true;
+  return socket.data?.user?.role === 'SUPER_ADMIN';
+}
+
 // Post-admission join path — shared by public/private joins and by host
-// approval of a pending private guest.
-function finishJoin(socket, data, roomId, registryRoom = null) {
+// approval of a pending private guest. `identity` may be pre-resolved by the
+// join handler (it needs the pid for host/reconnect checks before admission).
+async function finishJoin(socket, data, roomId, registryRoom = null, identity = null) {
   const safeName = typeof data.name === 'string' ? data.name.trim().slice(0, 30) : '';
   if (!safeName) {
     console.log(`[server] join rejected for ${socket.id}: invalid name`);
@@ -795,11 +1568,10 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
     return;
   }
 
-  // NCIP Slice 4: the client supplies a stable participantId persisted
-  // across reconnects; socket.id is only the current transport binding.
-  const pid = typeof data.participantId === 'string' && data.participantId.length <= 64
-    ? data.participantId
-    : socket.id;
+  // Stage 2: identity is resolved server-side — authenticated session, a
+  // presented guest credential, or a freshly minted guest identity.
+  identity = identity || await resolveParticipantId(socket, data);
+  const pid = identity.pid;
 
   // Same participantId on a second live socket (duplicated tab copies
   // sessionStorage): take over — the stale socket is evicted so the two
@@ -862,9 +1634,12 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
   // stack on one spot. Reconnects keep their previous slot.
   let position = data.position || [0, 0, 0];
   const priorMember = rooms[roomId][pid];
-  if (priorMember) {
-    position = priorMember.position;
-  } else {
+  if (priorMember && Array.isArray(priorMember.position)) {
+    // Reconnects keep their lateral slot but NOT the recorded height — a
+    // stale y (drifted state-update, floor offsets between entries) spawns
+    // the avatar under the floor. Always re-anchor to the spawn height.
+    position = [priorMember.position[0], position[1], priorMember.position[2]];
+  } else if (!priorMember) {
     const idx = Object.keys(rooms[roomId]).length;
     if (idx > 0) {
       const angle = (idx % 8) * (Math.PI / 4) + Math.PI / 2; // start behind spawn
@@ -898,17 +1673,28 @@ function finishJoin(socket, data, roomId, registryRoom = null) {
   socket.broadcast.to(roomId).emit('user-joined', user);
   socket.emit('room-state', Object.values(rooms[roomId]).filter((p) => p.userId !== pid));
   emitFloorState(roomId, socket);
+  emitMicState(roomId, socket);
   // Slice 2+4: joiners AND reconnectors get the authoritative snapshot —
   // floor ownership/queue position survived the grace window.
   socket.emit('session.snapshot', buildSnapshotPayload(roomId, pid));
+  // Stage 2: tell the joiner its server-resolved identity so the client can
+  // disable guest-ineligible controls and store its participantId.
+  socket.emit('self-info', {
+    participantId: pid,
+    guest: identity.guest,
+    user: identity.user
+      ? { id: identity.user.id, email: identity.user.email, displayName: identity.user.display_name, role: identity.user.role }
+      : null,
+  });
 }
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  socket.on('join', (data) => {
+  socket.on('join', async (data) => {
     let roomId = data.roomId || 'default';
     let registryRoom = null;
+    let joinIdentity = null;
 
     if (data.room) {
       // Registry-room join (public or private). The room must already exist —
@@ -918,14 +1704,17 @@ io.on('connection', (socket) => {
         socket.emit('join-error', { error: 'This classroom link is invalid or has expired.', private: true });
         return;
       }
-      if (meta.roomType === 'private' && data.participantId !== meta.hostId) {
+      // Resolve identity up front: host/reconnect checks need the
+      // server-authoritative pid, never the client's claimed participantId.
+      const identity = joinIdentity = await resolveParticipantId(socket, data);
+      if (meta.roomType === 'private' && identity.pid !== meta.hostId) {
         // A participant already admitted to this room (known to NCIP) is
         // reconnecting — invites gate NEW members only; don't burn a token.
-        const known = ncipRooms[meta.roomId]?.session?.participants?.has?.(data.participantId);
+        const known = ncipRooms[meta.roomId]?.session?.participants?.has?.(identity.pid);
         if (known) {
           registryRoom = meta;
           roomId = meta.roomId;
-          finishJoin(socket, data, roomId, registryRoom);
+          finishJoin(socket, data, roomId, registryRoom, identity);
           return;
         }
         // New guest: needs a valid invite AND host approval. The link is
@@ -958,12 +1747,13 @@ io.on('connection', (socket) => {
       return;
     }
 
-    finishJoin(socket, data, roomId, registryRoom);
+    finishJoin(socket, data, roomId, registryRoom, joinIdentity);
   });
 
   // Host decision on a pending private-room guest. Only the room's hostId
   // (from the registry — the socket's own participant binding) may decide.
-  socket.on('private-join-decision', ({ socketId, accept } = {}) => {
+  socket.on('private-join-decision', async ({ socketId, accept } = {}) => {
+    if (!socketIsAuthed(socket)) return authError(socket, 'private-join-decision');
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     const meta = roomRegistry.get(ctx.roomId);
@@ -986,6 +1776,7 @@ io.on('connection', (socket) => {
   // registry hostId — the client flag is never trusted. The kicked participant
   // is notified, removed from presence + NCIP state, and leaves the socket room.
   socket.on('room.kick', ({ userId } = {}) => {
+    if (!socketIsAuthed(socket)) return authError(socket, 'room.kick');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const { roomId } = ctx;
@@ -1059,6 +1850,8 @@ io.on('connection', (socket) => {
 
   // NCIP floor.request: dedupe; auto-grant when the floor is free, else FIFO queue.
   socket.on('request-floor', () => {
+    // NCIP floor = raise-hand: registered participants only (Stage 2).
+    if (!socketIsParticipant(socket)) return participantError(socket, 'request-floor');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const ncip = getNcipRoom(ctx.roomId);
@@ -1067,6 +1860,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('cancel-floor-request', () => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'cancel-floor-request');
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     console.log(`[server] cancel-floor-request: ${ctx.participantId} in room '${ctx.roomId}'`);
@@ -1074,6 +1868,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('release-floor', () => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'release-floor');
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     console.log(`[server] release-floor: ${ctx.participantId} in room '${ctx.roomId}'`);
@@ -1083,6 +1878,7 @@ io.on('connection', (socket) => {
   // Clients report their exact interrupted lecture position when the floor is
   // granted; the server stores it as the authoritative room checkpoint.
   socket.on('lecture-checkpoint', (data) => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'lecture-checkpoint');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).submitCheckpoint(ctx.participantId, data));
@@ -1092,6 +1888,8 @@ io.on('connection', (socket) => {
 
   // NCIP question.submit: only the current floor holder, only while PAUSED.
   socket.on('ask-floor-question', async (data) => {
+    // AI-professor questions are a registered-user interaction (Stage 2).
+    if (!socketIsParticipant(socket)) return participantError(socket, 'ask-floor-question');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const roomId = ctx.roomId;
@@ -1106,6 +1904,16 @@ io.on('connection', (socket) => {
     }
     const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 500) : '';
     if (!question) return;
+    // Per-participant rate limit — guest floods can't spam the floor. One
+    // submitted question per 4s; floor-holder restrictions still apply inside
+    // ncip.submitQuestion.
+    const qNow = Date.now();
+    const qLast = questionRate.get(pid) || 0;
+    if (qNow - qLast < 4000) {
+      socket.emit('floor-question-error', { error: 'Slow down — one question every few seconds.' });
+      return;
+    }
+    questionRate.set(pid, qNow);
 
     const result = ncip.submitQuestion(pid, question);
     if (!result.ok) {
@@ -1235,8 +2043,25 @@ io.on('connection', (socket) => {
     // A lecture-segment head is also the authoritative live playback position
     // — record it so late joiners can recover an in-progress lecture.
     const seg = /^(.+)_seg_(\d+)$/.exec(data?.id || '');
+    const ncip = getNcipRoom(ctx.roomId);
+    // Agent-driven room: the SERVER emits every lecture unit itself, so a
+    // client-relayed lecture message is always just an echo/position report.
+    // Honor it ONLY for the current run (lectureId + runId — an explicit
+    // replay mints a new runId, so delayed reports from a finished
+    // playthrough can't revive it), and NEVER rebroadcast lecture units —
+    // echoes reaching a completed client would re-queue and replay the tail.
+    if (data?.type === 'lecture' && ncip.agentRoom) {
+      if (seg && ncip.acceptsLectureReport({ lectureId: seg[1], runId: data?.runId })) {
+        applyEffects(ctx.roomId, ncip.updatePlayback(ctx.participantId, {
+          lectureId: seg[1],
+          segmentIndex: Number(seg[2]),
+          playbackOffsetMs: 0,
+        }));
+      }
+      return;
+    }
     if (data?.type === 'lecture' && seg && seg[1] !== 'none') {
-      applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).updatePlayback(ctx.participantId, {
+      applyEffects(ctx.roomId, ncip.updatePlayback(ctx.participantId, {
         lectureId: seg[1],
         segmentIndex: Number(seg[2]),
         playbackOffsetMs: 0,
@@ -1250,11 +2075,21 @@ io.on('connection', (socket) => {
   // Host lecture lifecycle (private rooms only — public rooms have no manual
   // pause/resume and guests can never reach this path).
   socket.on('lecture-control', (data) => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'lecture-control');
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     const meta = roomRegistry.get(ctx.roomId);
-    if (!meta || meta.roomType !== 'private') return; // public behavior unchanged
-    if (!isRoomHost(ctx.roomId, ctx.participantId)) {
+    if (!meta) return;
+    // End is available to the room owner in BOTH room types + SUPER_ADMIN.
+    // pause/resume stay private-host-only (public behavior unchanged).
+    const isOwner = meta.hostId === ctx.participantId;
+    const isAdmin = socket.data?.user?.role === 'SUPER_ADMIN';
+    if (data?.action === 'end') {
+      if (!isOwner && !isAdmin) {
+        socket.emit('lecture-control', { action: 'control-error', error: 'Only the classroom owner can end the lecture.' });
+        return;
+      }
+    } else if (meta.roomType !== 'private' || !isRoomHost(ctx.roomId, ctx.participantId)) {
       socket.emit('lecture-control', { action: 'control-error', error: 'Only the host can control the lecture.' });
       return;
     }
@@ -1275,6 +2110,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('lecture-ended', () => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'lecture-ended');
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     // Private rooms: only the host may end the shared lecture — a guest's
@@ -1289,15 +2125,32 @@ io.on('connection', (socket) => {
   // start (V1 parity — the Start Class button was never gated). Private rooms:
   // host only, resolved server-side like every other host authority check.
   socket.on('lecture.start', async (data) => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'lecture.start');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const { roomId } = ctx;
+    // STUDENT accounts can never start a lecture. Public rooms: any joined
+    // participant (including minted guests) may start — V1 parity. Private:
+    // host only.
+    if (socket.data?.user?.role === 'STUDENT') {
+      socket.emit('lecture-control', { action: 'control-error', error: 'Insufficient permissions' });
+      return;
+    }
     if (roomRegistry.isPrivate(roomId) && !isRoomHost(roomId, ctx.participantId)) {
       socket.emit('lecture-control', { action: 'control-error', error: 'Only the host can start the lecture.' });
       return;
     }
     const lectureId = data?.lectureId;
     if (typeof lectureId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(lectureId)) return;
+    const meta = roomRegistry.get(roomId);
+    const ncip = getNcipRoom(roomId);
+    // Start-request dedup + switch gating — simultaneous Start clicks
+    // collapse into one session; a guest can't replace a live lecture.
+    const startGate = ncip.acceptLectureStart(lectureId, {
+      ownerOrAdmin: meta?.hostId === ctx.participantId
+        || socket.data?.user?.role === 'SUPER_ADMIN',
+    });
+    if (!startGate.ok) return;
     try {
       await startLectureRun(roomId, lectureId);
     } catch (err) {
@@ -1326,6 +2179,10 @@ io.on('connection', (socket) => {
     const claimed = data?.messageId
       || (Number.isInteger(Number(data?.segmentId)) ? `${run.lectureId}_seg_${Number(data.segmentId)}` : null);
     if (!expected || claimed !== expected || expected.includes('_dyn_pending_')) return;
+    // Exactly-once per RUN: a completed unit id can never complete again —
+    // delayed/duplicate reports are dropped, never re-advance or replay.
+    if (run.completedIds?.has(claimed)) return;
+    (run.completedIds ??= new Set()).add(claimed);
     // Memory: a re-explanation "completes" when its unit actually finished
     // playing — mark it now so decide() can never loop it.
     if (run.currentUnit?.action?.purpose === 'group_recap') {
@@ -1367,6 +2224,59 @@ io.on('connection', (socket) => {
     io.to(socketFor(ctx.roomId, to)).emit('webrtc-signal', { from: ctx.participantId, data });
   });
 
+  // ---- Stage 2: microphone permission -------------------------------------
+  //
+  // Runtime grant model: any member may REQUEST; only the room host (private
+  // rooms) or an authenticated SUPER_ADMIN may grant/deny/revoke; the holder
+  // may release at any time. State lives in micPerms (cleared on leave and
+  // teardown) and is broadcast as 'mic-state'.
+  // NOTE: media is peer-to-peer WebRTC — the server authoritatively tracks
+  // permission and instructs clients to disable transmission, but a hostile
+  // client could still send audio to already-connected peers. Hard media
+  // enforcement requires an SFU (tracked as a known limitation).
+  socket.on('mic.request', () => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId, participantId: pid } = ctx;
+    if (micMap(roomId).get(pid) === 'granted') return; // already granted
+    setMicPerm(roomId, pid, 'pending');
+    const hostSock = roomRegistry.get(roomId)?.hostId;
+    if (hostSock) {
+      io.to(socketFor(roomId, hostSock)).emit('mic-request', {
+        userId: pid, name: nameFor(roomId, pid), roomId,
+      });
+    }
+    socket.emit('mic-requested', { roomId });
+  });
+
+  socket.on('mic.decision', ({ userId, grant } = {}) => {
+    if (!socketIsAuthed(socket)) return authError(socket, 'mic.decision');
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId } = ctx;
+    if (!canModerateMic(roomId, socket, ctx.participantId)) return;
+    if (!userId || userId === ctx.participantId || !rooms[roomId]?.[userId]) return;
+    setMicPerm(roomId, userId, grant === true ? 'granted' : null);
+    io.to(socketFor(roomId, userId)).emit(grant === true ? 'mic-granted' : 'mic-denied', { roomId });
+  });
+
+  socket.on('mic.revoke', ({ userId } = {}) => {
+    if (!socketIsAuthed(socket)) return authError(socket, 'mic.revoke');
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const { roomId } = ctx;
+    if (!canModerateMic(roomId, socket, ctx.participantId)) return;
+    if (!userId || userId === ctx.participantId || !rooms[roomId]?.[userId]) return;
+    setMicPerm(roomId, userId, null);
+    io.to(socketFor(roomId, userId)).emit('mic-revoked', { roomId });
+  });
+
+  socket.on('mic.release', () => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    setMicPerm(ctx.roomId, ctx.participantId, null);
+  });
+
   // NCIP Slice 4: a dropped socket does NOT remove the participant — it
   // marks them offline and opens the 10s reconnect grace window. Presence,
   // floor ownership and queue position are preserved until expiry.
@@ -1400,9 +2310,14 @@ io.on('connection', (socket) => {
   });
 });
 
-// V2.3: init Postgres user-memory persistence — noop when DATABASE_URL is
-// unset; never blocks the lecture hot path (writes are queued fire-and-forget).
-initUserMemoryDb().catch((e) => console.error('[userMemoryDb] init failed:', e.message));
+// V2.3: init Postgres — shared pool + versioned migrations. Noop when
+// DATABASE_URL is unset; never blocks the lecture hot path (writes are
+// queued fire-and-forget via persist()).
+initDb().then(async () => {
+  roomRegistry.setPool(getPool());
+  await roomRegistry.hydrate(getPool());
+  resumeInterrupted();
+}).catch((e) => console.error('[db] init failed:', e.message));
 
 httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Professor Abed is listening on port ${port}`);

@@ -318,6 +318,11 @@ export class NcipRoom {
     // its offset is projected forward by the time elapsed since the segment
     // started (only while actively LECTURING; paused states keep the cp).
     const pp = this.playback;
+    // The agent run's CURRENT unit (if a run owns the room) — the real
+    // playback frontier. `playback` only tracks emitted SEGMENTS, so during
+    // a dynamic unit (opening/transition/recap) it names an already-played
+    // segment; recoveries must use this to avoid replaying finished narration.
+    const unit = this.lectureRun?.currentUnit ?? null;
     return {
       stateVersion: this.stateVersion,
       floor: { holder: this.floor.holder, queue: [...this.floor.queue] },
@@ -332,6 +337,17 @@ export class NcipRoom {
               ? Math.max(0, Date.now() - pp.reportedAt) : 0)
             : 0),
         language: cp?.language ?? pp?.language ?? this.language.roomLanguage,
+        // null | { id, kind:'segment', segmentIndex }
+        //       | { id, kind:'dynamic', purpose, nextSegIndex }
+        unit: unit
+          ? {
+              id: unit.id,
+              kind: unit.kind ?? ((unit.dynamic || unit.purpose) ? 'dynamic' : 'segment'),
+              purpose: unit.purpose ?? unit.dynamic ?? null,
+              segmentIndex: Number.isInteger(unit.segmentIndex) ? unit.segmentIndex : null,
+              nextSegIndex: Number.isInteger(unit.nextSegIndex) ? unit.nextSegIndex : null,
+            }
+          : null,
       },
       interruption: { checkpoint: cp, pauseReason: this.interruption.pauseReason },
       language: { roomLanguage: this.language.roomLanguage },
@@ -388,6 +404,17 @@ export class NcipRoom {
   // server records it as the authoritative live position. The first report
   // also flips IDLE -> LECTURING so the professor state is authoritative
   // even before any floor interruption has occurred.
+  // Agent-driven room predicate: should a CLIENT-relayed lecture position
+  // report be honored? Only while the CURRENT run owns the room and the
+  // report names that exact run — a replay mints a fresh runId, so delayed
+  // reports from the previous playthrough can never touch the new one. When
+  // no run is active (lecture completed/ended) every lecture report is
+  // stale and must be dropped — accepting it would reactivate lectureActive.
+  acceptsLectureReport({ lectureId, runId } = {}) {
+    const run = this.lectureRun;
+    return !!run && run.lectureId === lectureId && runId === run.runId;
+  }
+
   updatePlayback(pid, pos, now = Date.now()) {
     if (!pos || typeof pos.lectureId !== 'string' || !Number.isInteger(pos.segmentIndex)) return [];
     const cur = this.playback;
@@ -438,6 +465,19 @@ export class NcipRoom {
       groupRecap: { pendingLateJoiners: [], completedRecaps: [] },
     };
     return effects;
+  }
+
+  // Server-side start gating (pure). A start for the CURRENT lecture never
+  // restarts an in-flight/active run (simultaneous clicks collapse). A
+  // different lecture can only replace a live one for owner/admin.
+  acceptLectureStart(lectureId, { ownerOrAdmin = false } = {}) {
+    if (this.lectureRun?.lectureId === lectureId) {
+      return { ok: false, reason: 'duplicate' };
+    }
+    if (this.lectureActive && !ownerOrAdmin) {
+      return { ok: false, reason: 'active' };
+    }
+    return { ok: true };
   }
 
   // Record the segment the agent just emitted. Returns no effects — the
@@ -614,14 +654,20 @@ export class NcipRoom {
   // no longer valid. A host pause is fully reset so the room can't be left
   // stuck PAUSED with no resume path; floor-answer flows are untouched.
   endLecture(pid) {
-    if (this.interruption.pauseReason === 'host') {
-      this.interruption.pauseReason = null;
-      this.interruption.checkpoint = null;
-      if (this.professor.status === ProfessorStatus.PAUSED) {
-        this.professor.status = ProfessorStatus.IDLE;
-      }
-      this._bump();
-    }
+    // EVERY pause kind dies with the lecture — a floor/host pause left over
+    // from the previous playthrough freezes the next lecture: professor stays
+    // PAUSED, late joiners get floorHeld snapshots, and segment-ended reports
+    // are rejected. Holder, queue, checkpoint and pause reason all reset.
+    const floorChanged = !!(this.floor.holder || this.floor.queue.length
+      || this.interruption.checkpoint || this.interruption.pauseReason
+      || this.currentAnswer || this.floorDeadline || this.thinkingDeadline);
+    this.floor.holder = null;
+    this.floor.queue = [];
+    this.interruption.pauseReason = null;
+    this.interruption.checkpoint = null;
+    this.currentAnswer = null;      // stale answer must not replay to joiners
+    this.floorDeadline = null;      // invariants: armed timeouts exist only
+    this.thinkingDeadline = null;   // while PAUSED/THINKING
     this.playback = null;
     const wasActive = this.lectureActive;
     this.lectureActive = false;
@@ -639,11 +685,11 @@ export class NcipRoom {
     // The lecture definitively ended — anchors name positions in a finished
     // playthrough and must not leak into a replay or the next lecture.
     if (wasActive) this.recapAnchors.clear();
-    if (this.professor.status === ProfessorStatus.LECTURING) {
+    if (this.professor.status !== ProfessorStatus.IDLE) {
       this.professor.status = ProfessorStatus.IDLE;
       this._bump();
     }
-    return wasActive ? [FLOOR_STATE] : [];
+    return wasActive || floorChanged ? [FLOOR_STATE] : [];
   }
 
   // ---- floor control -----------------------------------------------------
@@ -740,6 +786,10 @@ export class NcipRoom {
       lectureId: checkpoint.lectureId ?? null,
       segmentIndex: Number.isFinite(checkpoint.segmentIndex) ? checkpoint.segmentIndex : null,
       playbackOffsetMs: Number.isFinite(checkpoint.playbackOffsetMs) ? checkpoint.playbackOffsetMs : 0,
+      // Board position at interrupt — saved so the room can restore the exact
+      // document/page on resume even if the lecture queue was rebuilt.
+      slidePage: Number.isFinite(checkpoint.slidePage) ? checkpoint.slidePage : null,
+      slideDoc: typeof checkpoint.slideDoc === 'string' && checkpoint.slideDoc ? checkpoint.slideDoc : null,
       language: checkpoint.language || 'en',
       reportedBy: userId,
       reportedAt: Date.now(),

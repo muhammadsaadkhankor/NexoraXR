@@ -26,8 +26,34 @@ services:
       - ./src/nexora_ai:/app/nexora_ai
       - /app/nexora_server/node_modules
       - /app/nexora_ai/node_modules
+    environment:
+      - DATABASE_URL=postgres://nexora:nexora@postgres:5432/nexoraxr
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - app-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexora
+      POSTGRES_PASSWORD: nexora
+      POSTGRES_DB: nexoraxr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexora -d nexoraxr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+volumes:
+  pgdata:
 
 networks:
   app-network:

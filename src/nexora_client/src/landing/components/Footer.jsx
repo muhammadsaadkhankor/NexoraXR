@@ -15,7 +15,7 @@ export default function Footer() {
               WuFlux
             </a>
             <p className="footer__desc">
-              Flow without barriers — a boundless classroom for every place,
+              Flow without barriers: a boundless classroom for every place,
               language, pace and person.
             </p>
           </div>

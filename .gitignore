@@ -47,3 +47,5 @@ node_modules/
 /NCIP_SLICE2_REPORT.md
 /nexora_report.md
 /SLIDE_SYNC_ANALYSIS.md
+src/nexora_server/.pgdata/
+src/nexora_server/uploads/

@@ -33,6 +33,8 @@ before(async () => {
       // Dead endpoints: LLM/TTS calls fail fast -> deterministic fallback path.
       OLLAMA_BASE_URL: 'http://127.0.0.1:9',
       VOXCPM_BASE_URL: 'http://127.0.0.1:9',
+      // e2e drives full NCIP without a database — legacy trust mode (dev only).
+      NXR_DEV_UNAUTH_PROTOCOL: '1',
     },
     stdio: 'ignore',
   });

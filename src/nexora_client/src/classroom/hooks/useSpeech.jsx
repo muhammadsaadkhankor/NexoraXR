@@ -36,6 +36,9 @@ export const SpeechProvider = ({ children }) => {
   // its audio finishes so the client can report lecture-segment-ended to the
   // server (V2 server-driven progression).
   const lectureSegmentEndedRef = useRef(null);
+  // Optional: notified when a message's audio fails to load/play so the UI
+  // can surface missing assets instead of silently skipping segments.
+  const audioErrorRef = useRef(null);
 
   // Initialize Web Speech API
   useEffect(() => {
@@ -235,7 +238,12 @@ export const SpeechProvider = ({ children }) => {
         reportedAnswerEndsRef.current.add(played.id);
         answerEndedRef.current?.(played);
       }
+      // A lecture 'ended'/'error' while the floor is held is a stale playback
+      // event — the paused element cannot legitimately finish. Keep the
+      // segment queued so the resume checkpoint still applies, and suppress
+      // the ended report (the server would ignore it anyway: not LECTURING).
       if (played?.type === 'lecture') {
+        if (floorPausedRef.current) return messages;
         lectureSegmentEndedRef.current?.(played);
       }
       return messages.slice(1);
@@ -299,6 +307,10 @@ export const SpeechProvider = ({ children }) => {
     return {
       segmentIndex: segMatch ? Number(segMatch[1]) : null,
       playbackOffsetMs: audio ? Math.round(audio.currentTime * 1000) : 0,
+      // Exact board position at interrupt — the checkpoint carries document
+      // and page so resume restores the same slide on every client.
+      slidePage: Number.isInteger(current.slidePage) ? current.slidePage : null,
+      slideDoc: typeof current.slideDoc === 'string' ? current.slideDoc : null,
     };
   }, []);
 
@@ -425,6 +437,7 @@ export const SpeechProvider = ({ children }) => {
         setFloorPaused,
         answerEndedRef,
         lectureSegmentEndedRef,
+        audioErrorRef,
         setRecognitionLang,
       }}
     >

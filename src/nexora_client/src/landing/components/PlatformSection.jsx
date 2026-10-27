@@ -6,13 +6,13 @@ const pillars = [
   {
     icon: Globe2,
     title: 'Any place',
-    desc: 'A full 3D classroom in the browser — desktop, laptop or headset. No installs, no campus.',
+    desc: 'A full 3D classroom in the browser on desktop, laptop or headset. No installs, no campus.',
     tag: 'without distance',
   },
   {
     icon: Languages,
     title: 'Any language',
-    desc: 'The professor lectures in English, Arabic, French, German, Spanish or Chinese — the whole room hears it natively.',
+    desc: 'The professor lectures in English, Arabic, French, German, Spanish or Chinese, and the whole room hears it natively.',
     tag: 'without translation walls',
   },
   {
@@ -41,7 +41,7 @@ export default function PlatformSection() {
           </h2>
           <p className="section__desc" style={{ margin: 0 }}>
             WuFlux treats the eight "anys" of boundless learning as engineering
-            requirements — each one backed by a working capability.
+            requirements, each one backed by a working capability.
           </p>
         </div>
 

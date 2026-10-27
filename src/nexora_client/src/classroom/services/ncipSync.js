@@ -38,6 +38,14 @@ export function snapshotCheckpoint(lecture) {
   });
 }
 
+// The run's live unit carried by a snapshot: 'segment' (a prepared segment
+// is in flight — resumable), 'dynamic' (opening/transition/recap — NOT
+// resumable), or null (no unit / legacy snapshot without the field).
+export function snapshotUnitKind(snapshot) {
+  const k = snapshot?.lecture?.unit?.kind;
+  return k === 'segment' || k === 'dynamic' ? k : null;
+}
+
 // Decide how a client must converge its lecture playback to the snapshot:
 //   { action: 'none' }               — no active lecture to recover
 //   { action: 'resume', checkpoint } — checkpoint segment is already in the
@@ -46,13 +54,36 @@ export function snapshotCheckpoint(lecture) {
 //                                      must fetch segments via the lecture API,
 //                                      rebuild the queue from segmentIndex and
 //                                      seek to playbackOffsetMs. Never 0.
-export function planLectureRecovery(snapshot, messages) {
+export function planLectureRecovery(snapshot, messages, intendedLectureId = null) {
   const cp = snapshotCheckpoint(snapshot?.lecture);
   if (!cp) return { action: 'none' };
+  // The room is playing a DIFFERENT lecture than the one this client entered
+  // for (e.g. a stalled Lecture_1 run while the user picked Lecture_2).
+  // Resume applies only to the same lecture — never project another
+  // lecture's position onto this session.
+  if (intendedLectureId && cp.lectureId !== intendedLectureId) {
+    return { action: 'none', reason: 'different-lecture', roomLectureId: cp.lectureId };
+  }
+  // The current unit is a dynamic utterance (opening/transition/recap) —
+  // `playback` still names the PREVIOUS segment, which was already played.
+  // Recovering from it would replay finished narration; do nothing — the
+  // next server emit lands in the queue normally.
+  if (snapshot?.lecture?.unit?.kind === 'dynamic') {
+    return { action: 'none', reason: 'dynamic-in-flight' };
+  }
   const segId = `${cp.lectureId}_seg_${cp.segmentIndex}`;
   const hasSegment = (messages || []).some(
     (m) => m.type === 'lecture' && m.id === segId
   );
+  // Never roll BACKWARD: if the checkpoint segment is behind the local queue
+  // head, it already played — keep the local position.
+  const headId = (messages || [])[0]?.id || '';
+  const headIdx = headId.startsWith(`${cp.lectureId}_seg_`)
+    ? lectureSegmentIndex(headId)
+    : null;
+  if (Number.isInteger(headIdx) && cp.segmentIndex < headIdx) {
+    return { action: 'none', reason: 'checkpoint-behind-head' };
+  }
   return hasSegment
     ? { action: 'resume', checkpoint: cp }
     : { action: 'reload', checkpoint: cp };
@@ -145,6 +176,24 @@ export function resolveSlidePage(messages, lastPage) {
   );
   if (lect) return lect.slidePage;
   return Number.isInteger(lastPage) && lastPage >= 1 ? lastPage : 1;
+}
+
+// Same anchoring for the document — multi-PDF lectures carry slideDoc per
+// segment; the board swaps the open PDF silently as segments change.
+export function resolveSlideDoc(messages, lastDoc) {
+  const lect = (messages || []).find(
+    (m) => m.type === 'lecture' && typeof m.slideDoc === 'string' && m.slideDoc
+  );
+  return lect ? lect.slideDoc : (lastDoc || null);
+}
+
+// After 'lecture-complete' the client drops stale lecture units — echoes of
+// an earlier playthrough must never re-queue and replay. A genuine restart
+// arrives as 'lecture-started' first (resets status), so new-run units are
+// unaffected. Non-lecture messages are always accepted.
+export function shouldAcceptLectureUnit(data, lectureStatus) {
+  if (data?.type !== 'lecture') return true;
+  return lectureStatus !== 'completed';
 }
 
 export { lectureSegmentIndex };

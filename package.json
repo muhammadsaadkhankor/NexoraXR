@@ -3,7 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "npm run install:all && npm --prefix src/nexora_server run db:setup -- --soft",
     "install:all": "npm install --prefix src/nexora_server && npm install --prefix src/nexora_ai && npm install --prefix src/nexora_client",
+    "db:setup": "npm --prefix src/nexora_server run db:setup",
+    "db:status": "npm --prefix src/nexora_server run db:status",
+    "db:local": "npm --prefix src/nexora_server run db:local",
+    "db:local:stop": "npm --prefix src/nexora_server run db:local:stop",
     "dev": "concurrently -n frontend,backend -c cyan,magenta \"npm --prefix src/nexora_client run dev\" \"npm --prefix src/nexora_server run dev\"",
     "dev:frontend": "npm --prefix src/nexora_client run dev",
     "dev:backend": "npm --prefix src/nexora_server run dev",

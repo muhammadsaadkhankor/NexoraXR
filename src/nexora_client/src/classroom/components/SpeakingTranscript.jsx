@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 // ~words per second used until the audio element reports a real duration
 const FALLBACK_WPS = 2.6;
 
-export function SpeakingTranscript({ text, audioRef }) {
+export function SpeakingTranscript({ text, audioRef, lipsync }) {
   const endRef = useRef(null);
   const playedSecRef = useRef(0);
   const lastNowRef = useRef(null);
@@ -52,6 +52,13 @@ export function SpeakingTranscript({ text, audioRef }) {
 
   const totalChars = words.length ? words[words.length - 1].cum : 1;
 
+  // Per-word timestamps don't exist in the artifacts — mouth-cue payloads
+  // only carry phoneme timings + total duration. Best available clock is
+  // the audio element itself; the baked lipsync metadata duration is a
+  // closer second than the words-per-second guess.
+  const lipsyncDur =
+    lipsync?.metadata?.duration || lipsync?.duration || null;
+
   useEffect(() => {
     setVisibleCount(0);
     setFinished(false);
@@ -66,6 +73,10 @@ export function SpeakingTranscript({ text, audioRef }) {
       if (audio && duration > 0) {
         // progress synced to the real TTS audio; pauses/resumes naturally
         frac = audio.ended ? 1 : audio.currentTime / duration;
+      } else if (audio && lipsyncDur && audio.readyState >= 1) {
+        // Duration known from baked cues before the element reports it —
+        // still audio-clock driven; pauses freeze automatically.
+        frac = audio.ended ? 1 : Math.min(1, audio.currentTime / lipsyncDur);
       } else if (!audio || audio.readyState >= 2) {
         // Duration not known yet but audio data exists — estimate by elapsed
         // time. While the element is still fetching (readyState < 2) hold at
@@ -86,14 +97,15 @@ export function SpeakingTranscript({ text, audioRef }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [text, words, totalChars, audioRef]);
+  }, [text, words, totalChars, audioRef, lipsyncDur]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' });
   }, [visibleCount]);
 
   return (
-    <div className="speaking-transcript">
+    // Inline so history + live words read as ONE continuous paragraph.
+    <span className="speaking-transcript">
       <style>{`
         .speaking-transcript .st-word { opacity: 0; animation: stFadeIn .18s ease-out forwards; }
         .speaking-transcript .st-heading { display: block; font-weight: 700; color: #67e8f9; margin: .35rem 0 .1rem; }
@@ -118,7 +130,7 @@ export function SpeakingTranscript({ text, audioRef }) {
       })}
 
       {!finished && <span className="st-cursor">▌</span>}
-      <div ref={endRef} />
-    </div>
+      <span ref={endRef} />
+    </span>
   );
 }

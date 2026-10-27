@@ -105,8 +105,11 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
   for (let i = 0; i < attempts; i++) {
     const wav = await synth(text, voiceId, lang);
     const detected = await detect(wav);
+    // Majority match: VoxCPM2 tags occasional stray tokens (one window of 'he'
+    // inside an 'es' clip, an 'en' word in 'fr') — reject only when the clip
+    // is actually dominated by a different language.
     const ok = Array.isArray(detected)
-      ? detected.every((l) => l === lang)
+      ? detected.filter((l) => l === lang).length >= Math.ceil(detected.length * 0.6)
       : detected === lang;
     if (ok) return wav;
     lastError = new Error(`TTS language mismatch: expected '${lang}', detected '${JSON.stringify(detected)}'`);

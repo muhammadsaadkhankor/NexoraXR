@@ -315,6 +315,83 @@ test('15. resume carries the canonical checkpoint of the CURRENT holder', () => 
   assert.equal(resume.data.checkpoint.reportedBy, 'bob');
 });
 
+test('15b. checkpoint records the board position (doc + page) for exact resume', () => {
+  const room = lecturingRoom();
+  room.requestFloor('alice');
+  room.submitCheckpoint('alice', { ...CP, slidePage: 12, slideDoc: 'ch3.pdf' });
+  assert.equal(room.interruption.checkpoint.slidePage, 12);
+  assert.equal(room.interruption.checkpoint.slideDoc, 'ch3.pdf');
+  room.submitQuestion('alice', 'q');
+  room.answerReady('ans-1', { text: 'a' }, 1000);
+  const fx = room.answerTimeExpired('ans-1');
+  const resume = fx.find((e) => e.event === 'lecture-control' && e.data.action === 'resume');
+  assert.equal(resume.data.checkpoint.slidePage, 12);
+  assert.equal(resume.data.checkpoint.slideDoc, 'ch3.pdf');
+  // Missing slide fields degrade to null, never undefined/garbage.
+  const room2 = lecturingRoom();
+  room2.requestFloor('bob');
+  room2.submitCheckpoint('bob', CP);
+  assert.equal(room2.interruption.checkpoint.slidePage, null);
+  assert.equal(room2.interruption.checkpoint.slideDoc, null);
+});
+
+test('15c. endLecture clears a held floor + stale pause so the next lecture runs', () => {
+  // Leaving mid-Q&A used to leak PAUSED + floor holder + checkpoint into the
+  // next lecture: the new run stayed PAUSED, joiners got floorHeld
+  // snapshots, and segment-ended reports were rejected — a stuck lecture.
+  const room = pausedRoom('alice');
+  room.submitQuestion('alice', 'q');                       // THINKING
+  room.endLecture(null);
+  assert.equal(room.professor.status, S.IDLE);
+  assert.equal(room.floor.holder, null);
+  assert.deepEqual(room.floor.queue, []);
+  assert.equal(room.interruption.checkpoint, null);
+  assert.equal(room.currentAnswer, null);
+  // A fresh lecture starts LECTURING on its first unit — no stale pause.
+  room.startLecture('Lecture_2');
+  room.lectureUnitStarted();
+  assert.equal(room.professor.status, S.LECTURING);
+});
+
+test('15d. acceptsLectureReport only honors the CURRENT run', () => {
+  const room = new NcipRoom('test');
+  // No run (idle or after endLecture) — every report is stale; accepting it
+  // would reactivate lectureActive and replay the lecture for joiners.
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L1', runId: 'r1' }), false);
+  room.lectureRun = { lectureId: 'L1', runId: 'r1' };
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L1', runId: 'r1' }), true);
+  // Different lecture or different runId (delayed echo from playthrough A
+  // arriving during replay B of the same lecture) — rejected.
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L2', runId: 'r1' }), false);
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L1', runId: 'r0-stale' }), false);
+  // Missing runId (older/legacy echo) is not accepted either.
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L1' }), false);
+  // endLecture nulls the run (server clears lectureRun) — simulate it.
+  room.lectureRun = null;
+  assert.equal(room.acceptsLectureReport({ lectureId: 'L1', runId: 'r1' }), false);
+});
+
+test('15e. snapshot exposes the run\'s live unit so recovery never replays finished narration', () => {
+  const room = new NcipRoom('test');
+  room.updatePlayback('agent', { lectureId: 'L1', segmentIndex: 3, playbackOffsetMs: 0 });
+  // Segment unit in flight — snapshot names it directly.
+  room.lectureRun = { currentUnit: { id: 'L1_seg_3', kind: 'segment', segmentIndex: 3 } };
+  let u = room.snapshot().lecture.unit;
+  assert.equal(u.kind, 'segment');
+  assert.equal(u.segmentIndex, 3);
+  // Dynamic unit in flight (transition after seg 3): playback still says 3,
+  // but the unit exposes the true frontier nextSegIndex=4 — recovery must
+  // not rewind to the finished segment.
+  room.lectureRun = { currentUnit: { id: 'L1_dyn_2', kind: 'dynamic', purpose: 'transition', nextSegIndex: 4 } };
+  u = room.snapshot().lecture.unit;
+  assert.equal(u.kind, 'dynamic');
+  assert.equal(u.purpose, 'transition');
+  assert.equal(u.nextSegIndex, 4);
+  // No run → no unit.
+  room.lectureRun = null;
+  assert.equal(room.snapshot().lecture.unit, null);
+});
+
 test('14. holder with no local lecture can still complete the protocol', () => {
   const room = lecturingRoom();
   room.requestFloor('alice');
@@ -1633,4 +1710,90 @@ test('V2.4: recordLateJoiner dedupes; completeGroupRecap resolves pending', () =
   r.completeGroupRecap({ participantIds: ['D', 'E'], sourceSegmentIds: [0, 1, 2, 3, 4], joinedDuringSegmentId: 4 }, { attempted: true });
   assert.equal(r.lectureProgress.groupRecap.pendingLateJoiners.length, 0);
   assert.equal(r.lectureProgress.groupRecap.completedRecaps.at(-1).attempted, true);
+});
+
+// ---------------------------------------------------------------------------
+// End Lecture / reset (owner end → full runtime reset → clean restart)
+// ---------------------------------------------------------------------------
+
+test('end: mid-Q&A clears answer, deadlines, floor, checkpoint; idempotent', () => {
+  const room = new NcipRoom('test');
+  room.updatePlayback('alice', { lectureId: 'L1', segmentIndex: 3, playbackOffsetMs: 1000 });
+  // simulate an answering state
+  room.interruption.checkpoint = { lectureId: 'L1', segmentIndex: 3, playbackOffsetMs: 500 };
+  room.floor.holder = 'bob';
+  room.floorDeadline = { holder: 'bob', expiresAt: Date.now() + 5000 };
+  room.currentAnswer = { text: 'an answer', pid: 'bob' };
+  room.professor.status = 'ANSWERING';
+  const fx = room.endLecture('alice');
+  assert.equal(room.professor.status, 'IDLE');
+  assert.equal(room.floor.holder, null);
+  assert.equal(room.currentAnswer, null);
+  assert.equal(room.floorDeadline, null);
+  assert.equal(room.interruption.checkpoint, null);
+  assert.ok(fx.length > 0);
+  // a second end is a pure no-op — no state change, no effects
+  assert.deepEqual(room.endLecture('alice'), []);
+});
+
+test('end: clears group-recap queues and pending late joiners', () => {
+  const room = new NcipRoom('test');
+  room.lectureProgress = {
+    lectureId: 'L1', currentTopicId: 't1', currentSegmentId: 2,
+    taughtTopicIds: ['t0'], openingCompleted: true, completedTransitions: ['t1'],
+    closingCompleted: false,
+    interactionHistory: [{ q: 'x' }],
+    groupRecap: { pendingLateJoiners: ['b'], completedRecaps: ['a'] },
+  };
+  room.lectureActive = true;
+  room.endLecture('a');
+  const p = room.lectureProgress;
+  assert.equal(p.lectureId, null);
+  assert.deepEqual(p.groupRecap, { pendingLateJoiners: [], completedRecaps: [] });
+  assert.deepEqual(p.interactionHistory, []);
+});
+
+test('end then start: fresh progress + segment 0 accepted (replay from start)', () => {
+  const room = new NcipRoom('test');
+  room.updatePlayback('a', { lectureId: 'L1', segmentIndex: 5, playbackOffsetMs: 9000 });
+  room.endLecture('a');
+  assert.equal(room.playback, null);
+  room.startLecture('L1');
+  assert.equal(room.lectureProgress.lectureId, 'L1');
+  // segment 0 must be accepted — the cursor was fully reset
+  const fx = room.updatePlayback('a', { lectureId: 'L1', segmentIndex: 0, playbackOffsetMs: 0 });
+  assert.equal(room.playback.segmentIndex, 0);
+  assert.equal(room.lectureActive, true);
+});
+
+// ---------------------------------------------------------------------------
+// acceptLectureStart — start dedup + switch authorization
+// ---------------------------------------------------------------------------
+
+test('start: second Start for same lecture is a no-op (dedup)', () => {
+  const room = new NcipRoom('test');
+  room.lectureRun = { lectureId: 'L1', runId: 'r1' };
+  assert.equal(room.acceptLectureStart('L1', { ownerOrAdmin: true }).reason, 'duplicate');
+});
+
+test('start: during PLAYING, a different lecture is owner/admin only', () => {
+  const room = new NcipRoom('test');
+  room.updatePlayback('a', { lectureId: 'L1', segmentIndex: 0 });
+  room.lectureRun = { lectureId: 'L1', runId: 'r1' };
+  assert.equal(room.acceptLectureStart('L2', { ownerOrAdmin: false }).ok, false);
+  assert.equal(room.acceptLectureStart('L2', { ownerOrAdmin: true }).ok, true);
+});
+
+test('start: idle room accepts any participant start', () => {
+  const room = new NcipRoom('test');
+  assert.equal(room.acceptLectureStart('L1', { ownerOrAdmin: false }).ok, true);
+});
+
+test('endLecture frees start again — same lecture can restart fresh', () => {
+  const room = new NcipRoom('test');
+  room.updatePlayback('a', { lectureId: 'L1', segmentIndex: 3 });
+  room.lectureRun = { lectureId: 'L1', runId: 'r1' };
+  room.endLecture('a');
+  room.lectureRun = null;
+  assert.equal(room.acceptLectureStart('L1', { ownerOrAdmin: false }).ok, true);
 });

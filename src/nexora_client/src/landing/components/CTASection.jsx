@@ -13,7 +13,7 @@ export default function CTASection() {
               <span className="grad-text"> without barriers.</span>
             </h2>
             <p className="cta__desc">
-              The world is in constant flux — jobs, challenges, even whole
+              The world is in constant flux: jobs, challenges, even whole
               business models that don't exist yet. Education should move with
               it. Create a classroom, share a link, and start teaching.
             </p>

@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Menu, X } from 'lucide-react'
-
-// Same key the classroom reads — signing in pre-fills the Enter Classroom name.
-const DISPLAY_NAME_KEY = 'nexoraxr_display_name'
+import { Menu, X, LogOut, Settings2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { getMe, logout } from '../../shared/auth'
+import { getBranding } from '../../shared/branding'
+import { API_URL } from '../../shared/config'
 
 export default function Navbar() {
+  const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
-  const [signIn, setSignIn] = useState(false)
-  const [name, setName] = useState(() => sessionStorage.getItem(DISPLAY_NAME_KEY) || '')
+  const [me, setMe] = useState(null)
+  const [branding, setBranding] = useState({ appName: 'NexoraXR', logoUrl: null })
+
+  useEffect(() => { getBranding().then(setBranding) }, [])
+
+  const refreshMe = () => getMe().then((r) => setMe(r.ok ? r.data.user : null)).catch(() => setMe(null))
+  useEffect(() => { refreshMe() }, [])
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -16,87 +23,52 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  const submit = (e) => {
-    e.preventDefault()
-    const n = name.trim()
-    if (!n) return
-    sessionStorage.setItem(DISPLAY_NAME_KEY, n)
-    setSignIn(false)
-  }
+  const doLogout = async () => { await logout().catch(() => {}); setMe(null) }
 
   return (
-    <>
-      <header className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}>
-        <div className="container navbar__inner">
-          <a href="#home" className="navbar__brand">
-            <span className="navbar__seal">W</span>
-            <span className="navbar__wordmark">WuFlux</span>
-          </a>
-          <nav className={`navbar__nav ${open ? 'navbar__nav--open' : ''}`}>
-            <a href="#home" onClick={() => setOpen(false)}>Home</a>
-            <a href="#philosophy" onClick={() => setOpen(false)}>About us</a>
-            <a href="#contact" onClick={() => setOpen(false)}>Contact</a>
-          </nav>
-          <div className="navbar__actions">
-            <a href="#explore" className="btn btn-secondary btn-sm">Enter a class</a>
-            <button className="btn btn-primary btn-sm" onClick={() => setSignIn(true)}>
+    <header className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}>
+      <div className="container navbar__inner">
+        <a href="#home" className="navbar__brand">
+          {branding.logoUrl
+            ? <img src={`${API_URL}${branding.logoUrl}`} alt={branding.appName} className="navbar__seal" style={{ objectFit: 'contain' }} />
+            : <span className="navbar__seal">{(branding.appName || 'N')[0]}</span>}
+          <span className="navbar__wordmark">{branding.appName}</span>
+        </a>
+        <nav className={`navbar__nav ${open ? 'navbar__nav--open' : ''}`}>
+          <a href="#home" onClick={() => setOpen(false)}>Home</a>
+          <a href="#philosophy" onClick={() => setOpen(false)}>About us</a>
+          <a href="#contact" onClick={() => setOpen(false)}>Contact</a>
+        </nav>
+        <div className="navbar__actions">
+          {me?.role === 'SUPER_ADMIN' && (
+            <a href="/admin" className="btn btn-secondary btn-sm">Admin</a>
+          )}
+          {me?.role === 'INSTRUCTOR' && (
+            <a href="/panel" className="btn btn-secondary btn-sm" title="Instructor panel">
+              <Settings2 size={14} />
+            </a>
+          )}
+          {me ? (
+            <>
+              <span className="navbar__user" title={`${me.email} (${me.role})`}>{me.displayName || me.email}</span>
+              <button className="btn btn-primary btn-sm" onClick={doLogout} title="Sign out">
+                <LogOut size={14} />
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/signin')}>
               Sign in
             </button>
-            <button
-              className="navbar__toggle"
-              onClick={() => setOpen((v) => !v)}
-              aria-label="Toggle menu"
-            >
-              {open ? <X size={24} /> : <Menu size={24} />}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {signIn && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 100,
-            background: 'rgba(4,6,20,.72)', backdropFilter: 'blur(6px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onClick={() => setSignIn(false)}
-        >
-          <form
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={submit}
-            style={{
-              width: 'min(92vw, 380px)', borderRadius: 20, padding: 28,
-              background: 'rgba(13,16,32,.92)', border: '1px solid rgba(255,255,255,.1)',
-              boxShadow: '0 30px 80px -20px rgba(0,0,0,.7)',
-            }}
+          )}
+          <button
+            className="navbar__toggle"
+            onClick={() => setOpen((v) => !v)}
+            aria-label="Toggle menu"
           >
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#fff' }}>Sign in</h2>
-            <p style={{ margin: '8px 0 20px', fontSize: 13, color: '#94a3b8' }}>
-              Your name is used as your classroom identity.
-            </p>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Display name"
-              style={{
-                width: '100%', padding: '12px 14px', borderRadius: 12, fontSize: 14,
-                background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.12)',
-                color: '#fff', outline: 'none', boxSizing: 'border-box',
-              }}
-            />
-            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <button type="button" className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => setSignIn(false)}>
-                Cancel
-              </button>
-              <button type="submit" className="btn btn-primary btn-sm" style={{ flex: 1 }}>
-                Continue
-              </button>
-            </div>
-          </form>
+            {open ? <X size={24} /> : <Menu size={24} />}
+          </button>
         </div>
-      )}
-    </>
+      </div>
+    </header>
   )
 }

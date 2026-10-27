@@ -110,7 +110,7 @@ test('public listing exposes safe fields only', () => {
   reg.createPublic({ className: 'Pub', courseId: 'CS401', lectureId: 'L1_x', language: 'de', hostId: 'h' });
   const [card] = reg.listPublic();
   assert.deepEqual(Object.keys(card).sort(),
-    ['className', 'courseId', 'createdAt', 'hostId', 'language', 'lectureId', 'roomId', 'roomType', 'scene'].sort());
+    ['className', 'courseId', 'courseName', 'createdAt', 'hostId', 'language', 'lectureCount', 'lectureId', 'roomId', 'roomType', 'scene'].sort());
   assert.ok(!JSON.stringify(card).includes('inviteToken'));
 });
 
@@ -223,4 +223,58 @@ test('a guest participantId can never mint host authority', () => {
   assert.equal(reg.rotateInvite(room.roomId, 'host-pid').ok, true);
   // and a hostId survives reconnect semantics (stable participantId, not socket)
   assert.equal(reg.get(room.roomId).hostId, 'host-pid');
+});
+
+// ---------------------------------------------------------------------------
+// Visibility management (owner flip + admin override + discovery/admission)
+// ---------------------------------------------------------------------------
+
+test('owner can flip private -> public -> private; token is preserved', () => {
+  const { reg, room } = mkPrivate();
+  const token = room.inviteToken;
+  // private -> public
+  const p1 = reg.setVisibility(room.roomId, 'public', 'host-pid');
+  assert.equal(p1.ok, true);
+  assert.equal(reg.get(room.roomId).roomType, 'public');
+  // now discoverable + joinable without a token
+  assert.equal(reg.listPublic().some((r) => r.roomId === room.roomId), true);
+  assert.equal(reg.admit(room.roomId, null).ok, true);
+  // public -> private keeps the original invite
+  const p2 = reg.setVisibility(room.roomId, 'private', 'host-pid');
+  assert.equal(p2.ok, true);
+  assert.equal(reg.get(room.roomId).inviteToken, token);
+  assert.equal(reg.listPublic().some((r) => r.roomId === room.roomId), false);
+  assert.equal(reg.admit(room.roomId, token).ok, true);
+  assert.equal(reg.admit(room.roomId, 'wrong').ok, false);
+});
+
+test('non-owner instructor/guest cannot change visibility', () => {
+  const { reg, room } = mkPrivate();
+  const r = reg.setVisibility(room.roomId, 'public', 'other-user');
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 403);
+  assert.equal(reg.get(room.roomId).roomType, 'private');
+});
+
+test('SUPER_ADMIN can change visibility on any room', () => {
+  const { reg, room } = mkPrivate();
+  const r = reg.setVisibility(room.roomId, 'public', 'admin-id', true);
+  assert.equal(r.ok, true);
+  assert.equal(reg.get(room.roomId).roomType, 'public');
+});
+
+test('visibility change is idempotent and rejects bad input', () => {
+  const { reg, room } = mkPrivate();
+  assert.equal(reg.setVisibility(room.roomId, 'private', 'host-pid').ok, true); // no-op
+  assert.equal(reg.setVisibility(room.roomId, 'secret', 'host-pid').ok, false);
+  assert.equal(reg.setVisibility('missing', 'public', 'host-pid').status, 404);
+});
+
+test('a public room flipped private is no longer listed or joinable openly', () => {
+  const reg = new RoomRegistry();
+  const { room } = reg.createPublic({ className: 'x', hostId: 'h', scene: 'Multimedia' });
+  assert.equal(reg.listPublic().length, 1);
+  reg.setVisibility(room.roomId, 'private', 'h');
+  assert.equal(reg.listPublic().length, 0);
+  assert.equal(reg.admit(room.roomId, null).ok, false); // needs a token now
 });

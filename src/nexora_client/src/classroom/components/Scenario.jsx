@@ -54,12 +54,14 @@ class SlideErrorBoundary extends Component {
   }
 }
 
-function LectureSlide({ lectureId, page = 1, position, quaternion, scale }) {
+function LectureSlide({ lectureId, page = 1, doc = null, position, quaternion, scale }) {
   if (!isValidLectureId(lectureId)) {
     return null;
   }
 
-  const texture = useTexture(`${SLIDE_API_BASE}/${lectureId}?page=${page}`);
+  const texture = useTexture(
+    `${SLIDE_API_BASE}/${lectureId}?page=${page}${doc ? `&doc=${encodeURIComponent(doc)}` : ''}`);
+  const [fit, setFit] = useState(null);
 
   useEffect(() => {
     if (texture) {
@@ -68,11 +70,19 @@ function LectureSlide({ lectureId, page = 1, position, quaternion, scale }) {
       texture.flipY = true;
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.needsUpdate = true;
+      // Aspect-ratio fit inside the board box — portrait book pages keep
+      // their shape (narrower, full height) instead of stretching to a
+      // landscape rectangle; landscape slides fill as before.
+      const img = texture.image;
+      const aspect = img?.width && img?.height ? img.width / img.height : 16 / 9;
+      const [bx, by, bz] = scale;
+      const sx = Math.min(bx, by * aspect);
+      setFit([sx, sx / aspect, bz]);
     }
   }, [texture]);
 
   return (
-    <mesh position={position} quaternion={quaternion} scale={scale}>
+    <mesh position={position} quaternion={quaternion} scale={fit || scale}>
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial map={texture} side={THREE.DoubleSide} toneMapped={false} transparent />
     </mesh>
@@ -147,6 +157,7 @@ export const Scenario = ({
   modelTransform = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
   lectureId = null,
   slidePage = 1,
+  slideDoc = null,
   remoteStreams = {},
 }) => {
   const cameraControls = useRef();
@@ -336,7 +347,7 @@ export const Scenario = ({
       {isValidLectureId(lectureId) && (
         <SlideErrorBoundary {...slideTransform}>
           <Suspense fallback={null}>
-            <LectureSlide lectureId={lectureId} page={slidePage} {...slideTransform} />
+            <LectureSlide lectureId={lectureId} page={slidePage} doc={slideDoc} {...slideTransform} />
           </Suspense>
         </SlideErrorBoundary>
       )}

@@ -14,9 +14,10 @@ import ContinuousRecorder from './components/ContinuousRecorder';
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
-import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage } from './services/ncipSync';
+import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage, resolveSlideDoc, shouldAcceptLectureUnit } from './services/ncipSync';
 import { syncLectureClock } from './lectureClock';
 import { API_URL, getParticipantId } from '../shared/config';
+import { getGuestToken, setGuestToken, getMe } from '../shared/auth';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
 
@@ -35,62 +36,40 @@ const USER_AVATARS = [
 ];
 
 const DISPLAY_NAME_KEY = 'nexoraxr_display_name';
-const MAX_NAME_LENGTH = 30;
 
-function NameEntryModal({ onSubmit }) {
-  const [value, setValue] = useState('');
-  const [error, setError] = useState(null);
+// Guests get a random friendly identity for the session — no prompt.
+const GUEST_ADJ = ['Curious', 'Bright', 'Swift', 'Calm', 'Bold', 'Kind', 'Witty', 'Keen'];
+const GUEST_NOUN = ['Otter', 'Fox', 'Falcon', 'Koala', 'Lynx', 'Panda', 'Raven', 'Wolf'];
+const randomGuestName = () =>
+  `${GUEST_ADJ[(Math.random() * GUEST_ADJ.length) | 0]} ${GUEST_NOUN[(Math.random() * GUEST_NOUN.length) | 0]}-${(Math.random() * 900 + 100) | 0}`;
 
-  const submit = () => {
-    const name = value.trim().slice(0, MAX_NAME_LENGTH);
-    if (!name) {
-      setError('Please enter a display name.');
-      return;
-    }
-    onSubmit(name);
-  };
-
-  return (
-    <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 text-white backdrop-blur-sm'>
-      <div className='w-full max-w-sm rounded-3xl border border-slate-700/50 bg-slate-900/70 p-6 shadow-2xl sm:p-8'>
-        <h2 className='text-center text-2xl font-bold text-white'>Enter your display name</h2>
-        <p className='mt-2 text-center text-sm text-slate-400'>Other participants will see this name.</p>
-        <input
-          autoFocus
-          type='text'
-          value={value}
-          maxLength={MAX_NAME_LENGTH}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit();
-          }}
-          placeholder='e.g. Saad'
-          className='mt-6 w-full rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition focus:border-cyan-500/60'
-        />
-        {error && <p className='mt-2 text-xs text-red-300'>{error}</p>}
-        <button
-          onClick={submit}
-          className='mt-4 w-full rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400'
-        >
-          Join Class
-        </button>
-      </div>
-    </div>
-  );
-}
+// Friendly staged messages while the 3D classroom + assets load.
+const LOAD_TIPS = [
+  'Preparing the classroom…',
+  'Arranging desks and holograms…',
+  'Waking up the professor…',
+  'Loading lecture materials…',
+  'Dimming the lights…',
+];
 
 function LoadingOverlay({ visible }) {
+  const [tip, setTip] = useState(0);
+  useEffect(() => {
+    if (!visible) return;
+    const t = setInterval(() => setTip((i) => (i + 1) % LOAD_TIPS.length), 2200);
+    return () => clearInterval(t);
+  }, [visible]);
   return (
     <div
       className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/95 text-white backdrop-blur-md transition-opacity duration-500 ease-out ${
         visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
     >
-      <div className='h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400' />
-      <p className='mt-4 text-lg font-medium text-slate-300'>Preparing assets in scene...</p>
+      <div className='relative flex items-center justify-center'>
+        <div className='h-16 w-16 animate-spin rounded-full border-4 border-slate-800 border-t-cyan-400' />
+        <div className='absolute h-10 w-10 animate-spin rounded-full border-4 border-slate-800/40 border-b-violet-500' style={{ animationDirection: 'reverse', animationDuration: '1.4s' }} />
+      </div>
+      <p className='mt-6 text-lg font-semibold text-slate-100'>{LOAD_TIPS[tip]}</p>
     </div>
   );
 }
@@ -113,6 +92,12 @@ function ClassroomPanel({
   professorStatus = 'IDLE',
   onVoice,
   voiceOn,
+  micState = null,
+  isGuest = false,
+  canModerate = false,
+  micPerms = {},
+  onMicDecision,
+  onMicRevoke,
   language = 'en',
   onLanguage,
   canCatchUp = false,
@@ -127,6 +112,7 @@ function ClassroomPanel({
   onHostPause,
   onHostResume,
   onHostEnd,
+  canEndLecture = false,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   const canStart = state === 'idle' || state === 'completed' || state === 'error';
@@ -206,6 +192,13 @@ function ClassroomPanel({
 
             {handMenuOpen && (
               <div className='absolute right-0 top-full mt-2 w-72 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 shadow-2xl backdrop-blur'>
+                {isGuest && (
+                  <div className='px-3 py-3 text-xs text-slate-400'>
+                    <p className='font-semibold text-slate-200'>Signed in as a guest</p>
+                    <p className='mt-1'>Raising your hand and asking the professor require a NexoraXR account.</p>
+                  </div>
+                )}
+                {!isGuest && (<>
                 <button
                   onClick={() => {
                     if (!handRaised && !isActiveSpeaker) onToggleHand();
@@ -280,6 +273,7 @@ function ClassroomPanel({
                     }`}
                   />
                 </button>
+                </>)}
 
                 <div className='mt-1 border-t border-slate-700/50 px-3 py-2'>
                   <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Active Speaker</p>
@@ -313,15 +307,17 @@ function ClassroomPanel({
 
           <button
             onClick={onVoice}
-            title={voiceOn ? 'Mute microphone' : 'Unmute microphone (joins voice chat)'}
+            title={voiceOn ? 'Mute microphone' : micState === 'pending' ? 'Microphone request pending approval' : 'Unmute microphone (requests permission first)'}
             className={`${pillBase} ${voiceOn ? 'bg-slate-800/80 ring-1 ring-emerald-400/50' : ''}`}
           >
             {voiceOn
               ? <Mic size={20} className='text-emerald-300' />
-              : <MicOff size={20} className='text-slate-300' />}
+              : micState === 'pending'
+                ? <Mic size={20} className='text-amber-300' />
+                : <MicOff size={20} className='text-slate-300' />}
             <div className='leading-tight'>
               <p className='text-xs font-semibold'>Voice</p>
-              <p className='text-[11px] text-slate-400'>{voiceOn ? 'On' : 'Off'}</p>
+              <p className='text-[11px] text-slate-400'>{voiceOn ? 'On' : micState === 'pending' ? 'Requested…' : 'Off'}</p>
             </div>
           </button>
 
@@ -344,15 +340,36 @@ function ClassroomPanel({
                         {m.isHost && <span className='ml-2 text-[10px] font-semibold uppercase tracking-wide text-violet-300'>host</span>}
                         {m.isSelf && <span className='ml-2 text-[10px] text-slate-500'>you</span>}
                       </span>
-                      {isRoomHost && !m.isSelf && !m.isHost && onKick && (
-                        <button
-                          onClick={() => onKick(m.userId)}
-                          title={`Remove ${m.name || 'this user'} from the room`}
-                          className='ml-2 rounded-md p-1 text-slate-500 transition hover:bg-rose-500/15 hover:text-rose-300'
-                        >
-                          <UserX size={14} />
-                        </button>
-                      )}
+                      <span className='ml-2 flex items-center gap-1'>
+                        {canModerate && !m.isSelf && micPerms[m.userId] === 'pending' && (
+                          <>
+                            <button onClick={() => onMicDecision?.(m.userId, true)}
+                              className='rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/15'>
+                              Allow mic
+                            </button>
+                            <button onClick={() => onMicDecision?.(m.userId, false)}
+                              className='rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-rose-300 hover:bg-rose-500/15'>
+                              Deny
+                            </button>
+                          </>
+                        )}
+                        {canModerate && !m.isSelf && micPerms[m.userId] === 'granted' && (
+                          <button onClick={() => onMicRevoke?.(m.userId)}
+                            className='rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-rose-500/15 hover:text-rose-300'
+                            title='Microphone granted — click to revoke'>
+                            mic on
+                          </button>
+                        )}
+                        {isRoomHost && !m.isSelf && !m.isHost && onKick && (
+                          <button
+                            onClick={() => onKick(m.userId)}
+                            title={`Remove ${m.name || 'this user'} from the room`}
+                            className='rounded-md p-1 text-slate-500 transition hover:bg-rose-500/15 hover:text-rose-300'
+                          >
+                            <UserX size={14} />
+                          </button>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -456,10 +473,10 @@ function ClassroomPanel({
               </div>
             </button>
           )}
-          {isPrivateRoom && isRoomHost &&
+          {canEndLecture &&
             ['LECTURING', 'PAUSED', 'THINKING', 'ANSWERING', 'RESUMING'].includes(professorStatus) && (
             <button
-              onClick={onHostEnd}
+              onClick={() => { if (window.confirm('End the lecture? Playback resets to the start for everyone.')) onHostEnd(); }}
               title='End the lecture for everyone'
               className={`${pillBase} border border-rose-500/40`}
             >
@@ -595,15 +612,35 @@ function SceneRoom({ sceneName, baseConfig }) {
   });
   const [cameraPreset, setCameraPreset] = useState('third-person');
   const [inRange, setInRange] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  // Chat/transcript panel starts open and stays open — proximity to the
+  // avatar no longer controls it; the user can still minimize via the pill.
+  const [chatOpen, setChatOpen] = useState(true);
   const [lectureLang, setLectureLang] = useState('en');
   const [camHint, setCamHint] = useState(false);
   const [showUserAvatar] = useState(true);
   const [myId, setMyId] = useState(null);
+  // Stage 2: server-resolved identity ('self-info') and mic grant map.
+  const [selfInfo, setSelfInfo] = useState(null);
+  const [micPerms, setMicPerms] = useState({});
   const [displayName, setDisplayName] = useState(() => {
     const stored = sessionStorage.getItem(DISPLAY_NAME_KEY);
     return stored && stored.trim() ? stored.trim() : null;
   });
+
+  // No name prompt: signed-in users join under their account name; guests get
+  // a random session identity (persisted per tab so refreshes keep it).
+  useEffect(() => {
+    if (displayName) return;
+    getMe().then((r) => {
+      const name = (r.ok && r.data.user?.displayName) || randomGuestName();
+      sessionStorage.setItem(DISPLAY_NAME_KEY, name);
+      setDisplayName(name);
+    }).catch(() => {
+      const name = randomGuestName();
+      sessionStorage.setItem(DISPLAY_NAME_KEY, name);
+      setDisplayName(name);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [remotePlayers, setRemotePlayers] = useState({});
   const [floorQueue, setFloorQueue] = useState([]);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
@@ -627,7 +664,12 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [roomMeta, setRoomMeta] = useState(null); // {roomId, roomType, hostId} from snapshot
   const [pauseReason, setPauseReason] = useState(null); // 'host' during a host discussion pause
   const isPrivateRoom = roomMeta?.roomType === 'private';
-  const isRoomHost = isPrivateRoom && roomMeta?.hostId === getParticipantId();
+  // Host identity must use the SERVER-resolved participant id (self-info),
+  // never the locally generated one — a client can't mint host authority.
+  const isRoomHost = isPrivateRoom && roomMeta?.hostId === myId;
+  // Lecture End works in both room types: owner, or SUPER_ADMIN anywhere.
+  const isRoomOwner = roomMeta?.hostId === myId;
+  const canEndLecture = isRoomOwner || selfInfo?.user?.role === 'SUPER_ADMIN';
 
   // Room joins without a lecture yet go through the course picker — the
   // lecture is chosen on entry, then the room/invite params are carried back.
@@ -671,8 +713,9 @@ function SceneRoom({ sceneName, baseConfig }) {
     try {
       const res = await fetch(`${API_URL}/api/rooms/${privateRoomId}/invite`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hostId: getParticipantId() }),
+        body: JSON.stringify({ hostId: myId }), // ignored server-side unless dev-compat
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate invite');
@@ -698,9 +741,9 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, setRecognitionLang } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, audioErrorRef, setRecognitionLang } = useSpeech();
   const speechCtlRef = useRef({});
-  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages };
+  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages, audioErrorRef };
 
   // Slide follows the current lecture segment's slidePage. The head during
   // Q&A is an answer, so resolveSlidePage anchors on the first lecture
@@ -710,6 +753,33 @@ function SceneRoom({ sceneName, baseConfig }) {
     const p = resolveSlidePage(messages, slidePageRef.current);
     slidePageRef.current = p;
     return p;
+  }, [messages]);
+  // The document the current slide belongs to — multi-PDF lectures switch
+  // the board between source files as segments change.
+  const slideDocRef = useRef(null);
+  const slideDoc = useMemo(() => {
+    const d = resolveSlideDoc(messages, slideDocRef.current);
+    slideDocRef.current = d;
+    return d;
+  }, [messages]);
+  // Prefetch the NEXT segment's audio + slide while the current one plays.
+  // The manifest is already held for transcript/lang-switch; warming the
+  // browser caches hides segment-boundary fetch latency.
+  useEffect(() => {
+    // No prefetch while the floor is held — warming audio mid-Q&A can race
+    // the resume and any segment the agent hasn't emitted yet is speculative.
+    if (speechCtlRef.current.floorPausedRef?.current) return;
+    const head = messages[0];
+    const segIdx = head?.id && /_seg_(\d+)$/.exec(head.id)?.[1];
+    if (segIdx == null) return;
+    const segs = lectureManifestRef.current;
+    const next = segs[segs.findIndex((s) => String(s.id) === String(segIdx)) + 1];
+    if (!next) return;
+    if (next.audioUrl) fetch(`${API_URL}${next.audioUrl}`).catch(() => {});
+    if (next.slidePage) {
+      const doc = next.slideDoc ? `&doc=${encodeURIComponent(next.slideDoc)}` : '';
+      fetch(`${API_URL}/api/lecture/pdf_image/${lectureId}?page=${next.slidePage}${doc}`).catch(() => {});
+    }
   }, [messages]);
   const languageChangeRef = useRef(null);
   // Refs so the once-registered socket handlers always see current values.
@@ -723,6 +793,14 @@ function SceneRoom({ sceneName, baseConfig }) {
   // 'floor-ready' acknowledgement (holder checkpoint accepted) arrives.
   const pendingQuestionRef = useRef(null);
   const floorReadyRef = useRef(false);
+  // Start-class watchdog — resolved on 'lecture-started'/'control-error',
+  // fires an error if the server never answers (see handleStartClass).
+  const startWatchdogRef = useRef(null);
+  // Unit ids already delivered to the queue for the CURRENT run — a
+  // duplicate professor-speak for an id that's played/queued must not
+  // re-enter playback. Cleared on 'lecture-started' (explicit Replay is a
+  // fresh run and legitimately reuses ids).
+  const deliveredUnitsRef = useRef(new Set());
   // NCIP Slice 2: version of the newest authoritative state this client has
   // applied. -1 = no baseline yet (fresh connect / before first snapshot).
   const lastAppliedVersionRef = useRef(-1);
@@ -736,11 +814,22 @@ function SceneRoom({ sceneName, baseConfig }) {
   const canStartClass =
     !!lectureId && (lectureStatus === 'idle' || lectureStatus === 'completed' || lectureStatus === 'error');
 
+  // Lecture switch inside the same mounted scene (Lecture_1 -> Lecture_2
+  // without leaving the room): every lecture-scoped piece of state resets —
+  // manifest, transcript seed, max-seg watermark, slide anchors — so nothing
+  // from the previous lecture bleeds into the new one.
   useEffect(() => {
     setLectureStatus('idle');
     setLectureError(null);
     setLectureTitle(null);
     clearMessages();
+    lectureManifestRef.current = [];
+    maxSegRef.current = -1;
+    setScriptSeed([]);
+    slidePageRef.current = 1;
+    slideDocRef.current = null;
+    floorReadyRef.current = false;
+    pendingQuestionRef.current = null;
   }, [lectureId]);
 
   // Speech recognition follows the authoritative room language so student
@@ -762,6 +851,9 @@ function SceneRoom({ sceneName, baseConfig }) {
   // (V2: the server emits each segment itself via professor-speak).
   const ensureLectureManifest = useCallback(async (lid, lang) => {
     if (!lid || lectureManifestRef.current.length > 0) return;
+    // A stale emit can name a different lecture than this session — never
+    // cache another lecture's manifest as ours.
+    if (lectureIdRef.current && lid !== lectureIdRef.current) return;
     try {
       const res = await fetch(`${API_URL}/api/lecture/segments/${lid}?lang=${lang || 'en'}`);
       const data = await res.json();
@@ -784,6 +876,16 @@ function SceneRoom({ sceneName, baseConfig }) {
     // it emits one professor-speak message per segment to the whole room.
     socketRef.current?.emit('lecture.start', { lectureId });
     setChatOpen(true);
+    // Watchdog: if the server never confirms the start (auth rejection,
+    // handler crash, dead socket), surface a real error instead of spinning
+    // on "Loading Lecture…" forever.
+    clearTimeout(startWatchdogRef.current);
+    startWatchdogRef.current = setTimeout(() => {
+      if (lectureStatusRef.current === 'loading') {
+        setLectureStatus('error');
+        setLectureError('The classroom did not respond — check your connection and try again.');
+      }
+    }, 30_000);
   };
 
   // Mid-lecture language switch — resumes at the SAME segment index:
@@ -834,6 +936,7 @@ function SceneRoom({ sceneName, baseConfig }) {
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
           slidePage: seg.slidePage ?? null,
+          slideDoc: seg.slideDoc ?? null,
         }));
       if (seq !== langSwitchSeqRef.current || !segs.length) return;
 
@@ -869,10 +972,6 @@ function SceneRoom({ sceneName, baseConfig }) {
     window.addEventListener('resize', detect);
     return () => window.removeEventListener('resize', detect);
   }, []);
-
-  useEffect(() => {
-    setChatOpen(inRange);
-  }, [inRange]);
 
   // NCIP Slice 2: the checkpoint segment is already in the local queue.
   // Trim everything before it, stamp the authoritative offset as resumeAt,
@@ -922,6 +1021,7 @@ function SceneRoom({ sceneName, baseConfig }) {
           facialExpression: seg.facialExpression || 'smile',
           lipsync: seg.lipsync,
           slidePage: seg.slidePage ?? null,
+          slideDoc: seg.slideDoc ?? null,
         }));
       if (!segs.length) return;
       segs[0].resumeAt = cp.playbackOffsetMs / 1000;
@@ -947,6 +1047,7 @@ function SceneRoom({ sceneName, baseConfig }) {
   useEffect(() => {
     if (socketRef.current) return;
     const socket = io(API_URL, {
+      withCredentials: true, // session cookie authenticates the handshake
       transports: ['websocket', 'polling'],
       reconnection: !import.meta.env.DEV,
       reconnectionAttempts: 2,
@@ -959,8 +1060,47 @@ function SceneRoom({ sceneName, baseConfig }) {
 
     socket.on('connect', () => {
       console.log('[client] socket connected, id:', socket.id);
-      // Protocol identity is the stable participantId, not the socket.
-      setMyId(getParticipantId());
+      // Trigger the join effect — the AUTHORITATIVE pid arrives via
+      // 'self-info' after admission (server-minted for guests, users.id
+      // for authenticated sessions).
+      setMyId((prev) => prev || getParticipantId());
+    });
+
+    // Stage 2: server-issued guest credential — store for future reconnects.
+    socket.on('guest-session', ({ guestToken }) => {
+      if (guestToken) setGuestToken(guestToken);
+    });
+
+    // Server-resolved identity (authoritative — replaces the local pid).
+    socket.on('self-info', (info) => {
+      setSelfInfo(info);
+      if (info?.participantId) setMyId(info.participantId);
+    });
+
+    // A restricted event was rejected (e.g. guest raise-hand / AI question).
+    socket.on('auth-error', (d) => {
+      console.warn('[auth] rejected event:', d?.event);
+      setFloorError(d?.error || 'Authentication required');
+      // A rejected lecture.start must not leave the button spinning.
+      if (lectureStatusRef.current === 'loading') {
+        setLectureStatus('error');
+        setLectureError('The lecture could not be started. Try again or ask the classroom owner.');
+      }
+    });
+
+    // Microphone permission lifecycle.
+    socket.on('mic-state', (d) => setMicPerms(d?.permissions || {}));
+    socket.on('mic-requested', () => {
+      setFloorError('Microphone request sent — waiting for approval.');
+    });
+    socket.on('mic-granted', () => {
+      setFloorError(null);
+      if (!voiceChatRef.current?.voiceOn) voiceChatRef.current?.toggleVoice?.();
+    });
+    socket.on('mic-denied', () => setFloorError('Microphone request denied.'));
+    socket.on('mic-revoked', () => {
+      setFloorError('Microphone permission revoked.');
+      if (voiceChatRef.current?.voiceOn) voiceChatRef.current?.toggleVoice?.();
     });
 
     // Server-assigned spawn slot — late joiners land spread around the room
@@ -1096,6 +1236,30 @@ function SceneRoom({ sceneName, baseConfig }) {
 
     socket.on('professor-speak', (data) => applyNcip(data, () => {
       console.log('[client] professor-speak received:', data?.text);
+      // Completed: drop stale echoes of a finished playthrough — a real
+      // restart resets status via 'lecture-started' before units arrive.
+      if (!shouldAcceptLectureUnit(data, lectureStatusRef.current)) {
+        console.log('[client] ignoring lecture unit after completion:', data?.id);
+        return;
+      }
+      // Drop stale units from a DIFFERENT lecture (e.g. a lingering
+      // Lecture_1 room run while this session is bound to Lecture_2) —
+      // they must never enter this client's queue or reseed its manifest.
+      if (data?.type === 'lecture' && data?.lectureId && lectureIdRef.current
+          && data.lectureId !== lectureIdRef.current) {
+        console.warn('[client] ignoring professor-speak for other lecture:', data.lectureId);
+        return;
+      }
+      // Duplicate delivery (same run): an id already queued or played can
+      // never legitimately arrive twice — replayed ids only come with a new
+      // 'lecture-started', which clears the set first.
+      if (data?.type === 'lecture' && data?.id) {
+        if (deliveredUnitsRef.current.has(data.id)) {
+          console.log('[client] ignoring duplicate lecture unit:', data.id);
+          return;
+        }
+        deliveredUnitsRef.current.add(data.id);
+      }
       // Resolve host-relative audio URLs against the backend origin.
       const audioUrl = data?.audioUrl?.startsWith('/') ? `${API_URL}${data.audioUrl}` : data?.audioUrl;
       if (data?.floorAnswer) {
@@ -1117,11 +1281,13 @@ function SceneRoom({ sceneName, baseConfig }) {
     // V2: a (re)start — clear any leftovers from a previous playthrough and
     // reset the transcript seed so the script doesn't show stale/repeated rows.
     socket.on('lecture-started', (data) => applyNcip(data, () => {
+      clearTimeout(startWatchdogRef.current);
       speechCtlRef.current.clearMessages();
       setLectureStatus('teaching');
       setLectureError(null);
       setFloorAnswering(false);
       maxSegRef.current = -1;
+      deliveredUnitsRef.current.clear();
       setScriptSeed([]);
       setTranscriptEpoch((e) => e + 1);
     }));
@@ -1145,6 +1311,7 @@ function SceneRoom({ sceneName, baseConfig }) {
         // canonical position.
         speechCtlRef.current.pauseLectureForFloor();
       } else if (data?.action === 'control-error') {
+        clearTimeout(startWatchdogRef.current);
         setFloorError(data?.error || 'Lecture control rejected.');
         // A rejected lecture.start surfaces here — show it in the panel.
         setLectureStatus((s) => {
@@ -1155,10 +1322,14 @@ function SceneRoom({ sceneName, baseConfig }) {
           return s;
         });
       } else if (data?.action === 'end') {
-        // Host ended the class (private room): stop and clear local playback.
+        // Owner ended the class: stop and clear local playback, reset slide
+        // to the first segment's so the next start opens on slide 1.
         speechCtlRef.current.floorPausedRef.current = false;
         speechCtlRef.current.setFloorPaused(false);
         speechCtlRef.current.clearMessages();
+        const first = lectureManifestRef.current?.[0];
+        if (first?.slidePage != null) slidePageRef.current = first.slidePage;
+        if (first?.slideDoc != null) slideDocRef.current = first.slideDoc;
         setLectureStatus('idle');
         setFloorAnswering(false);
       } else if (data?.action === 'pause-for-floor') {
@@ -1173,6 +1344,8 @@ function SceneRoom({ sceneName, baseConfig }) {
             language: lectureLangRef.current,
             segmentIndex: cp?.segmentIndex ?? null,
             playbackOffsetMs: cp?.playbackOffsetMs ?? 0,
+            slidePage: cp?.slidePage ?? null,
+            slideDoc: cp?.slideDoc ?? null,
           });
         }
       } else if (data?.action === 'resume') {
@@ -1183,6 +1356,11 @@ function SceneRoom({ sceneName, baseConfig }) {
         if (cp?.language && cp.language !== lectureLangRef.current) {
           console.warn('[client] resume checkpoint language differs from local lecture language:', cp.language, 'vs', lectureLangRef.current);
         }
+        // Restore the exact board position saved at interrupt — the queued
+        // segment's own page/doc still wins when present; these are the
+        // fallback for rebuilt/empty queues.
+        if (cp?.slidePage != null) slidePageRef.current = cp.slidePage;
+        if (cp?.slideDoc != null) slideDocRef.current = cp.slideDoc;
         speechCtlRef.current.resumeLecture(cp);
       } else if (data?.action === 'thinking' || data?.action === 'answering') {
         setFloorAnswering(true);
@@ -1229,6 +1407,7 @@ function SceneRoom({ sceneName, baseConfig }) {
       setPauseReason(snap?.interruption?.pauseReason || null);
       setJoinPending(false); // snapshot = admitted
       setFloorAnswering(status === 'THINKING' || status === 'ANSWERING');
+      if (snap?.mic?.permissions) setMicPerms(snap.mic.permissions);
       if (activeSpeaker?.userId !== myIdRef.current) floorReadyRef.current = false;
 
       // NCIP Slice 3: adopt the authoritative room language immediately —
@@ -1251,8 +1430,10 @@ function SceneRoom({ sceneName, baseConfig }) {
         console.log('[ncip] recovering in-flight answer at +' + answerPlan.elapsedMs + 'ms (seek ' + answerPlan.seekSec.toFixed(2) + 's)');
       }
 
-      // Lecture recovery at the canonical server position — never seg 0.
-      const plan = planLectureRecovery(snap, speechCtlRef.current.messages);
+      // Lecture recovery at the canonical server position — never seg 0,
+      // and only ever for the lecture this client actually entered
+      // (a stale Lecture_1 run must not hijack a Lecture_2 session).
+      const plan = planLectureRecovery(snap, speechCtlRef.current.messages, lectureIdRef.current);
       if (plan.action === 'resume' || plan.action === 'reload') {
         // The room is actively lecturing — reflect that in the panel so a
         // late joiner sees "Class in Progress", not "Start Class", and so a
@@ -1277,6 +1458,14 @@ function SceneRoom({ sceneName, baseConfig }) {
     // answer; the server advances the protocol on the first report.
     answerEndedRef.current = (msg) => {
       socket.emit('answer-ended', { id: msg.id });
+    };
+
+    // A missing/unloadable audio asset (unbaked segment, TTS down) surfaces
+    // as a visible error while the queue still advances past it.
+    audioErrorRef.current = (msg) => {
+      setLectureError(
+        `Audio could not be loaded for this part — it was skipped. ` +
+        `If the course was still building, re-enter once the build is ready.`);
     };
 
     // V2: report each lecture segment's completion to the server — it
@@ -1320,7 +1509,8 @@ function SceneRoom({ sceneName, baseConfig }) {
         roomId: privateRoomId || sceneName,
         room: privateRoomId || undefined,
         invite: inviteToken || undefined,
-        participantId: getParticipantId(),
+        participantId: getParticipantId(), // ignored by the server unless dev-compat
+        guestToken: getGuestToken() || undefined,
         name: displayName,
         avatar: userAvatarPath,
         position: config.userStart.position,
@@ -1392,6 +1582,19 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   const isActiveSpeaker = !!myId && activeSpeaker?.userId === myId;
 
+  // Guests who joined (public directly, private via invite+host approval) may
+  // raise hands and ask the professor — the server authorizes membership.
+  const isGuest = !selfInfo || selfInfo.guest === true;
+  const canModerate = isRoomHost || selfInfo?.user?.role === 'SUPER_ADMIN';
+  const myMicState = (myId && micPerms[myId]) || null;
+  const micAllowed = canModerate || myMicState === 'granted';
+
+  const handleVoice = useCallback(() => {
+    if (voiceChatRef.current?.voiceOn) { voiceChatRef.current.toggleVoice(); return; }
+    if (micAllowed) { voiceChatRef.current?.toggleVoice?.(); return; }
+    socketRef.current?.emit('mic.request');
+  }, [micAllowed]);
+
   const toggleHand = useCallback(() => {
     pendingQuestionRef.current = null;
     if (isActiveSpeaker) {
@@ -1439,7 +1642,7 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   return (
     <div className='relative h-screen w-screen bg-slate-950'>
-      <LoadingOverlay visible={!!displayName && !sceneReady} />
+      <LoadingOverlay visible={!sceneReady} />
 
       {/* Guest waiting on host approval (private rooms) */}
       {joinPending && (
@@ -1483,14 +1686,8 @@ function SceneRoom({ sceneName, baseConfig }) {
         </div>
       )}
 
-      {!displayName && (
-        <NameEntryModal
-          onSubmit={(name) => {
-            sessionStorage.setItem(DISPLAY_NAME_KEY, name);
-            setDisplayName(name);
-          }}
-        />
-      )}
+      {/* Identity is auto-resolved (account name, or a random guest name) —
+          the old name prompt is intentionally gone. */}
 
       {sceneReady && camHint && (
         <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center'>
@@ -1521,8 +1718,14 @@ function SceneRoom({ sceneName, baseConfig }) {
             isActiveSpeaker={isActiveSpeaker}
             onToggleHand={toggleHand}
             professorStatus={professorStatus}
-            onVoice={voiceChat.toggleVoice}
+            onVoice={handleVoice}
             voiceOn={voiceChat.voiceOn}
+            micState={myMicState}
+            isGuest={isGuest}
+            canModerate={canModerate}
+            micPerms={micPerms}
+            onMicDecision={(userId, grant) => socketRef.current?.emit('mic.decision', { userId, grant })}
+            onMicRevoke={(userId) => socketRef.current?.emit('mic.revoke', { userId })}
             language={lectureLang}
             onLanguage={requestLanguageChange}
             canCatchUp={canCatchUp}
@@ -1537,6 +1740,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onHostPause={() => socketRef.current?.emit('lecture-control', { action: 'pause' })}
             onHostResume={() => socketRef.current?.emit('lecture-control', { action: 'resume' })}
             onHostEnd={() => socketRef.current?.emit('lecture-control', { action: 'end' })}
+            canEndLecture={canEndLecture}
           />
 
           <ChatInterface
@@ -1549,6 +1753,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             isFloorHolder={isActiveSpeaker}
             floorAnswering={floorAnswering}
             floorError={floorError}
+            isGuest={isGuest}
             onFloorQuestion={(text) => {
               setFloorError(null);
               if (isActiveSpeaker && floorReadyRef.current) {
@@ -1628,6 +1833,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             modelTransform={config.modelTransform}
             lectureId={lectureId}
             slidePage={slidePage}
+            slideDoc={slideDoc}
             remoteStreams={voiceChat.remoteStreams}
           />
         </Suspense>

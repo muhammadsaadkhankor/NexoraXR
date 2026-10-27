@@ -63,6 +63,20 @@ test('prompt enforces grounding and room language', () => {
   assert.match(p, /Topic: T/);
 });
 
+test('utterance prompt names the active course, defaulting to "this course"', () => {
+  const p = buildUtterancePrompt({
+    purpose: 'transition', lectureTitle: 'L', texts: ['m'],
+    instruction: 'x', lang: 'en', courseName: 'Machine learning',
+  });
+  assert.match(p, /teaching Machine learning/);
+  const d = buildUtterancePrompt({
+    purpose: 'transition', lectureTitle: 'L', texts: ['m'],
+    instruction: 'x', lang: 'en',
+  });
+  assert.match(d, /teaching this course/);
+  assert.doesNotMatch(d, /Multimedia Computing/);
+});
+
 test('purpose set is exactly the V2.2 contract', () => {
   assert.deepEqual([...UTTERANCE_PURPOSES], ['opening', 'transition', 'reexplain', 'closing_recap', 'group_recap']);
 });

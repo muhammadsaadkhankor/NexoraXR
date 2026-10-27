@@ -1,11 +1,14 @@
-// User learning-memory persistence — minimal PostgreSQL layer.
+// User learning-memory persistence — query layer over the shared pool.
 //
 // Hot path contract: ALL writes go through `persist(task)` — queued
 // fire-and-forget. Nothing in the lecture loop ever awaits a DB write.
 // If Postgres is unavailable the module degrades to `noop` (logged once);
 // RAM memory keeps working, persistence is just skipped.
 //
-// Backend selection:
+// Schema lives in db/migrations/0001_user_memory.sql — applied by the
+// versioned migration runner (db/migrate.mjs), not here.
+//
+// Backend selection (delegated to db/pool.mjs):
 //   DATABASE_URL set -> real pg Pool
 //   test/injected    -> any Pool-compatible object (e.g. pg-mem)
 //   neither          -> noop (degraded mode)
@@ -13,75 +16,18 @@
 // Run identity: every lecture start gets a run_id (uuid) so Lecture_1 Run A
 // and Run B never overwrite each other.
 
-import { randomUUID } from 'node:crypto';
+import { initDb, getPool, dbAvailable, persist } from '../db/pool.mjs';
 
-let pool = null;
-let degraded = false;
+export { dbAvailable, persist };
 
-export const SCHEMA = `
-CREATE TABLE IF NOT EXISTS user_lecture_sessions (
-  participant_id TEXT NOT NULL,
-  lecture_id     TEXT NOT NULL,
-  run_id         TEXT NOT NULL,
-  joined_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (participant_id, run_id)
-);
-CREATE TABLE IF NOT EXISTS user_topic_memory (
-  participant_id      TEXT NOT NULL,
-  run_id              TEXT NOT NULL,
-  lecture_id          TEXT NOT NULL,
-  topic_id            TEXT NOT NULL,
-  seen                BOOLEAN NOT NULL DEFAULT false,
-  missed              BOOLEAN NOT NULL DEFAULT false,
-  clarification_count INT  NOT NULL DEFAULT 0,
-  reexplained         BOOLEAN NOT NULL DEFAULT false,
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (participant_id, run_id, topic_id)
-);
-CREATE INDEX IF NOT EXISTS user_topic_memory_pid_lecture
-  ON user_topic_memory (participant_id, lecture_id);
-CREATE TABLE IF NOT EXISTS user_question_memory (
-  id             BIGSERIAL PRIMARY KEY,
-  participant_id TEXT NOT NULL,
-  run_id         TEXT NOT NULL,
-  lecture_id     TEXT NOT NULL,
-  topic_id       TEXT,
-  segment_id     INT,
-  question       TEXT NOT NULL,
-  answer         TEXT NOT NULL,
-  asked_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS user_question_memory_pid_lecture
-  ON user_question_memory (participant_id, lecture_id);
-`;
-
-// Pass a Pool-compatible adapter in tests (pg-mem), or rely on DATABASE_URL.
+// Kept for API compatibility — now just delegates to the shared pool init.
+// Adapter callers get migrations applied (0001 creates these tables).
 export async function initUserMemoryDb(adapter = null) {
-  if (adapter) { pool = adapter; await pool.query(SCHEMA); return pool; }
-  if (!process.env.DATABASE_URL) { degraded = true; return null; }
-  try {
-    const { Pool } = await import('pg');
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    await pool.query(SCHEMA);
-    degraded = false;
-    return pool;
-  } catch (err) {
-    degraded = true;
-    console.error('[userMemoryDb] Postgres unavailable — memory is RAM-only:', err.message);
-    pool = null;
-    return null;
+  const pool = await initDb(adapter);
+  if (!pool && !adapter && !process.env.DATABASE_URL) {
+    // degraded mode — silent noop, same contract as before
   }
-}
-
-export function dbAvailable() { return !!pool; }
-
-// Queued fire-and-forget write. Never throws, never awaited by callers.
-export function persist(task) {
-  if (!pool) return;
-  Promise.resolve()
-    .then(() => task(pool))
-    .catch((err) => console.error('[userMemoryDb] write failed (non-fatal):', err.message));
+  return pool;
 }
 
 export const queries = {
@@ -127,3 +73,6 @@ export const queries = {
     return { sessions: sessions.rows, topics: topics.rows, questions: questions.rows };
   },
 };
+
+// Internal helper retained for callers that need the raw pool (e.g. tests).
+export function userMemoryPool() { return getPool(); }

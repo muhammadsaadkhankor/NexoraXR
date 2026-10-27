@@ -238,6 +238,37 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
+### 2.4. Database Setup (PostgreSQL)
+
+`npm install` at the repo root now also runs `db:setup` automatically: it reads
+`DATABASE_URL` from `src/nexora_server/.env`, creates the database if missing,
+applies pending migrations, and verifies the schema — all without Docker.
+
+If you don't have PostgreSQL yet, use the embedded option (downloads standalone
+PostgreSQL binaries; no Docker and no system install):
+
+```bash
+npm run db:local        # start embedded PostgreSQL (data in src/nexora_server/.pgdata),
+                        # writes DATABASE_URL + AUTH_DELIVERY_MODE + PUBLIC_BASE_URL into .env
+npm run db:local:stop   # stop it
+```
+
+Or point `DATABASE_URL` at an existing server, then (re)run:
+
+```bash
+npm run db:setup      # create db (if allowed) + apply pending migrations
+npm run db:status     # connectivity + migration status, no credentials printed
+```
+
+Notes:
+- `db:setup` is safe to re-run: it only applies pending migrations and never
+  drops tables or rewrites data.
+- `npm run dev` prints a one-line DB status before starting; if Postgres is
+  unreachable the app still runs, but sign-in is unavailable and classroom
+  users are guests only (no raise-hand / AI questions).
+- Embedded dev credentials are `postgres:postgres` on localhost only — set your
+  own `DATABASE_URL` for anything beyond local development.
+
 **3. Access the Application**
 - **Frontend:** http://localhost:5173
 - **Backend:** http://localhost:3000

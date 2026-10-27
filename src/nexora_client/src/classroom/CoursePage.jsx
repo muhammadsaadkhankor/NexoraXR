@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { getLectures } from './services/lectureApi';
+import { API_URL } from '../shared/config';
 
 export default function CoursePage() {
   const { courseId } = useParams();
@@ -19,16 +20,41 @@ export default function CoursePage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getLectures()
-      .then((data) => {
-        setCourse(data.course);
-        setLectures(data.lectures);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    (async () => {
+      // A room-bound picker lists the COURSE's generated lectures — not the
+      // static scene list (which is what Multimedia only shows).
+      const roomId = searchParams.get('room');
+      let courseUuid = null;
+      let meta = null;
+      if (roomId) {
+        meta = await fetch(`${API_URL}/api/rooms/${roomId}`).then((r) => r.ok ? r.json() : null).catch(() => null);
+        if (meta?.courseId && /^[0-9a-f-]{36}$/i.test(meta.courseId)) courseUuid = meta.courseId;
+        if (meta?.lectureId) {
+          // Room already bound to a specific lecture — go straight in.
+          navigate(`/scene/${meta.scene}?lecture=${meta.lectureId}&room=${roomId}${searchParams.get('invite') ? `&invite=${searchParams.get('invite')}` : ''}`, { replace: true });
+          return;
+        }
+      }
+      let data;
+      if (courseUuid) {
+        // Owner first: /status includes draft lectures pending approval;
+        // guests/other users fall back to the public ready-only list.
+        const own = await fetch(`${API_URL}/api/courses/${courseUuid}/status`, { credentials: 'include' })
+          .then((r) => r.ok ? r.json() : null).catch(() => null);
+        data = own?.lectures?.length
+          ? { course: { course_id: courseUuid, title: meta?.courseName || 'Course' }, lectures: own.lectures }
+          : await fetch(`${API_URL}/api/courses/${courseUuid}/lectures`).then((r) => r.json());
+      } else {
+        // Try generated-course lectures for this scene name first — a built
+        // course (e.g. "Machine learning") wins over the static scene list.
+        const gen = await fetch(`${API_URL}/api/courses/by-name/${encodeURIComponent(courseId)}/lectures`)
+          .then((r) => r.ok ? r.json() : { lectures: [] }).catch(() => ({ lectures: [] }));
+        data = gen.lectures?.length ? gen : await getLectures();
+      }
+      setCourse(data.course);
+      setLectures(data.lectures);
+      setLoading(false);
+    })().catch((err) => { setError(err.message); setLoading(false); });
   }, []);
 
   const handleSelect = (lecture) => {
@@ -92,6 +118,9 @@ export default function CoursePage() {
                     </p>
                     <h3 className='mt-0.5 truncate text-base font-semibold text-white'>
                       {lecture.title}
+                      {lecture.status === 'draft' && (
+                        <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300'>DRAFT — review &amp; approve in your panel</span>
+                      )}
                     </h3>
                     {lecture.subtitle && (
                       <p className='mt-0.5 truncate text-sm text-slate-400'>{lecture.subtitle}</p>

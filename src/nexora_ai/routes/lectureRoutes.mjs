@@ -24,7 +24,24 @@ const PDFS_BASE = path.join(__dirname, '..', 'data', 'courses');
 const ANIMATIONS = ['explain', 'explain2', 'explain3'];
 const EXPRESSIONS = ['smile', 'neutral', 'smile', 'happy'];
 
-function findLecturePdf(lectureId, course = 'Multimedia') {
+function findLecturePdf(lectureId, course = 'Multimedia', doc = null) {
+  // Multi-document courses ship one PDF per source doc under slides/<file>.
+  if (doc) {
+    const safe = path.basename(String(doc)).replace(/[^A-Za-z0-9._-]/g, '_');
+    const p = path.join(PROFBRAIN_DIR, lectureId, 'slides', safe);
+    if (existsSync(p)) return p;
+  }
+  // Generated courses ship their slide deck in the profbrain lecture dir.
+  const genPath = path.join(PROFBRAIN_DIR, lectureId, 'slides.pdf');
+  if (existsSync(genPath)) return genPath;
+  // Legacy single-deck dirs: exactly one file under slides/ is unambiguous.
+  if (!doc) {
+    const slidesDir = path.join(PROFBRAIN_DIR, lectureId, 'slides');
+    if (existsSync(slidesDir)) {
+      const only = readdirSync(slidesDir).filter((f) => f.endsWith('.pdf'));
+      if (only.length === 1) return path.join(slidesDir, only[0]);
+    }
+  }
   const n = Number(lectureId.replace(/\D/g, ''));
   const pdfDir = path.join(PDFS_BASE, course);
   if (!existsSync(pdfDir)) return null;
@@ -163,7 +180,7 @@ function normalizeLang(lang) {
 
 // Translate a lecture narration segment via Ollama. VoxCPM2 then detects the
 // output language automatically at synthesis time (no tag needed).
-async function translateForLecture(text, lang) {
+export async function translateForLecture(text, lang) {
   if (lang === 'en') return text;
   const prompt = `Translate the following lecture narration into ${LECTURE_LANGUAGES[lang]}. Keep the same warm, spoken-lecture style and roughly the same length. Output ONLY the translated narration — no notes, no headings, no commentary.\n\n${text}`;
   const out = await generateOllama(prompt, { numPredict: 800 });
@@ -189,7 +206,9 @@ function langFromCacheKey(lectureId) {
   return m ? m[1] : 'en';
 }
 
-async function generateSegmentAudio(lectureId, index, text, lang = null) {
+// Exported for the course-builder pre-bake: identical cache keys/paths as the
+// lazy runtime path — a prepared segment hits cache on first play.
+export async function generateSegmentAudio(lectureId, index, text, lang = null) {
   const audioPath = segmentAudioPath(lectureId, index);
   const lipsyncPath = segmentLipSyncPath(lectureId, index);
   const ttsText = cleanTextForTts(text);
@@ -216,15 +235,23 @@ async function generateSegmentAudio(lectureId, index, text, lang = null) {
     await fs.mkdir(dir, { recursive: true });
   }
 
+  // ONE bounded retry policy — synthesizeVerified runs 1 attempt per call so
+  // the outer loop owns the whole budget (3 tries max, not 3×3). Retryable:
+  // network/5xx/timeouts/language drift; non-retryable (bad voice, 4xx) bail
+  // immediately instead of burning GPU time.
+  const isRetryable = (err) =>
+    !/VoxCPM error: 4\d\d/.test(err?.message || '');
   let audioBuffer = null;
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      audioBuffer = await synthesizeVerified(ttsText, voiceId, lang || langFromCacheKey(lectureId));
+      audioBuffer = await synthesizeVerified(ttsText, voiceId,
+        lang || langFromCacheKey(lectureId), { attempts: 1 });
       break;
     } catch (err) {
       lastError = err;
       console.error(`[segments] TTS attempt ${attempt + 1} failed for ${lectureId}/${index}:`, err.message || err);
+      if (!isRetryable(err)) break;
       await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
     }
   }
@@ -251,7 +278,10 @@ async function loadSlideMap(lectureId) {
   if (!existsSync(mapPath)) return null;
   try {
     const map = JSON.parse(await fs.readFile(mapPath, 'utf-8'));
-    return map?.segments && typeof map.segments === 'object' ? map.segments : null;
+    if (!map?.segments || typeof map.segments !== 'object') return null;
+    // Legacy shape {segments:{idx:page}} gains empty documents; new shape has
+    // {documents:{docId:file}, segments:{idx:{doc,page}}}.
+    return { documents: map.documents || {}, segments: map.segments };
   } catch (err) {
     console.error(`[segments] slide_map invalid for ${lectureId}:`, err);
     return null;
@@ -266,6 +296,13 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
 
   const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
   const slideMap = await loadSlideMap(lectureId);
+  // Canonical segment manifest (multi-document courses): stable ids, exact
+  // document+page provenance, text — no re-splitting, no page inference.
+  const segJsonPath = path.join(PROFBRAIN_DIR, lectureId, 'segments.json');
+  const segDoc = existsSync(segJsonPath)
+    ? JSON.parse(await fs.readFile(segJsonPath, 'utf-8'))
+    : null;
+  const segList = segDoc?.segments || null;
   // Language-keyed cache dir: English keeps the original layout, translated
   // lectures get their own audio/lipsync cache (e.g. segments/Lecture_1__ar).
   const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
@@ -274,7 +311,7 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
   // the shared logical position. A single-segment English shortcut breaks
   // NCIP mid-lecture language switching: switches away rebuild from seg 0,
   // and switching back yields an empty filtered manifest (nothing plays).
-  const texts = splitSummaryText(summary.text);
+  const texts = segList ? segList.map((s) => s.text) : splitSummaryText(summary.text);
   const segments = [];
   for (let i = 0; i < texts.length; i++) {
     const audioPath = segmentAudioPath(cacheKey, i);
@@ -335,20 +372,24 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
       facialExpression: EXPRESSIONS[i % EXPRESSIONS.length],
       audioUrl: `/api/lecture/segment_audio/${cacheKey}/${i}`,
       lipsync,
-      slidePage: slideMap ? (Number(slideMap[String(i)]) || null) : null,
+      slidePage: segList ? (segList[i]?.page ?? null)
+        : (() => { const m = slideMap?.segments?.[String(i)];
+            return typeof m === 'object' && m !== null ? m.page : (Number(m) || null); })(),
+      slideDoc: segList ? (segList[i]?.document ?? null) : null,
     });
   }
 
   return {
     lectureId,
     title: summary.title,
+    course: segDoc?.course || null,
     language: lang,
     segments,
   };
 }
 
-function buildPrompt(lecture) {
-  return `You are a university professor teaching a course on Multimedia Computing.
+function buildPrompt(lecture, courseName = null) {
+  return `You are a university professor teaching a course on ${courseName || 'this subject'}.
 
 Lecture: ${lecture.title}
 Material:
@@ -404,7 +445,7 @@ router.post('/lecture/explain', async (req, res) => {
   }
 
   try {
-    const explanation = await generateOllama(buildPrompt(lecture), { numPredict: 180 });
+    const explanation = await generateOllama(buildPrompt(lecture, data.title), { numPredict: 180 });
     if (!explanation) {
       throw new Error('Ollama returned empty explanation');
     }
@@ -518,17 +559,20 @@ router.get('/lecture/pdf/:lectureId', (req, res) => {
 router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   const { lectureId } = req.params;
   const course = req.query.course || 'Multimedia';
+  const doc = req.query.doc ? path.basename(String(req.query.doc)) : null;
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-  const pdfPath = findLecturePdf(lectureId, course);
+  const pdfPath = findLecturePdf(lectureId, course, doc);
   if (!pdfPath || !existsSync(pdfPath)) {
-    console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} course=${course}`);
+    console.log(`[lecture/pdf_image] Missing PDF for lectureId=${lectureId} course=${course} doc=${doc}`);
     return res.status(404).json({ error: `PDF not found for ${lectureId}` });
   }
 
   await ensureCacheDir();
   // Page 1 keeps the legacy cache filename; other pages get a per-page key.
+  // Multi-doc renders get a doc-scoped key so different PDFs don't collide.
+  const docKey = doc ? `_${doc.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 40)}` : '';
   const suffix = page === 1 ? '' : `_p${page}`;
-  const outBase = path.join(CACHE_DIR, `${course}_${lectureId}_slide${suffix}`);
+  const outBase = path.join(CACHE_DIR, `${course}_${lectureId}${docKey}_slide${suffix}`);
   const outPng = `${outBase}.png`;
 
   if (!existsSync(outPng)) {
@@ -589,24 +633,78 @@ router.get('/lecture/segment_audio/:lectureId/:segmentId', async (req, res) => {
 });
 
 // The answer MUST be in the authoritative room language regardless of the
-// language the question was asked in. Exported for unit tests.
-export function buildAskPrompt(context, question, lang) {
-  return `You are Professor Abed, a warm university professor teaching Multimedia Computing. A student interrupts your lecture to ask a question. Answer clearly and briefly in 2-4 spoken-style sentences. You must answer ONLY in ${LECTURE_LANGUAGES[lang] || 'English'} — even if the question is asked in another language, never switch languages. Plain text only — no markdown, no lists, no citations.
+// language the question was asked in. courseName is the ACTIVE course title
+// ('this course' fallback); exported for unit tests.
+export function buildAskPrompt(context, question, lang, courseName = null) {
+  return `You are Professor Abed, a warm university professor teaching ${courseName || 'this course'}. A student interrupts your lecture to ask a question. Answer clearly and briefly in 2-3 spoken-style sentences.
+
+Rules:
+- You must answer ONLY in ${LECTURE_LANGUAGES[lang] || 'English'} — even if the question is asked in another language, never switch languages.
+- When supplied course material is relevant, ground your answer on it.
+- When no relevant course material is supplied, answer from your general knowledge — never claim it came from the uploaded course materials, and acknowledge uncertainty when appropriate.
+- Plain text only — no markdown, no lists, no citations.
 
 ${context}
 
 Student question: ${question}`;
 }
 
+// Course-scoped retrieval for floor questions — resolves the lecture's owning
+// course and pulls the most relevant uploaded-material chunks. Returns
+// { courseName, material } — material is null when nothing clears the
+// relevance bar (the prompt then answers from general knowledge). Degrades to
+// null on any failure: no DB, a non-generated lecture, missing embeddings.
+const ASK_RAG_K = Number(process.env.ASK_RAG_K || 4);
+const ASK_RAG_MIN_SCORE = Number(process.env.ASK_RAG_MIN_SCORE || 0.35);
+async function retrieveCourseContext(lectureId, question) {
+  try {
+    const { getPool } = await import('../../nexora_server/db/pool.mjs');
+    const { retrieveChunks } = await import('../../nexora_server/courses/generator.mjs');
+    const { embed, cosine } = await import('../../nexora_server/courses/llm.mjs');
+    const pool = getPool();
+    if (!pool) return null;
+    const { rows } = await pool.query(
+      `SELECT c.id AS course_id, c.name FROM course_lectures l
+        JOIN courses c ON c.id = l.course_id WHERE l.lecture_id=$1 LIMIT 1`, [lectureId]);
+    const course = rows[0];
+    if (!course) return null;
+    const chunks = await retrieveChunks(course.course_id, [question], ASK_RAG_K);
+    let best = 0;
+    try {
+      const [qv] = await embed([question]);
+      for (const c of chunks) best = Math.max(best, cosine(qv, c.embedding || []));
+    } catch {
+      // Scoring unavailable — keep the retrieved context rather than drop it.
+      best = chunks.length ? 1 : 0;
+    }
+    if (best < ASK_RAG_MIN_SCORE) return { courseName: course.name, material: null };
+    return {
+      courseName: course.name,
+      material: chunks
+        .map((c) => `[${c.filename} p.${c.page ?? '?'}] ${String(c.text).slice(0, 800)}`)
+        .join('\n\n'),
+    };
+  } catch (e) {
+    console.error('[ask] course retrieval failed:', e.message);
+    return null;
+  }
+}
+
 // Student question during a lecture: Ollama answer + VoxCPM2 (abed101) TTS.
 // Cached per (lectureId, question) so repeated interruptions are instant.
 // The live lecture position the server reports with a floor question — used
 // to ground the answer on the segment currently being taught.
-export function buildAskContext({ summaryTitle, summaryText, currentSegmentText }) {
+export function buildAskContext({ summaryTitle, summaryText, currentSegmentText, courseMaterial }) {
+  const parts = [];
   if (currentSegmentText) {
-    return `Current lecture: ${summaryTitle}. The professor is teaching this part right now — ground your answer primarily on it: ${currentSegmentText}`;
+    parts.push(`Current lecture: ${summaryTitle}. The professor is teaching this part right now — ground your answer primarily on it: ${currentSegmentText}`);
+  } else if (summaryText) {
+    parts.push(`Current lecture: ${summaryTitle}. Content excerpt: ${summaryText.slice(0, 1500)}`);
   }
-  return `Current lecture: ${summaryTitle}. Content excerpt: ${summaryText.slice(0, 1500)}`;
+  if (courseMaterial) {
+    parts.push(`Relevant material retrieved from the uploaded course documents:\n${courseMaterial}`);
+  }
+  return parts.join('\n\n');
 }
 
 router.post('/ask', async (req, res) => {
@@ -621,6 +719,7 @@ router.post('/ask', async (req, res) => {
   const segId = Number.isInteger(currentSegmentId) ? currentSegmentId : null;
   try {
     let context = '';
+    let courseName = null;
     if (lectureId) {
       try {
         const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
@@ -629,6 +728,14 @@ router.post('/ask', async (req, res) => {
           // Position-aware grounding: resolve the exact segment text for the
           // reported position; an unknown/stale segment id falls back to the
           // legacy whole-lecture excerpt rather than failing the question.
+          // Course name from the canonical manifest header — a cheap file
+          // read that avoids loading/translating the full manifest.
+          try {
+            const segJsonPath = path.join(PROFBRAIN_DIR, lectureId, 'segments.json');
+            if (existsSync(segJsonPath)) {
+              courseName = JSON.parse(await fs.readFile(segJsonPath, 'utf-8')).course || null;
+            }
+          } catch {}
           let segmentText = null;
           if (segId != null) {
             try {
@@ -638,10 +745,16 @@ router.post('/ask', async (req, res) => {
               console.error(`[ask] segment context failed for ${lectureId}/${segId}:`, err);
             }
           }
+          // Course-scoped RAG: only material from THIS course's uploaded
+          // documents may ground the answer; below the relevance bar the
+          // professor answers from general knowledge (prompt handles that).
+          const rag = await retrieveCourseContext(lectureId, question);
+          if (rag?.courseName) courseName = rag.courseName;
           context = buildAskContext({
             summaryTitle: summary.title,
             summaryText: summary.text,
             currentSegmentText: segmentText,
+            courseMaterial: rag?.material || null,
           });
         }
       } catch (err) {
@@ -649,7 +762,7 @@ router.post('/ask', async (req, res) => {
       }
     }
 
-    const prompt = buildAskPrompt(context, question, lang);
+    const prompt = buildAskPrompt(context, question, lang, courseName);
 
     let answerText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 220 })).trim();
     if (!answerText) {
@@ -745,7 +858,7 @@ async function resolveRecapMaterial(lectureId, language, fromSegment, toSegment)
   if (texts.length === 0) {
     return { status: 400, error: 'Empty recap range' };
   }
-  return { lang, texts };
+  return { lang, texts, manifest };
 }
 
 // Cache key includes a hash of the actual source text so a regenerated lecture
@@ -771,7 +884,7 @@ router.post('/recap', async (req, res) => {
     const { lang, texts } = resolved;
     const material = texts.join('\n\n');
 
-    const prompt = `You are Professor Abed, a warm university professor teaching Multimedia Computing. A student just joined your lecture late and missed what you already covered. In ${LECTURE_LANGUAGES[lang]}, give them a quick spoken catch-up: summarize ONLY the material below into at most 3-4 short sentences, keeping the important concepts. Do not mention "the text", "the material", or that this is a summary — speak naturally as yourself catching the student up, then say you will now continue with the rest of the class. Plain text only — no markdown, no lists.
+    const prompt = `You are Professor Abed, a warm university professor teaching ${resolved.manifest?.course || 'this course'}. A student just joined your lecture late and missed what you already covered. In ${LECTURE_LANGUAGES[lang]}, give them a quick spoken catch-up: summarize ONLY the material below into at most 3-4 short sentences, keeping the important concepts. Do not mention "the text", "the material", or that this is a summary — speak naturally as yourself catching the student up, then say you will now continue with the rest of the class. Plain text only — no markdown, no lists.
 
 Material covered so far:
 ${material}`;
@@ -896,8 +1009,8 @@ export async function resolveUtteranceMaterial(lectureId, language, sourceSegmen
   return { lang, texts, manifest };
 }
 
-export function buildUtterancePrompt({ purpose, lectureTitle, topicTitle, texts, instruction, lang }) {
-  return `You are Professor Abed, a warm university professor teaching Multimedia Computing, speaking live to your class.
+export function buildUtterancePrompt({ purpose, lectureTitle, topicTitle, texts, instruction, lang, courseName = null }) {
+  return `You are Professor Abed, a warm university professor teaching ${courseName || 'this course'}, speaking live to your class.
 
 Task: ${instruction}
 
@@ -950,9 +1063,23 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
   if (existsSync(textPath)) {
     try { utterText = await fs.readFile(textPath, 'utf-8'); } catch { utterText = null; }
   }
+  // The welcome is deterministic — actual course title, no LLM call, so the
+  // classroom's first utterance is always correct AND can be pre-baked.
+  if (!utterText && purpose === 'opening') {
+    const courseName = manifest.course || manifest.title;
+    utterText = lang === 'en'
+      ? `Welcome to ${courseName}. Let's get started with today's lecture.`
+      : (await generateOllama(
+          `Translate this welcome exactly, keeping the course name: "Welcome to ${courseName}. Let's get started with today's lecture."`,
+          { temperature: 0.2, numPredict: 60 })).trim()
+        || `Welcome to ${courseName}. Let's get started with today's lecture.`;
+    if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
+    await fs.writeFile(textPath, utterText).catch(() => {});
+  }
   if (!utterText) {
     const prompt = buildUtterancePrompt({
       purpose, lectureTitle: manifest.title, topicTitle, texts, instruction: instr, lang,
+      courseName: manifest.course,
     });
     utterText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 160 })).trim();
     if (!utterText) throw new Error('Empty utterance from LLM');

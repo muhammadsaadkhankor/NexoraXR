@@ -11,6 +11,7 @@ import {
   planLanguageSwitch,
   resolveSlidePage,
   snapshotFloor,
+  shouldAcceptLectureUnit,
 } from './ncipSync.js';
 
 const LECT_MSGS = (ids) => ids.map((i) => ({ id: `Lecture_1_seg_${i}`, type: 'lecture' }));
@@ -89,6 +90,56 @@ test('S2-9. recovery never plans a segment-0 restart', () => {
   const plan = planLectureRecovery(SNAP, LECT_MSGS([0, 1, 2])); // wrong segments loaded
   assert.equal(plan.action, 'reload');             // rebuild from seg 7
   assert.equal(plan.checkpoint.segmentIndex, 7);   // not 0
+});
+
+test('S2-9b. recovery ignores a checkpoint for a different lecture', () => {
+  // Room is mid-Lecture_1 but this client entered for Lecture_2 — never
+  // apply another lecture's position to this session.
+  const plan = planLectureRecovery(SNAP, [], 'gen_abc_L2');
+  assert.equal(plan.action, 'none');
+  assert.equal(plan.reason, 'different-lecture');
+  assert.equal(plan.roomLectureId, 'Lecture_1');
+  // Same lectureId still resumes/reloads normally.
+  assert.equal(planLectureRecovery(SNAP, [], 'Lecture_1').action, 'reload');
+  // No intended lecture (e.g. unbound join) keeps legacy recovery.
+  assert.equal(planLectureRecovery(SNAP, []).action, 'reload');
+});
+
+test('S2-9c. shouldAcceptLectureUnit drops lecture echoes after completion', () => {
+  // Echo of a finished playthrough — rejected while 'completed'.
+  const unit = { id: 'L_seg_3', type: 'lecture', text: 'x' };
+  assert.equal(shouldAcceptLectureUnit(unit, 'completed'), false);
+  // Any other status accepts (a real restart resets status via lecture-started).
+  assert.equal(shouldAcceptLectureUnit(unit, 'teaching'), true);
+  assert.equal(shouldAcceptLectureUnit(unit, 'idle'), true);
+  // Non-lecture messages (floor answers etc.) are never filtered.
+  assert.equal(shouldAcceptLectureUnit({ type: 'answer' }, 'completed'), true);
+  assert.equal(shouldAcceptLectureUnit({}, 'completed'), true);
+});
+
+test('S2-9d. recovery never rewinds: dynamic in flight or cp behind head => none', () => {
+  const msgs = [{ id: 'L_seg_5', type: 'lecture' }, { id: 'L_seg_6', type: 'lecture' }];
+  // Mid-transition after seg 4: playback names the FINISHED seg 4 but the
+  // unit is dynamic — recovering to 4 would replay completed narration.
+  const snapDyn = {
+    lecture: { active: true, lectureId: 'L', segmentIndex: 4, playbackOffsetMs: 1200,
+      unit: { kind: 'dynamic', purpose: 'transition', nextSegIndex: 5 } },
+  };
+  assert.equal(planLectureRecovery(snapDyn, msgs).action, 'none');
+  // Stale checkpoint behind the local head — never roll back.
+  const snapBehind = {
+    lecture: { active: true, lectureId: 'L', segmentIndex: 3, playbackOffsetMs: 0,
+      unit: { kind: 'segment', segmentIndex: 3 } },
+  };
+  assert.equal(planLectureRecovery(snapBehind, msgs).action, 'none');
+  // Current segment still ahead/head — normal resume still works.
+  const snapCurrent = {
+    lecture: { active: true, lectureId: 'L', segmentIndex: 5, playbackOffsetMs: 9000,
+      unit: { kind: 'segment', segmentIndex: 5 } },
+  };
+  const p = planLectureRecovery(snapCurrent, msgs);
+  assert.equal(p.action, 'resume');
+  assert.equal(p.checkpoint.segmentIndex, 5);
 });
 
 test('S2-10. recovery picks a later checkpoint, not the queued head', () => {

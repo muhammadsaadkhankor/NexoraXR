@@ -3,7 +3,7 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
@@ -16,20 +16,26 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
   const [lectureLines, setLectureLines] = useState([]);
   const messagesEndRef = useRef(null);
 
+  // Transcript archive: a lecture unit enters history only when it has
+  // FINISHED (i.e. the head advanced past it). The live message is never
+  // written here — SpeakingTranscript reveals its words progressively from
+  // the audio clock, so a new segment can never flash its full text.
+  const prevMessageRef = useRef(null);
   useEffect(() => {
-    if (!message || !message.text) return;
-    if (message.type === 'lecture') {
-      setLectureLines((prev) =>
-        prev.some((l) => l.id === message.id)
-          ? prev
-          : [...prev, { id: message.id, text: message.text, time: new Date() }]
+    const prev = prevMessageRef.current;
+    prevMessageRef.current = message;
+    if (prev?.type === 'lecture' && prev.text && prev.id !== message?.id) {
+      setLectureLines((lines) =>
+        lines.some((l) => l.id === prev.id)
+          ? lines
+          : [...lines, { id: prev.id, text: prev.text, time: new Date() }]
       );
-      return;
     }
-    setChatHistory((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.role === "assistant" && last.text === message.text) return prev;
-      return [...prev, { role: "assistant", text: message.text, time: new Date() }];
+    if (!message || !message.text || message.type === 'lecture') return;
+    setChatHistory((prev2) => {
+      const last = prev2[prev2.length - 1];
+      if (last && last.role === "assistant" && last.text === message.text) return prev2;
+      return [...prev2, { role: "assistant", text: message.text, time: new Date() }];
     });
   }, [message]);
 
@@ -177,6 +183,8 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
   // During a lecture (or while anyone holds the floor) you MUST hold the
   // floor to type or speak — no question without raising your hand first.
   const floorRequired = !!floorHolder || (message?.type === 'lecture');
+  // Guests with a joined room may ask the professor — floor rules apply the
+  // same as for signed-in users; only the floor-holder state blocks input.
   const floorBlocked = floorRequired && !isFloorHolder;
   const floorSendBlocked = floorRequired && (!isFloorHolder || floorAnswering || loading);
 
@@ -267,33 +275,34 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
                 <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
                   Live transcript
                 </div>
-                {/* HISTORY: previously spoken lecture units, deduped by
-                    message id — never used to render the live line. */}
-                {(() => {
-                  const seen = new Set();
-                  return lectureLines
-                    .filter((l) => l.id !== activeMessage?.id)
-                    .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
-                    .map((line) => (
-                      <div key={line.id} className="mt-3 border-t border-slate-700/60 pt-3">
-                        <p className="text-slate-200">{line.text}</p>
-                        <div className="text-[10px] mt-1 text-slate-500">{formatTime(line.time)}</div>
-                      </div>
-                    ));
-                })()}
-                {/* LIVE: the exact message whose audio is playing right now —
-                    SpeakingTranscript polls the same Audio element's
-                    currentTime for word highlighting. Covers lecture
-                    segments, dynamics, and floor answers uniformly. */}
-                {activeMessage?.text && (
-                  <div className="mt-3 border-t border-cyan-500/30 pt-3">
+                {/* One continuous narration paragraph: played segments flow
+                    into the live unit — single spaces between utterances,
+                    no per-segment blocks. HISTORY is deduped by message id
+                    and never used to render the live line. */}
+                <div className="text-slate-200 leading-relaxed">
+                  {(() => {
+                    const seen = new Set();
+                    return lectureLines
+                      .filter((l) => l.id !== activeMessage?.id)
+                      .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
+                      .map((line) => (
+                        <span key={line.id}>
+                          {String(line.text || '').replace(/\s+/g, ' ').trim()}{' '}
+                        </span>
+                      ));
+                  })()}
+                  {/* LIVE: the exact message whose audio is playing right now —
+                      SpeakingTranscript polls the same Audio element's
+                      currentTime for word highlighting, continuing inline. */}
+                  {activeMessage?.text && (
                     <SpeakingTranscript
                       key={activeMessage.id}
                       text={activeMessage.text}
                       audioRef={audioElementRef}
+                      lipsync={activeMessage.lipsync}
                     />
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           )}

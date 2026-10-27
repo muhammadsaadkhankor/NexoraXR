@@ -23,7 +23,9 @@ let server;
 before(async () => {
   server = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), NXR_UTTERANCE_STUB: '1' },
+    env: { ...process.env, PORT: String(PORT), NXR_UTTERANCE_STUB: '1',
+      // e2e drives full NCIP without a database — legacy trust mode (dev only).
+      NXR_DEV_UNAUTH_PROTOCOL: '1' },
     stdio: 'ignore',
   });
   for (let i = 0; i < 60; i++) {

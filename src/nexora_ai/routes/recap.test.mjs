@@ -84,6 +84,20 @@ test('ask prompt supports Chinese (room=zh)', () => {
   assert.match(p, /ONLY in Chinese/);
 });
 
+test('ask prompt names the active course, not a hardcoded one', () => {
+  const p = buildAskPrompt('', 'question', 'en', 'Machine learning');
+  assert.match(p, /teaching Machine learning/);
+  assert.doesNotMatch(p, /Multimedia Computing/);
+  const d = buildAskPrompt('', 'question', 'en');
+  assert.match(d, /teaching this course/);
+});
+
+test('ask prompt allows general knowledge without material claims', () => {
+  const p = buildAskPrompt('', 'question', 'en', 'Machine learning');
+  assert.match(p, /general knowledge/);
+  assert.match(p, /never claim it came from the uploaded course materials/i);
+});
+
 test('resolveRecapMaterial still rejects hi (not offered)', async () => {
   const r = await resolveRecapMaterial('Lecture_1', 'hi', 0, 1);
   assert.equal(r.status, 400);

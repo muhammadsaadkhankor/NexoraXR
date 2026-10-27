@@ -19,7 +19,43 @@ export class RoomRegistry {
   }
 
   // Returns { error } on invalid input, otherwise the room record.
-  create({ roomType, className, courseId, lectureId, language, hostId, scene }) {
+  // Rehydrate persisted rooms on boot — private invite links survive restarts.
+  async hydrate(pool) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM classrooms WHERE ended_at IS NULL`);
+      for (const r of rows) {
+        if (this.rooms.has(r.id)) continue;
+        this.rooms.set(r.id, {
+          roomId: r.id, roomType: r.room_type, className: r.class_name,
+          courseId: r.course_id, courseName: r.course_name,
+          lectureId: r.lecture_id, language: r.language, hostId: r.host_id,
+          scene: r.scene, lectureCount: r.lecture_count,
+          inviteToken: r.invite_token, createdAt: r.created_at,
+        });
+      }
+      if (rows.length) console.log(`[rooms] rehydrated ${rows.length} classroom(s) from database`);
+    } catch (err) {
+      console.error('[rooms] hydrate failed:', err.message);
+    }
+  }
+
+  _persist(pool, room) {
+    if (!pool) return;
+    pool.query(
+      `INSERT INTO classrooms (id, host_id, class_name, course_id, course_name, room_type, scene, language, lecture_id, lecture_count, invite_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (id) DO UPDATE SET class_name=$3, invite_token=$11, ended_at=NULL`,
+      [room.roomId, room.hostId, room.className,
+       /^[0-9a-f-]{36}$/i.test(room.courseId || '') ? room.courseId : null,
+       room.courseName,
+       room.roomType, room.scene, room.language, room.lectureId, room.lectureCount, room.inviteToken])
+      .catch((e) => console.error('[rooms] persist failed:', e.message));
+  }
+
+  setPool(pool) { this._pool = pool; }
+
+  create({ roomType, className, courseId, courseName, lectureId, language, hostId, scene, lectureCount }) {
     if (roomType !== 'public' && roomType !== 'private') {
       return { error: "roomType must be 'public' or 'private'" };
     }
@@ -43,6 +79,11 @@ export class RoomRegistry {
       roomType,
       className: className.trim(),
       courseId: courseId || null,
+      courseName: typeof courseName === 'string' && courseName.trim()
+        ? courseName.trim().slice(0, 80) : null,
+      // Planned course length — free-form instructor input, capped sanely.
+      lectureCount: Number.isInteger(lectureCount) && lectureCount >= 1 && lectureCount <= 500
+        ? lectureCount : null,
       lectureId: lectureId || null,
       language: language || 'en',
       scene: scene && SAFE_ID_RE.test(scene) ? scene : 'Multimedia',
@@ -54,6 +95,7 @@ export class RoomRegistry {
       // Reusable link: any holder may REQUEST entry; the host approves each.
     }
     this.rooms.set(roomId, room);
+    this._persist(this._pool, room);
     return { room };
   }
 
@@ -75,6 +117,8 @@ export class RoomRegistry {
 
   remove(roomId) {
     this.rooms.delete(roomId);
+    this._pool?.query(`UPDATE classrooms SET ended_at=now() WHERE id=$1`, [roomId])
+      .catch((e) => console.error('[rooms] remove persist failed:', e.message));
   }
 
   // Admission: public rooms admit any joiner who knows the roomId; private
@@ -99,6 +143,30 @@ export class RoomRegistry {
     return { ok: true, room };
   }
 
+  // Flip visibility. Owner (or SUPER_ADMIN via isAdmin) only; server-side
+  // authority — the registry object updates immediately so listPublic/admit
+  // reflect the change with no restart. The inviteToken is preserved across
+  // flips so a re-privatized room keeps its link.
+  setVisibility(roomId, roomType, actorId, isAdmin = false) {
+    const room = this.rooms.get(roomId);
+    if (!room) return { ok: false, status: 404, error: 'Classroom not found' };
+    if (roomType !== 'public' && roomType !== 'private') {
+      return { ok: false, status: 400, error: "visibility must be 'public' or 'private'" };
+    }
+    if (!isAdmin && room.hostId !== actorId) {
+      return { ok: false, status: 403, error: 'Only the classroom owner can change visibility' };
+    }
+    if (room.roomType === roomType) return { ok: true, room };
+    room.roomType = roomType;
+    if (roomType === 'private' && !room.inviteToken) {
+      room.inviteToken = randomBytes(24).toString('base64url');
+    }
+    this._pool?.query(`UPDATE classrooms SET room_type=$2, invite_token=$3 WHERE id=$1`,
+      [roomId, roomType, room.inviteToken || null])
+      .catch((e) => console.error('[rooms] visibility persist failed:', e.message));
+    return { ok: true, room };
+  }
+
   // Mint a fresh invite link. Only the host may rotate; the previous link
   // stops working — the way a host revokes a link that spread too far.
   rotateInvite(roomId, hostId) {
@@ -107,6 +175,8 @@ export class RoomRegistry {
       return { ok: false };
     }
     room.inviteToken = randomBytes(24).toString('base64url');
+    this._pool?.query(`UPDATE classrooms SET invite_token=$2 WHERE id=$1`, [roomId, room.inviteToken])
+      .catch(() => {});
     return { ok: true, room };
   }
 
@@ -114,7 +184,7 @@ export class RoomRegistry {
   listPublic() {
     return [...this.rooms.values()]
       .filter((r) => r.roomType === 'public')
-      .map(({ roomId, roomType, className, courseId, lectureId, language, scene, hostId, createdAt }) =>
-        ({ roomId, roomType, className, courseId, lectureId, language, scene, hostId, createdAt }));
+      .map(({ roomId, roomType, className, courseId, courseName, lectureCount, lectureId, language, scene, hostId, createdAt }) =>
+        ({ roomId, roomType, className, courseId, courseName, lectureCount, lectureId, language, scene, hostId, createdAt }));
   }
 }

@@ -71,7 +71,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   }, [avatarAnimations, extraAnimations, nodes]);
 
   const { actions, mixer } = useAnimations(animations, group);
-  const { message, onMessagePlayed, audioElementRef, floorPausedRef, floorPaused } = useSpeech();
+  const { message, onMessagePlayed, audioElementRef, floorPausedRef, floorPaused, audioErrorRef } = useSpeech();
 
   const [lipsync, setLipsync] = useState();
   const [animation, setAnimation] = useState("Idle");
@@ -156,6 +156,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       nextAudio.onended = onMessagePlayed;
       nextAudio.onerror = () => {
         console.error('[Avatar] audio error:', nextAudio.src);
+        audioErrorRef?.current?.(message);
         onMessagePlayed?.();
       };
       // Talking animation starts only when audio actually begins — lazy TTS

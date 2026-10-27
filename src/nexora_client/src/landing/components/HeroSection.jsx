@@ -19,13 +19,12 @@ export default function HeroSection() {
             <span className="hero__title-grad"> flows with you</span>
           </h1>
           <p className="hero__support">
-            WuFlux removes the walls — of place, language, pace and presence.
+            WuFlux removes the walls of place, language, pace and presence.
             Step into a shared 3D classroom, learn from an AI professor who
             speaks your language, and flow with the class instead of chasing it.
           </p>
           <div className="hero__actions">
             <a href="#explore" className="btn btn-primary btn-lg">Enter a classroom</a>
-            <a href="#philosophy" className="btn btn-secondary btn-lg">Our philosophy</a>
           </div>
           <div className="hero__compat">
             WebXR <span className="dot" /> Desktop <span className="dot" /> VR
