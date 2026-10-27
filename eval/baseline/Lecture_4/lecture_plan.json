@@ -1,0 +1,76 @@
+{
+  "lectureId": "Lecture_4",
+  "title": "Multimedia Computing: Multimedia Interactions",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "What Is Multimodal Interaction?",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        20
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "The Three Dominant Senses",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        39
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Advanced Media: Haptics",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        58
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Multimodal Interfaces in Practice",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        78
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Case Study: The Digital Twin Ecosystem",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        97
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        116
+      ]
+    }
+  ]
+}

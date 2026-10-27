@@ -1,0 +1,84 @@
+{
+  "lectureId": "Lecture_2",
+  "title": "Multimedia Computing: Data Sources",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Looking Ahead: 6G Networks",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        7
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "The Internet of Things",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        14
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "The Four Blocks of IoT",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        20
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Hardware and Soft Sensors",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        26
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Application: Smart Homes",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        33
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "From Data to Meaning",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        39
+      ]
+    },
+    {
+      "id": "t7",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        7
+      ],
+      "slidePages": []
+    }
+  ]
+}

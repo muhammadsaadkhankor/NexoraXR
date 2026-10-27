@@ -1,0 +1,76 @@
+{
+  "lectureId": "Lecture_7",
+  "title": "Multimedia Computing: Quality of Experience",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "What Is Quality, Anyway?",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        13
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Quality of Service: The Engineer's View",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        25
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Quality of Experience Defined",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        38
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Measuring QoE",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        50
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Modeling QoE",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        62
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        74
+      ]
+    }
+  ]
+}

@@ -1,0 +1,572 @@
+{
+  "at": "2026-10-26T22:48:35.837Z",
+  "generatorVersion": "v3.1",
+  "promptVersion": "v3-blocks-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "b450ce25-770d-4723-a2a3-a480063582f8",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 494,
+  "estimatedMinutes": 6.861111111111111,
+  "llmCalls": 14,
+  "promptChars": 400456,
+  "approxPromptTokens": 114416,
+  "revisionCycles": 2,
+  "elapsedMs": 791968,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "core concept \"Linear Regression Fundamentals\" has <30 words — named, not explained",
+      "core concept \"Cost Function\" has <30 words — named, not explained",
+      "core concept \"Gradient Descent\" has <30 words — named, not explained"
+    ]
+  },
+  "criticFindings": [
+    {
+      "segment": 0,
+      "severity": "medium",
+      "problem": "Lack of intuition and explanation for the closed-form solution",
+      "evidence": "The script mentions the normal equations and OLS but does not explain why setting partial derivatives to zero leads to the optimal solution or how matrix inversion is applied in practice.",
+      "action": "Add an intuitive explanation of how the normal equations minimize the sum of squared errors and a brief example of matrix inversion in the context of regression."
+    },
+    {
+      "segment": 2,
+      "severity": "medium",
+      "problem": "Insufficient explanation of why MSE and R-squared are used",
+      "evidence": "The script lists MSE and R-squared but does not explain the rationale behind their use, such as why MSE is sensitive to outliers or why R-squared is a relative measure of fit.",
+      "action": "Include a comparison of the strengths and weaknesses of each metric, and explain how they align with the goals of linear regression."
+    },
+    {
+      "segment": 4,
+      "severity": "medium",
+      "problem": "Lack of explanation of how multi-variable regression differs from single-variable",
+      "evidence": "The script mentions multiple features but does not explain how the model is structured or how the inclusion of multiple variables affects the interpretation of coefficients.",
+      "action": "Add a detailed explanation of the model equation, how coefficients are interpreted, and the role of feature scaling in multi-variable regression."
+    },
+    {
+      "segment": 5,
+      "severity": "medium",
+      "problem": "Incoherent recap and lack of depth",
+      "evidence": "The recap is brief and does not tie together the key concepts from the lecture, such as how the closed-form solution, gradient descent, and evaluation metrics are interconnected.",
+      "action": "Revise the recap to summarize the main ideas, connect them logically, and highlight the purpose of each component in the linear regression framework."
+    },
+    {
+      "segment": 5,
+      "severity": "high",
+      "problem": "repeats wording from segment 0",
+      "evidence": "the sum of squared errors",
+      "action": "rewrite to avoid re-defining or re-stating"
+    },
+    {
+      "segment": 0,
+      "severity": "medium",
+      "problem": "Repetition of the same content in the same segment",
+      "evidence": "The same paragraph about the closed-form solution appears twice, likely due to a duplication error.",
+      "action": "Remove the duplicate content to avoid redundancy."
+    },
+    {
+      "segment": 2,
+      "severity": "medium",
+      "problem": "Repetition of the same content in the same segment",
+      "evidence": "The same paragraph about model evaluation metrics appears twice, likely due to a duplication error.",
+      "action": "Remove the duplicate content to avoid redundancy."
+    },
+    {
+      "segment": 5,
+      "severity": "low",
+      "problem": "Lack of depth in explanation of model evaluation metrics",
+      "evidence": "The recap mentions MSE and R-squared but does not explain their mathematical definitions or how they are calculated, which is essential for teaching the concept.",
+      "action": "Include the mathematical formulas for MSE and R-squared to enhance understanding."
+    },
+    {
+      "segment": 5,
+      "severity": "medium",
+      "problem": "Lack of intuition for the closed-form solution",
+      "evidence": "The recap mentions the closed-form solution but does not explain why it is called 'closed-form' or how it differs from iterative methods like gradient descent.",
+      "action": "Add an intuitive explanation of the closed-form solution and its significance in linear regression."
+    },
+    {
+      "segment": 5,
+      "severity": "medium",
+      "problem": "Lack of grounding in the derivation of the normal equations",
+      "evidence": "The recap does not reference the derivation of the normal equations or how matrix inversion is used to solve them, which is critical for understanding the closed-form solution.",
+      "action": "Include a brief derivation of the normal equations and the role of matrix inversion in the closed-form solution."
+    }
+  ],
+  "plan": {
+    "subject": "Linear Regression",
+    "objective": "Lecture 2: Linear Regression",
+    "blocks": [
+      {
+        "id": "b1",
+        "title": "Linear Regression Fundamentals",
+        "role": "core",
+        "teachingObjective": "Understand the basic concept of linear regression, including its purpose, linear relationship, and how it predicts continuous outputs.",
+        "dependsOn": [],
+        "examples": [
+          "Non-Linear Regression with Linear Models"
+        ],
+        "budget": 62,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 1,
+            "pageEnd": 1
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 2,
+            "pageEnd": 2
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 5,
+            "pageEnd": 5
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 6,
+            "pageEnd": 6
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 7,
+            "pageEnd": 7
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 8,
+            "pageEnd": 8
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 13,
+            "pageEnd": 13
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 52,
+            "pageEnd": 52
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 53,
+            "pageEnd": 53
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 54,
+            "pageEnd": 54
+          }
+        ],
+        "transitionIntention": "open the subject"
+      },
+      {
+        "id": "b2",
+        "title": "Cost Function",
+        "role": "core",
+        "teachingObjective": "Learn about the cost function, specifically mean squared error (MSE), and how it is used to quantify the difference between predicted and actual values.",
+        "dependsOn": [
+          "Linear Regression Fundamentals"
+        ],
+        "examples": [],
+        "budget": 53,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 3,
+            "pageEnd": 3
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 4,
+            "pageEnd": 4
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 9,
+            "pageEnd": 9
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 10,
+            "pageEnd": 10
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 11,
+            "pageEnd": 11
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 12,
+            "pageEnd": 12
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 21,
+            "pageEnd": 21
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 22,
+            "pageEnd": 22
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 34,
+            "pageEnd": 34
+          }
+        ],
+        "transitionIntention": "build on Linear Regression Fundamentals"
+      },
+      {
+        "id": "b3",
+        "title": "Gradient Descent",
+        "role": "core",
+        "teachingObjective": "Understand how gradient descent is used to minimize the cost function by iteratively adjusting model parameters.",
+        "dependsOn": [
+          "Cost Function"
+        ],
+        "examples": [],
+        "budget": 53,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 4,
+            "pageEnd": 4
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 16,
+            "pageEnd": 16
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 17,
+            "pageEnd": 17
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 18,
+            "pageEnd": 18
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 19,
+            "pageEnd": 19
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 20,
+            "pageEnd": 20
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 23,
+            "pageEnd": 23
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 35,
+            "pageEnd": 35
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 36,
+            "pageEnd": 36
+          }
+        ],
+        "transitionIntention": "build on Cost Function"
+      },
+      {
+        "id": "b4",
+        "title": "Linear Algebra for Regression",
+        "role": "supporting",
+        "teachingObjective": "Learn the essential linear algebra concepts used in linear regression, including matrix operations, vectorization, and matrix inversion.",
+        "dependsOn": [
+          "Linear Regression Fundamentals"
+        ],
+        "examples": [],
+        "budget": 45,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 23,
+            "pageEnd": 23
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 24,
+            "pageEnd": 24
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 25,
+            "pageEnd": 25
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 26,
+            "pageEnd": 26
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 27,
+            "pageEnd": 27
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 28,
+            "pageEnd": 28
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 29,
+            "pageEnd": 29
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 30,
+            "pageEnd": 30
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 31,
+            "pageEnd": 31
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 33,
+            "pageEnd": 33
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 35,
+            "pageEnd": 35
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 36,
+            "pageEnd": 36
+          }
+        ],
+        "transitionIntention": "build on Linear Regression Fundamentals"
+      },
+      {
+        "id": "b5",
+        "title": "Closed-Form Solution",
+        "role": "core",
+        "teachingObjective": "Understand the closed-form solution for linear regression, which directly computes the optimal parameters using matrix operations.",
+        "dependsOn": [
+          "Cost Function",
+          "Gradient Descent"
+        ],
+        "examples": [],
+        "budget": 53,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 36,
+            "pageEnd": 36
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 37,
+            "pageEnd": 37
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 38,
+            "pageEnd": 38
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 39,
+            "pageEnd": 39
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 40,
+            "pageEnd": 40
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 48,
+            "pageEnd": 48
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 50,
+            "pageEnd": 50
+          }
+        ],
+        "transitionIntention": "build on Cost Function, Gradient Descent"
+      },
+      {
+        "id": "b6",
+        "title": "Model Evaluation Metrics",
+        "role": "core",
+        "teachingObjective": "Understand how to evaluate the performance of a linear regression model using metrics such as MSE, MAE, and R-squared.",
+        "dependsOn": [
+          "Cost Function"
+        ],
+        "examples": [],
+        "budget": 53,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 39,
+            "pageEnd": 39
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 40,
+            "pageEnd": 40
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 41,
+            "pageEnd": 41
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 42,
+            "pageEnd": 42
+          }
+        ],
+        "transitionIntention": "build on Cost Function"
+      },
+      {
+        "id": "b7",
+        "title": "Multi-Variable Linear Regression",
+        "role": "core",
+        "teachingObjective": "Learn how to extend linear regression to handle multiple input variables and how to apply it in practical scenarios.",
+        "dependsOn": [
+          "Linear Regression Fundamentals"
+        ],
+        "examples": [],
+        "budget": 53,
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 42,
+            "pageEnd": 42
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 43,
+            "pageEnd": 43
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 44,
+            "pageEnd": 44
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 45,
+            "pageEnd": 45
+          },
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "documentId": "2ce720f4-389a-429c-8c8a-8bda64277261",
+            "pageStart": 46,
+            "pageEnd": 46
+          }
+        ],
+        "transitionIntention": "build on Linear Regression Fundamentals"
+      }
+    ],
+    "omitted": [
+      {
+        "title": "Course Description",
+        "reason": "administrative"
+      },
+      {
+        "title": "Contact Information",
+        "reason": "administrative"
+      },
+      {
+        "title": "Scheduling Policies",
+        "reason": "administrative"
+      },
+      {
+        "title": "Grading Policies",
+        "reason": "administrative"
+      },
+      {
+        "title": "What You Will Learn",
+        "reason": "administrative"
+      },
+      {
+        "title": "Feature Scaling",
+        "role": "supporting",
+        "reason": "word budget exhausted"
+      }
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}

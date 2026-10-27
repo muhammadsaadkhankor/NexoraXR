@@ -1,0 +1,76 @@
+{
+  "lectureId": "Lecture_6",
+  "title": "Multimedia Computing: Security",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Biometrics: Proving Who You Are",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        11
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Encryption Basics",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        21
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Securing the Network: VPNs and IPsec",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        31
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Watermarking: Protecting Ownership",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        41
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Attacks and the Arms Race",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        51
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        61
+      ]
+    }
+  ]
+}

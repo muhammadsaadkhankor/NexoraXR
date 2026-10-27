@@ -1,0 +1,13 @@
+at,version,model,course,idx,title,words,estMin,llmCalls,revisions,elapsedMs,validation,segsWithDoc,segsWithPage,adminLeak
+2026-10-26T17:06:02.178Z,v2.1,qwen3:8b,bb3e4450,1,"Page 1",727,10.1,5,0,442660,FAIL,10,10,0
+2026-10-26T17:14:19.260Z,v2.1,qwen3:8b,bb3e4450,2,"Page 1",839,11.7,5,0,497065,FAIL,10,10,0
+2026-10-26T18:41:21.376Z,v3.1,qwen3:8b,f36a8690,1,"Page 1",452,6.3,15,2,503610,FAIL,12,12,0
+2026-10-26T20:05:31.088Z,v3.1,qwen3:8b,b450ce25,1,"Lecture 1: Introduction",423,5.9,15,2,990924,FAIL,16,16,0
+2026-10-26T20:48:09.925Z,v3.1,qwen3:8b,b450ce25,2,"Lecture 2: Linear Regression",402,5.6,16,2,2558819,FAIL,11,11,0
+2026-10-26T22:35:23.854Z,v3.1,qwen3:8b,b450ce25,1,"Lecture 1: Introduction",361,5.0,15,2,612535,FAIL,16,16,0
+2026-10-26T22:48:35.837Z,v3.1,qwen3:8b,b450ce25,2,"Lecture 2: Linear Regression",494,6.9,14,2,791968,FAIL,6,6,0
+2026-10-26T23:09:00.690Z,v3.1,qwen3:8b,b450ce25,1,"Lecture 1: Introduction",675,9.4,16,2,590015,FAIL,15,15,0
+2026-10-27T00:13:28.772Z,v3.1,qwen3:8b,8aaeac31,1,"Lecture 1: Introduction",538,7.5,22,2,780583,FAIL,24,24,0
+2026-10-27T01:01:43.674Z,fast.1,qwen3:8b,f0a92d57,1,"Lecture 1: Introduction",530,7.4,4,,131414,FAIL,8,8,1
+2026-10-27T01:03:49.990Z,fast.1,qwen3:8b,f0a92d57,2,"Lecture 2: Linear Regression",492,6.8,4,,126297,ok,6,6,0
+2026-10-27T02:45:22.369Z,fast.1,qwen3:8b,fdc439ac,1,"Haptics Course Primer 1",594,8.3,5,,165885,FAIL,6,6,0

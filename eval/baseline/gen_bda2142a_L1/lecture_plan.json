@@ -1,0 +1,126 @@
+{
+  "lectureId": "gen_bda2142a_L1",
+  "title": "Introduction to Machine Learning",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Course Overview",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        4
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Course Policy",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        8
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Expected Learning Approach",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        9
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "What is Machine Learning?",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        10
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Real-Life Applications",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        11
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Why Machine Learning?",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        14
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Big Picture of ML",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        16
+      ]
+    },
+    {
+      "id": "t7",
+      "title": "Supervised Learning",
+      "segmentIds": [
+        7
+      ],
+      "slidePages": [
+        19
+      ]
+    },
+    {
+      "id": "t8",
+      "title": "Unsupervised Learning",
+      "segmentIds": [
+        8
+      ],
+      "slidePages": [
+        23
+      ]
+    },
+    {
+      "id": "t9",
+      "title": "Generalized ML",
+      "segmentIds": [
+        9
+      ],
+      "slidePages": [
+        28
+      ]
+    },
+    {
+      "id": "t10",
+      "title": "ML Components",
+      "segmentIds": [
+        10
+      ],
+      "slidePages": [
+        29
+      ]
+    },
+    {
+      "id": "t11",
+      "title": "Example of ML",
+      "segmentIds": [
+        11
+      ],
+      "slidePages": [
+        30
+      ]
+    }
+  ]
+}

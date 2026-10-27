@@ -1,0 +1,46 @@
+{
+  "lectureId": "gen_bda2142a_L2",
+  "title": "Lecture 2: Linear Regression",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "1. Using an iterative optimization algorithm, gradient descent",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        16
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "1. Vector – vector multiplication",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        25
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "1. Compact equation (therefore, compact coding)",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        33
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "3. Matrix – matrix multiplication",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        25
+      ]
+    }
+  ]
+}

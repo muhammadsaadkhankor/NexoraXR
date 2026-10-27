@@ -1,0 +1,76 @@
+{
+  "lectureId": "Lecture_5",
+  "title": "Multimedia Computing: Digital Twins & AI-Powered Metaverses",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Why 3D Generation Is Hard",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        16
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "From 2D GANs to 3D GANs",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        32
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Explicit 3D Representations",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        48
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Generative AI and the Metaverse",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        63
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Digital Twins Revisited",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        78
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        94
+      ]
+    }
+  ]
+}

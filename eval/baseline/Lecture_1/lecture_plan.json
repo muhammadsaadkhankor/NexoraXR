@@ -1,0 +1,106 @@
+{
+  "lectureId": "Lecture_1",
+  "title": "Multimedia Computing: Concepts and Definitions",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Objectives",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        3
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "What Is Multimedia",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        5
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Multimedia Systems",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        8
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Content and Haptics",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        11
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Data Sources",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        14
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Intelligence and Interaction",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        22
+      ]
+    },
+    {
+      "id": "t7",
+      "title": "Networking and Security",
+      "segmentIds": [
+        7
+      ],
+      "slidePages": [
+        27
+      ]
+    },
+    {
+      "id": "t8",
+      "title": "Digital Twin",
+      "segmentIds": [
+        8
+      ],
+      "slidePages": [
+        33
+      ]
+    },
+    {
+      "id": "t9",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        9
+      ],
+      "slidePages": [
+        50
+      ]
+    }
+  ]
+}

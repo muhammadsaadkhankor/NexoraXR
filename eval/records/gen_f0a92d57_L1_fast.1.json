@@ -1,0 +1,126 @@
+{
+  "at": "2026-10-27T01:01:43.674Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "f0a92d57-69a0-4f55-9780-9b0ea23694dd",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 530,
+  "estimatedMinutes": 7.361111111111111,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 3418,
+    "genTokens": 1294,
+    "loadDurationMs": 484,
+    "promptEvalMs": 2926,
+    "evalMs": 127478,
+    "totalMs": 131386
+  },
+  "promptChars": 14565,
+  "approxPromptTokens": 4161,
+  "revisionCycles": null,
+  "elapsedMs": 131414,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 3 is a fragment, not narration",
+      "segment 1 opens on administrative content"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "objective": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Machine Learning relies on mathematical concepts to model and analyze data.",
+        "examples": [
+          "Probability theory for uncertainty modeling",
+          "Linear algebra for data representation",
+          "Calculus for optimization"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Understanding the definition is essential to grasp the scope and purpose of Machine Learning.",
+        "examples": [
+          "A system that learns from data without being explicitly programmed"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Seeing how Machine Learning is applied in real life helps contextualize its importance.",
+        "examples": [
+          "Smart assistants",
+          "Advertising targeting",
+          "Electrical load prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "The Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "This concept provides a structured overview of how Machine Learning works in practice.",
+        "examples": [
+          "Taking picking fruits as an example to illustrate learning processes"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Why ML?",
+      "A Regression Example",
+      "A Classification Example",
+      "A Clustering Example",
+      "An RL Example",
+      "The Generalized ML: an Example"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 8,
+    "withDoc": 8,
+    "withPage": 8
+  },
+  "adminLeakSegments": 1,
+  "repetitionFindings": 2
+}

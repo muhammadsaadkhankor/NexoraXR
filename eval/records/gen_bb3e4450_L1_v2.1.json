@@ -1,0 +1,142 @@
+{
+  "at": "2026-10-26T17:06:02.178Z",
+  "generatorVersion": "v2.1",
+  "promptVersion": "v2-plan-2026-10-26",
+  "model": "qwen3:8b",
+  "courseId": "bb3e4450-821f-4075-9b5d-cc156a87ce51",
+  "lecture": "Page 1",
+  "wordCount": 727,
+  "estimatedMinutes": 10.097222222222221,
+  "llmCalls": 5,
+  "revisionCycles": 0,
+  "elapsedMs": 442660,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "too long (727 words > 580 for ~504w target)",
+      "essential topic \"13 ML in EE: Electrical Load Prediction  When and what load?\" has <30 words — named but not explained",
+      "essential topic \"30 The Generalized ML: an Example An example: How to play the super  mario   game?\" has <30 words — named but not explained"
+    ]
+  },
+  "provenance": {
+    "total": 10,
+    "withDoc": 10,
+    "withPage": 10
+  },
+  "adminLeakSegments": 0,
+  "plan": {
+    "objective": "Page 1",
+    "topics": [
+      {
+        "id": "topic2",
+        "title": "10 What is Machine Learning (ML)?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic5",
+        "title": "13 ML in EE: Electrical Load Prediction  When and what load?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic6",
+        "title": "14 Why ML?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic15",
+        "title": "30 The Generalized ML: an Example An example: How to play the super  mario   game?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic1",
+        "title": "▪ Mathematical foundation:  probability theory, linear algebra, and calculus.",
+        "importance": "supporting",
+        "budget": 45
+      },
+      {
+        "id": "topic7",
+        "title": "15 Why This Course?",
+        "importance": "supporting",
+        "budget": 45
+      },
+      {
+        "id": "topic8",
+        "title": "17 Big Picture of ML (Cont.) Taking picking fruits as an example...",
+        "importance": "supporting",
+        "budget": 45
+      },
+      {
+        "id": "topic10",
+        "title": "20 A Regression Example",
+        "importance": "supporting",
+        "budget": 45
+      }
+    ],
+    "omitted": [
+      {
+        "id": "topic11",
+        "title": "21 A Classification Example",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic12",
+        "title": "24 A Clustering Example",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic3",
+        "title": "11 Machine Learning (ML) in Real Life: Smart Assistants",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic4",
+        "title": "12 ML in Real Life: Advertising",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic9",
+        "title": "18 Big Picture of ML",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic13",
+        "title": "Page 26",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic14",
+        "title": "Page 29",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      }
+    ],
+    "excludedSections": [
+      "Lec1_Introduction.pdf:Page 1",
+      "Lec1_Introduction.pdf:Page 2",
+      "Lec1_Introduction.pdf:3 3 Outline • Course Syllabus and Information • Why Machine Learning (ML)?",
+      "Lec1_Introduction.pdf:Page 4",
+      "Lec1_Introduction.pdf:5 Syllabus: Textbook and Instructional Platform Textbook is not strictly required.",
+      "Lec1_Introduction.pdf:Students are expected to work in groups  (two to four students).",
+      "Lec1_Introduction.pdf:The midterm will take place during class  time.",
+      "Lec1_Introduction.pdf:22 Some Simple Exercise...",
+      "Lec1_Introduction.pdf:(Check all that apply.)  ❑ A.",
+      "Lec1_Introduction.pdf:Please   refer   to   Academic   regulation   A - 4   for   details .",
+      "Lec1_Introduction.pdf:Page 16",
+      "Lec1_Introduction.pdf:Page 19",
+      "Lec1_Introduction.pdf:Page 23",
+      "Lec1_Introduction.pdf:27 An RL Example",
+      "Lec1_Introduction.pdf:Page 28"
+    ],
+    "unprocessedPages": []
+  }
+}

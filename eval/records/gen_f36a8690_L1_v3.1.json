@@ -1,0 +1,396 @@
+{
+  "at": "2026-10-26T18:41:21.376Z",
+  "generatorVersion": "v3.1",
+  "promptVersion": "v3-blocks-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "f36a8690-89eb-47e3-9a52-59a7261203bc",
+  "lecture": "Page 1",
+  "wordCount": 452,
+  "estimatedMinutes": 6.277777777777778,
+  "llmCalls": 15,
+  "promptChars": 58829,
+  "approxPromptTokens": 16808,
+  "revisionCycles": 2,
+  "elapsedMs": 503610,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 is a fragment, not narration",
+      "core concept \"Definition of Machine Learning\" has <30 words — named, not explained"
+    ]
+  },
+  "criticFindings": [
+    {
+      "segment": 1,
+      "severity": "high",
+      "problem": "repeats wording from segment 0",
+      "evidence": "machine learning is a field",
+      "action": "rewrite to avoid re-defining or re-stating"
+    },
+    {
+      "segment": 1,
+      "severity": "medium",
+      "problem": "Redundant definition of machine learning",
+      "evidence": "The introduction and the first section both provide nearly identical definitions of machine learning, which may confuse students or waste time.",
+      "action": "Merge or rephrase the definitions to avoid redundancy and enhance clarity."
+    },
+    {
+      "segment": 2,
+      "severity": "medium",
+      "problem": "Lack of explanation of how ML algorithms work in applications",
+      "evidence": "The script lists applications but does not explain the underlying mechanisms or how ML algorithms achieve these results, which limits the teaching of intuition.",
+      "action": "Add brief explanations of how ML algorithms function in each application to build intuition."
+    },
+    {
+      "segment": 5,
+      "severity": "medium",
+      "problem": "Insufficient depth on why ML is valuable",
+      "evidence": "The section on 'Why Study Machine Learning' mentions efficiency and cognitive science but lacks deeper exploration of real-world impact or benefits.",
+      "action": "Expand on the practical and theoretical value of ML to provide a more comprehensive understanding."
+    },
+    {
+      "segment": 6,
+      "severity": "medium",
+      "problem": "Vague explanation of the 'Big Picture' of ML",
+      "evidence": "The explanation of the 'Big Picture' is too abstract and lacks specific examples or clarification on the role of mathematical models and data.",
+      "action": "Clarify the 'Big Picture' by providing concrete examples of mathematical models and how they are used in ML."
+    },
+    {
+      "segment": 10,
+      "severity": "medium",
+      "problem": "Lack of intuitive explanation of the generalized ML framework",
+      "evidence": "The section on the generalized ML framework introduces key components but does not explain their roles or how they interact, which is essential for teaching the concept.",
+      "action": "Add intuitive explanations of representation, evaluation, and optimization in the context of ML."
+    },
+    {
+      "segment": 11,
+      "severity": "medium",
+      "problem": "Incomplete summary of ML's goal",
+      "evidence": "The recap mentions finding the best hypothesis g, but it does not explain the role of data, loss functions, or optimization in achieving this goal.",
+      "action": "Expand the recap to include the role of data, loss functions, and optimization in ML."
+    },
+    {
+      "segment": 7,
+      "severity": "high",
+      "problem": "repeats wording from segment 6",
+      "evidence": "the relationship between inputs and",
+      "action": "rewrite to avoid re-defining or re-stating"
+    },
+    {
+      "segment": 1,
+      "severity": "medium",
+      "problem": "Redundant and vague definition of machine learning",
+      "evidence": "The definition in #1 is nearly identical to the introduction in #0 and lacks depth or explanation of the core concept.",
+      "action": "Revise the definition to include the core idea of learning from data, pattern recognition, and generalization."
+    },
+    {
+      "segment": 2,
+      "severity": "medium",
+      "problem": "Repetition of the same example without variation",
+      "evidence": "The same example of electrical load prediction is repeated three times in #2, which lacks pedagogical value and may confuse students.",
+      "action": "Replace the repeated example with different real-world applications to illustrate the breadth of ML."
+    },
+    {
+      "segment": 5,
+      "severity": "medium",
+      "problem": "Lack of intuition and explanation",
+      "evidence": "The explanation in #5 mentions the value of ML but does not provide intuition or examples of how it helps in creating complex systems or understanding human learning.",
+      "action": "Add intuitive examples and explain how ML contributes to cognitive science with concrete analogies."
+    },
+    {
+      "segment": 7,
+      "severity": "medium",
+      "problem": "Lack of explanation of the learning process",
+      "evidence": "The definition in #7 is brief and does not explain how the model learns the relationship between inputs and outputs.",
+      "action": "Add an explanation of the learning process, such as how the model iteratively improves its predictions."
+    },
+    {
+      "segment": 8,
+      "severity": "medium",
+      "problem": "Lack of explanation of clustering",
+      "evidence": "The definition in #8 mentions clustering but does not explain what it is or how it is performed.",
+      "action": "Add an intuitive explanation of clustering and its purpose in unsupervised learning."
+    },
+    {
+      "segment": 9,
+      "severity": "medium",
+      "problem": "Lack of explanation of the environment and reward mechanism",
+      "evidence": "The definition in #9 mentions reinforcement learning but does not explain the environment or how rewards are used to guide learning.",
+      "action": "Add an explanation of the environment, reward, and how the agent learns through trial and error."
+    },
+    {
+      "segment": 10,
+      "severity": "medium",
+      "problem": "Lack of grounding in source scope",
+      "evidence": "The generalized framework in #10 is presented without reference to foundational sources or literature, which could mislead students about its theoretical basis.",
+      "action": "Cite foundational sources or literature that define the three components of the ML framework."
+    },
+    {
+      "segment": 11,
+      "severity": "medium",
+      "problem": "Lack of depth in explanation of the learning process",
+      "evidence": "The recap in #11 mentions loss functions and optimization but does not explain how they work or their role in the learning process.",
+      "action": "Add an intuitive explanation of loss functions and optimization techniques, such as gradient descent."
+    }
+  ],
+  "plan": {
+    "subject": "Machine Learning",
+    "objective": "Page 1",
+    "blocks": [
+      {
+        "id": "b1",
+        "title": "Definition of Machine Learning",
+        "role": "core",
+        "teachingObjective": "Machine learning is a field of study that enables computers to learn without being explicitly programmed.",
+        "dependsOn": [
+          "Mathematical Foundations"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ],
+        "transitionIntention": "open the subject"
+      },
+      {
+        "id": "b2",
+        "title": "Real-World Applications of ML",
+        "role": "core",
+        "teachingObjective": "Machine learning is applied in real-life scenarios such as smart assistants, advertising, and electrical load prediction.",
+        "dependsOn": [
+          "Definition of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 11,
+            "pageEnd": 11
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 12,
+            "pageEnd": 12
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 13,
+            "pageEnd": 13
+          }
+        ],
+        "transitionIntention": "build on Definition of Machine Learning"
+      },
+      {
+        "id": "b3",
+        "title": "Why Study Machine Learning",
+        "role": "core",
+        "teachingObjective": "Machine learning is valuable for creating efficient systems, advancing cognitive science, and solving complex problems.",
+        "dependsOn": [
+          "Definition of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 14,
+            "pageEnd": 14
+          }
+        ],
+        "transitionIntention": "build on Definition of Machine Learning"
+      },
+      {
+        "id": "b4",
+        "title": "Big Picture of Machine Learning",
+        "role": "core",
+        "teachingObjective": "Machine learning involves teaching computers to learn using mathematical models and data, with applications in various domains.",
+        "dependsOn": [
+          "Definition of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 16,
+            "pageEnd": 16
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 17,
+            "pageEnd": 17
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 18,
+            "pageEnd": 18
+          }
+        ],
+        "transitionIntention": "build on Definition of Machine Learning"
+      },
+      {
+        "id": "b5",
+        "title": "Supervised Learning",
+        "role": "core",
+        "teachingObjective": "Supervised learning involves training models with labeled data to predict continuous or discrete outputs.",
+        "dependsOn": [
+          "Big Picture of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 19,
+            "pageEnd": 19
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 20,
+            "pageEnd": 20
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 21,
+            "pageEnd": 21
+          }
+        ],
+        "transitionIntention": "build on Big Picture of Machine Learning"
+      },
+      {
+        "id": "b6",
+        "title": "Unsupervised Learning",
+        "role": "core",
+        "teachingObjective": "Unsupervised learning involves finding patterns in unlabeled data through clustering and dimensionality reduction.",
+        "dependsOn": [
+          "Big Picture of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 23,
+            "pageEnd": 23
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 24,
+            "pageEnd": 24
+          }
+        ],
+        "transitionIntention": "build on Big Picture of Machine Learning"
+      },
+      {
+        "id": "b7",
+        "title": "Reinforcement Learning",
+        "role": "core",
+        "teachingObjective": "Reinforcement learning involves training agents to make decisions in an environment to maximize cumulative rewards.",
+        "dependsOn": [
+          "Big Picture of Machine Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 26,
+            "pageEnd": 26
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 27,
+            "pageEnd": 27
+          }
+        ],
+        "transitionIntention": "build on Big Picture of Machine Learning"
+      },
+      {
+        "id": "b8",
+        "title": "Generalized Machine Learning Framework",
+        "role": "core",
+        "teachingObjective": "Machine learning involves input features, output labels, target functions, and algorithms for representation and evaluation.",
+        "dependsOn": [
+          "Supervised Learning",
+          "Unsupervised Learning",
+          "Reinforcement Learning"
+        ],
+        "examples": [],
+        "budget": 48,
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 28,
+            "pageEnd": 28
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 29,
+            "pageEnd": 29
+          },
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "documentId": "9a739044-5c16-482d-8316-921cbdbc4a26",
+            "pageStart": 30,
+            "pageEnd": 30
+          }
+        ],
+        "transitionIntention": "build on Supervised Learning, Unsupervised Learning, Reinforcement Learning"
+      }
+    ],
+    "omitted": [
+      {
+        "title": "Expected Learning Approach",
+        "reason": "administrative"
+      },
+      {
+        "title": "What is Machine Learning (ML)",
+        "reason": "administrative"
+      },
+      {
+        "title": "Course Description",
+        "reason": "administrative"
+      },
+      {
+        "title": "What You Will Learn",
+        "reason": "administrative"
+      },
+      {
+        "title": "Mathematical Foundations",
+        "role": "prerequisite",
+        "reason": "word budget exhausted"
+      }
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 12,
+    "withDoc": 12,
+    "withPage": 12
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}

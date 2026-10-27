@@ -1,0 +1,116 @@
+{
+  "lectureId": "gen_bda2142a_L1",
+  "title": "Introduction to Machine Learning",
+  "course": "Machine learning",
+  "segments": [
+    {
+      "id": 0,
+      "section": "Course Overview",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 4,
+      "text": "This course introduces machine learning, covering supervised learning, unsupervised learning, and applications like transformers and large language models. It combines theory, coding, and projects to build practical skills.",
+      "mapped": "kept"
+    },
+    {
+      "id": 1,
+      "section": "Course Policy",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 8,
+      "text": "Academic integrity is crucial. All work must be your own, and AI tools must be cited if used. The course emphasizes learning and applying ML in engineering contexts.",
+      "mapped": "kept"
+    },
+    {
+      "id": 2,
+      "section": "Expected Learning Approach",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 9,
+      "text": "The course blends ML theory, coding cases, and projects. You'll need a strong foundation in probability, linear algebra, and calculus to understand and apply ML algorithms.",
+      "mapped": "kept"
+    },
+    {
+      "id": 3,
+      "section": "What is Machine Learning?",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 10,
+      "text": "Machine learning is a field that enables computers to learn without explicit programming, using data and mathematical models to improve performance over time.",
+      "mapped": "kept"
+    },
+    {
+      "id": 4,
+      "section": "Real-Life Applications",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 11,
+      "text": "Machine learning is used in smart assistants, advertising, and electrical load prediction. These applications show how ML can solve complex real-world problems.",
+      "mapped": "kept"
+    },
+    {
+      "id": 5,
+      "section": "Why Machine Learning?",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 14,
+      "text": "ML offers high efficiency, helps understand cognitive science, reduces computation time, and allows discovery of new knowledge from existing data.",
+      "mapped": "kept"
+    },
+    {
+      "id": 6,
+      "section": "Big Picture of ML",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 16,
+      "text": "Machine learning is a subset of AI that uses mathematical models and data to help computers learn. Deep learning, a more advanced form, relies on data representation rather than explicit algorithms.",
+      "mapped": "kept"
+    },
+    {
+      "id": 7,
+      "section": "Supervised Learning",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 19,
+      "text": "Supervised learning uses training data with desired outputs. It includes regression, which predicts continuous values, and classification, which assigns discrete labels.",
+      "mapped": "kept"
+    },
+    {
+      "id": 8,
+      "section": "Unsupervised Learning",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 23,
+      "text": "Unsupervised learning deals with data without desired outputs. It includes clustering, which groups data based on similarities, and dimensionality reduction, which simplifies data.",
+      "mapped": "kept"
+    },
+    {
+      "id": 9,
+      "section": "Generalized ML",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 28,
+      "text": "Machine learning involves inputs, outputs, and a target function. The process includes data, a model class, and an objective function to guide learning.",
+      "mapped": "kept"
+    },
+    {
+      "id": 10,
+      "section": "ML Components",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 29,
+      "text": "Every ML algorithm has three main components: representation (model class), evaluation (objective function), and optimization (search methods).",
+      "mapped": "kept"
+    },
+    {
+      "id": 11,
+      "section": "Example of ML",
+      "documentId": "233bef1a-094d-4845-b03f-acd9d3442880",
+      "document": "Lec1_Introduction.pdf",
+      "page": 30,
+      "text": "An example of ML is playing a video game like Super Mario. The model uses reinforcement learning, with an objective function to maximize coin value and optimization techniques to improve performance.",
+      "mapped": "kept"
+    }
+  ],
+  "version": 1
+}

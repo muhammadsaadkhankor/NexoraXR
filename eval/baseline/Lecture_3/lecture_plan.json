@@ -1,0 +1,76 @@
+{
+  "lectureId": "Lecture_3",
+  "title": "Multimedia Computing: Compression",
+  "topics": [
+    {
+      "id": "t0",
+      "title": "Welcome Back",
+      "segmentIds": [
+        0
+      ],
+      "slidePages": [
+        1
+      ]
+    },
+    {
+      "id": "t1",
+      "title": "Big Data and Motivation",
+      "segmentIds": [
+        1
+      ],
+      "slidePages": [
+        21
+      ]
+    },
+    {
+      "id": "t2",
+      "title": "Compression Fundamentals",
+      "segmentIds": [
+        2
+      ],
+      "slidePages": [
+        40
+      ]
+    },
+    {
+      "id": "t3",
+      "title": "Image Compression: JPEG and JPEG2000",
+      "segmentIds": [
+        3
+      ],
+      "slidePages": [
+        60
+      ]
+    },
+    {
+      "id": "t4",
+      "title": "Video Compression and MPEG",
+      "segmentIds": [
+        4
+      ],
+      "slidePages": [
+        80
+      ]
+    },
+    {
+      "id": "t5",
+      "title": "Compression in the Real World",
+      "segmentIds": [
+        5
+      ],
+      "slidePages": [
+        99
+      ]
+    },
+    {
+      "id": "t6",
+      "title": "Wrap-Up",
+      "segmentIds": [
+        6
+      ],
+      "slidePages": [
+        119
+      ]
+    }
+  ]
+}

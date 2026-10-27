@@ -1,0 +1,120 @@
+{
+  "at": "2026-10-27T02:45:22.369Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "1676408fad5515b13d96da9befb2f13576ab55f0dd237bccfbc627effc9cda3b",
+  "courseId": "fdc439ac-ae67-4180-8116-ff81932c17a1",
+  "lecture": "Haptics Course Primer 1",
+  "wordCount": 594,
+  "estimatedMinutes": 8.25,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 3422,
+    "genTokens": 1535,
+    "loadDurationMs": 588,
+    "promptEvalMs": 3358,
+    "evalMs": 161453,
+    "totalMs": 165852
+  },
+  "promptChars": 15114,
+  "approxPromptTokens": 4318,
+  "revisionCycles": null,
+  "elapsedMs": 165885,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 4: page 3 outside assigned ranges of \"Haptics_Course_Primer__1_.pdf\"",
+      "segment 6: page 4 outside assigned ranges of \"Haptics_Course_Primer__1_.pdf\"",
+      "too long (594 > 580)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of haptics and their role in touch perception and manipulation.",
+    "objective": "Understand the foundational concepts of haptics and their role in touch perception and manipulation.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Touch Perception",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Touch perception is the basis for understanding how humans interact with physical objects through touch.",
+        "examples": [
+          "Human ability to distinguish textures and shapes through touch"
+        ],
+        "sources": [
+          {
+            "filename": "Haptics_Course_Primer__1_.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Kinesthetic Feedback",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Kinesthetic feedback is essential for understanding how the body senses movement and force during interaction.",
+        "examples": [
+          "Feedback from muscle and joint movement during object manipulation"
+        ],
+        "sources": [
+          {
+            "filename": "Haptics_Course_Primer__1_.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Haptic Feedback Systems",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Haptic feedback systems are the technological realization of touch perception and kinesthetic feedback in machines.",
+        "examples": [
+          "Devices that simulate tactile sensations through vibrations or force"
+        ],
+        "sources": [
+          {
+            "filename": "Haptics_Course_Primer__1_.pdf",
+            "pageStart": 3,
+            "pageEnd": 3
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Applications of Haptics",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Applications demonstrate the practical importance of haptics in real-world scenarios.",
+        "examples": [
+          "Use in virtual reality, robotics, and medical training"
+        ],
+        "sources": [
+          {
+            "filename": "Haptics_Course_Primer__1_.pdf",
+            "pageStart": 4,
+            "pageEnd": 4
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative details",
+      "Grading policies",
+      "Syllabus overview"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}

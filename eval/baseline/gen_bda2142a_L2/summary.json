@@ -1,0 +1,10 @@
+{
+  "lecture_id": "gen_bda2142a_L2",
+  "title": "Lecture 2: Linear Regression",
+  "text": "To minimize the cost function, we need to find the point with zero gradient. There are two approaches to learn the regression coefficients: 1. Using an iterative optimization algorithm, gradient descent 2. Using a direct 'closed-form' approach (analytical).\n\nVector – vector multiplication is a fundamental operation in linear algebra. Given two vectors x and y, their multiplication x^T y (also called the inner product or dot product) is given as the sum of the products of their corresponding entries.\n\nVectorization provides a compact equation, which leads to compact coding. Instead of writing a long equation, we can represent it as a matrix multiplication, which makes the computation more efficient and easier to handle.\n\nThe product of two matrices A ∈ ℝ^m×n and B ∈ ℝ^n×p is the matrix C denoted as C = AB ∈ ℝ^m×p. Each element of C is computed as the sum of the products of the corresponding entries from the row of A and the column of B.",
+  "word_count": 162,
+  "model": "generated",
+  "generated": true,
+  "reviewed": true,
+  "created_at": "2026-10-26T02:26:03.652Z"
+}

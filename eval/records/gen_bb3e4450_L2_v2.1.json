@@ -1,0 +1,343 @@
+{
+  "at": "2026-10-26T17:14:19.260Z",
+  "generatorVersion": "v2.1",
+  "promptVersion": "v2-plan-2026-10-26",
+  "model": "qwen3:8b",
+  "courseId": "bb3e4450-821f-4075-9b5d-cc156a87ce51",
+  "lecture": "Page 1",
+  "wordCount": 839,
+  "estimatedMinutes": 11.652777777777779,
+  "llmCalls": 5,
+  "revisionCycles": 0,
+  "elapsedMs": 497065,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "too long (839 words > 580 for ~504w target)",
+      "essential topic \"2 2 Outline • What is Linear Regression?\" has <30 words — named but not explained",
+      "essential topic \"6 Linear Regression Modelling: an Example The housing price prediction: x (feature)?\" has <30 words — named but not explained",
+      "essential topic \"the  regression coefficient?\" has <30 words — named but not explained",
+      "essential topic \"Using an iterative optimization algorithm,  gradient descent 2.\" has <30 words — named but not explained",
+      "essential topic \"18 Gradient Descent Approach How it works?\" has <30 words — named but not explained",
+      "essential topic \"19 Gradient Descent  –   Code Demo How it works?\" has <30 words — named but not explained",
+      "essential topic \"As we approach a local minimum, gradient  descent will automatically take smaller steps.\" has <30 words — named but not explained"
+    ]
+  },
+  "provenance": {
+    "total": 10,
+    "withDoc": 10,
+    "withPage": 10
+  },
+  "adminLeakSegments": 0,
+  "plan": {
+    "objective": "Page 1",
+    "topics": [
+      {
+        "id": "topic2",
+        "title": "2 2 Outline • What is Linear Regression?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic6",
+        "title": "6 Linear Regression Modelling: an Example The housing price prediction: x (feature)?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic10",
+        "title": "the  regression coefficient?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic13",
+        "title": "Using an iterative optimization algorithm,  gradient descent 2.",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic15",
+        "title": "18 Gradient Descent Approach How it works?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic16",
+        "title": "19 Gradient Descent  –   Code Demo How it works?",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic31",
+        "title": "As we approach a local minimum, gradient  descent will automatically take smaller steps.",
+        "importance": "essential",
+        "budget": 45
+      },
+      {
+        "id": "topic35",
+        "title": "Residual plots expose a biased model than any other evaluation metric.",
+        "importance": "essential",
+        "budget": 45
+      }
+    ],
+    "omitted": [
+      {
+        "id": "topic36",
+        "title": "푴푺푬 = ퟏ 푵 ෍ 풏 = ퟏ 푵 ෝ 풚 풏 − 풚 풏 ퟐ MSE is a differentiable and convex function.",
+        "importance": "essential",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic48",
+        "title": "Multiple approaches to fit linear regression model (Source: Benjamin O.",
+        "importance": "essential",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic49",
+        "title": "▪ “Linear Regression Analysis of Combined Cycle Power Plant Data (Online)”",
+        "importance": "essential",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic5",
+        "title": "5 What’s in common?",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic8",
+        "title": "Page 10",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic9",
+        "title": "Page 11",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic17",
+        "title": "20 Gradient Descent Approach: Intuition",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic18",
+        "title": "Page 21",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic19",
+        "title": "Sq ft  Price 1,000 20,000 500 9,000 1,200 25,500 1,980 42,000 ▪ Write down  푓 푤 ( 푥 ) ?",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic20",
+        "title": "Page 23",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic21",
+        "title": "Page 24",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic22",
+        "title": "25 Linear Algebra: Multiplication  1.",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic23",
+        "title": "Page 26",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic24",
+        "title": "Page 27",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic28",
+        "title": "Page 31",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic29",
+        "title": "33 Vectorization Benefits of vectorization: 1.",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic30",
+        "title": "Page 34",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic32",
+        "title": "Page 36",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic33",
+        "title": "linalg.inv ( X_train .T.dot( X_train )).dot( X_train .T ).",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic37",
+        "title": "Page 41",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic38",
+        "title": "Page 42",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic40",
+        "title": "풇 풘 풙 ( 풏 ) = 풘 ퟎ + 풘 ퟏ 풙 ퟏ ( 풏 ) + ⋯ + 풘 푫 풙 푫 ( 풏 )",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic41",
+        "title": "Page 45",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic42",
+        "title": "When you have  multiple features  to consider, the optimization  becomes interesting...",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic43",
+        "title": "흁 풅 : the mean value of  풙 풅",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic44",
+        "title": "Page 48",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic45",
+        "title": "51 Which Solution?",
+        "importance": "supporting",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic1",
+        "title": "Page 1",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic3",
+        "title": "3 Example 1: Sales vs Advertising",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic4",
+        "title": "4 Example  2 :  Power Plant Generation",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic7",
+        "title": "Page 7",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic11",
+        "title": "Page 13",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic12",
+        "title": "Page 15",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic14",
+        "title": "Page 17",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic25",
+        "title": "25푥 , predict the house pricing.",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic26",
+        "title": "Page 29",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic27",
+        "title": "Page 30",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic34",
+        "title": "푤 0 = ത 푦 − 푤 1 ҧ 푥 푤 1 = σ 푛 = 1 푁 푦 푛 − ത 푦 푥 푛 − ҧ 푥 σ 푛 = 1 푁 푥 푛 − ҧ 푥 2",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic39",
+        "title": "Page 43",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic46",
+        "title": "Page 53",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      },
+      {
+        "id": "topic47",
+        "title": "Page 54",
+        "importance": "optional",
+        "reason": "word budget exhausted"
+      }
+    ],
+    "excludedSections": [
+      "Lec2_Linear_Regression.pdf:Exercise 2: Given the following two vectors, what is  푢 푇 푣 ?",
+      "Lec2_Linear_Regression.pdf:Identify the feature(s) and output.",
+      "Lec2_Linear_Regression.pdf:퐰 ퟎ : Intercept (where the line crosses y - axis) 2.",
+      "Lec2_Linear_Regression.pdf:9 Cost Function Unknown parameters: (regression coefficient) 1.",
+      "Lec2_Linear_Regression.pdf:5 푓 푤 ( 푥 ) 퐽 ( 푤 1 )",
+      "Lec2_Linear_Regression.pdf:50 Closed - Form Approach: Does it always work?",
+      "Lec2_Linear_Regression.pdf:52 Non - Linear Model with LR What is our data is  nonlinear ?"
+    ],
+    "unprocessedPages": []
+  }
+}

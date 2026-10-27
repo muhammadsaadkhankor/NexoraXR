@@ -1,0 +1,117 @@
+{
+  "at": "2026-10-27T01:03:49.990Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "f0a92d57-69a0-4f55-9780-9b0ea23694dd",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 492,
+  "estimatedMinutes": 6.833333333333333,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 5149,
+    "genTokens": 1174,
+    "loadDurationMs": 463,
+    "promptEvalMs": 4143,
+    "evalMs": 121197,
+    "totalMs": 126277
+  },
+  "promptChars": 16768,
+  "approxPromptTokens": 4791,
+  "revisionCycles": null,
+  "elapsedMs": 126297,
+  "validation": {
+    "ok": true
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental principles and mechanics of linear regression, including its components, cost function, and optimization techniques.",
+    "objective": "Understand the fundamental principles and mechanics of linear regression, including its components, cost function, and optimization techniques.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Linear Regression Basics",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Linear regression is the foundation of predictive modeling for continuous outcomes.",
+        "examples": [
+          "Sales vs Advertising"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function and Mean Squared Error",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "The cost function quantifies model performance and is essential for optimization.",
+        "examples": [
+          "MSE is a differentiable and convex function"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Gradient descent is the primary optimization algorithm used to minimize the cost function.",
+        "examples": [
+          "Gradient descent is an iterative optimization technique"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 3,
+            "pageEnd": 5
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Model Parameters and Interpretation",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Understanding parameters like the intercept and regression coefficient is key to interpreting the model.",
+        "examples": [
+          "Write down f_w(x)?",
+          "Residual plots expose a biased model"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 21,
+            "pageEnd": 23
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Vectorization",
+      "Linear Algebra",
+      "Code Demo",
+      "Residual Plots"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}
