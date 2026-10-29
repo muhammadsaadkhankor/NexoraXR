@@ -5,6 +5,7 @@ import {
   Clapperboard, ScanEye, BrainCircuit, TerminalSquare, MousePointerClick, Scale,
 } from 'lucide-react'
 import { API_URL, CLASSROOM_LANGUAGES } from '../../shared/config'
+import { classroomPath } from '../../shared/classroomUrl'
 import { SCENE_CONFIG, PRIMARY_COURSES } from '../../classroom/sceneConfig'
 import { getMe } from '../../shared/auth'
 import CreateClassroomModal from './CreateClassroomModal'
@@ -70,7 +71,7 @@ export default function ExperienceGallery({ onCourse }) {
   }, [])
 
   const roomLink = (r) => {
-    const base = `/scene/${encodeURIComponent(r.scene)}?room=${r.roomId}${r.lectureId ? `&lecture=${r.lectureId}` : ''}`
+    const base = classroomPath(r)
     return r.roomType === 'private' && r.inviteToken ? `${base}&invite=${r.inviteToken}` : base
   }
 
@@ -149,7 +150,7 @@ export default function ExperienceGallery({ onCourse }) {
         className="roomcard"
         style={{ '--room-accent': accent }}
         onClick={() => (isPrivate ? enterRoom(room)
-          : navigate(`/scene/${room.scene}?room=${room.roomId}${room.lectureId ? `&lecture=${room.lectureId}` : ''}`))}
+          : navigate(classroomPath(room)))}
       >
         <span className="roomcard__glow" />
         <span className="roomcard__top">

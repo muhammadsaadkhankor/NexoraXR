@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { getLectures } from './services/lectureApi';
 import { API_URL } from '../shared/config';
+import { classroomPath } from '../shared/classroomUrl';
 
 export default function CoursePage() {
   const { courseId } = useParams();
@@ -31,7 +32,7 @@ export default function CoursePage() {
         if (meta?.courseId && /^[0-9a-f-]{36}$/i.test(meta.courseId)) courseUuid = meta.courseId;
         if (meta?.lectureId) {
           // Room already bound to a specific lecture — go straight in.
-          navigate(`/scene/${meta.scene}?lecture=${meta.lectureId}&room=${roomId}${searchParams.get('invite') ? `&invite=${searchParams.get('invite')}` : ''}`, { replace: true });
+          navigate(`${classroomPath({ ...meta, roomId })}${searchParams.get('invite') ? `&invite=${searchParams.get('invite')}` : ''}`, { replace: true });
           return;
         }
       }
@@ -58,7 +59,7 @@ export default function CoursePage() {
   }, []);
 
   const handleSelect = (lecture) => {
-    navigate(`/scene/${courseId}?lecture=${lecture.lecture_id}${roomQuery ? `&${roomQuery}` : ''}`);
+    navigate(`/classroom/${encodeURIComponent(courseId)}?lecture=${lecture.lecture_id}${roomQuery ? `&${roomQuery}` : ''}`);
   };
 
   return (

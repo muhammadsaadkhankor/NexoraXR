@@ -170,9 +170,16 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
   useLayoutEffect(() => {
     if (!group.current || !floorScene) return;
 
+    // Cold-load raycasts run before the first render, so matrixWorld is
+    // stale (identity) and the floor hits land in model space — the avatar
+    // grounds inside/on top of the stage until a remount refreshes the
+    // matrices. Force the update here so the spawn grounding is correct.
+    floorScene.updateMatrixWorld(true);
+
     const pos = group.current.position;
     const raycaster = new THREE.Raycaster();
     const rayDir = new THREE.Vector3(0, -1, 0);
+    const upRayDir = new THREE.Vector3(0, 1, 0);
     const originY = pos.y + RAY_HEIGHT;
     const forward = new THREE.Vector3(Math.sin(avatarYawRef.current), 0, Math.cos(avatarYawRef.current));
     const forwardOffset = forward.clone().multiplyScalar(RAY_OFFSET);
@@ -186,9 +193,18 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     for (const origin of origins) {
       raycaster.set(origin, rayDir);
       const hits = raycaster.intersectObject(floorScene, true);
-      if (hits.length > 0) {
-        heights.push(hits[0].point.y);
+      // First hit below the head IS the surface under the feet — floor,
+      // step, or stage. Filtering by spawn height is wrong here: when the
+      // real floor sits above y+0.4 the filter skips it, accepts a lower
+      // slab, and the avatar grounds sunk into the floor.
+      let hit = hits[0];
+      if (!hit) {
+        // Nothing below — spawned in a pit or above all geometry; look UP
+        // from the feet for a surface to climb onto.
+        raycaster.set(new THREE.Vector3(pos.x, pos.y - 0.5, pos.z), upRayDir);
+        hit = raycaster.intersectObject(floorScene, true)[0];
       }
+      if (hit) heights.push(hit.point.y);
     }
 
     if (heights.length > 0) {
@@ -286,7 +302,13 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
         let hits = raycaster.current.intersectObject(floorScene, true);
         // First hit at/below the avatar — never the ceiling or an upper slab,
         // which would snap the avatar up and make it visibly fall.
-        let hit = hits.find((h) => h.point.y <= pos.y + 0.4);
+        // First contact takes the highest surface below the head (the real
+        // floor under the feet) — a spawn-height filter can reject it and
+        // permanently ground the avatar into a lower slab. Once grounded,
+        // keep the 0.4 step window so walking doesn't teleport onto desks.
+        let hit = groundedRef.current
+          ? hits.find((h) => h.point.y <= pos.y + 0.4)
+          : hits[0];
         if (!hit && !groundedRef.current) {
           // Spawned under the floor (stale slot pos) — look UP for a surface
           // so the avatar climbs onto it instead of sinking forever.

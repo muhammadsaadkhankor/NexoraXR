@@ -233,6 +233,18 @@ app.get("/voices", async (req, res) => {
   }
 });
 
+// Canonical classroom URL: /classroom/<class-name-slug>?room=<id>&lecture=<id>
+// The slug is cosmetic (derived from the classroom name); the room registry —
+// resolved client-side via ?room= — is authoritative for the scene.
+const classroomSlug = (room) =>
+  String(room.className || room.courseName || '')
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || room.scene;
+
+const classroomPath = (room) =>
+  `/classroom/${encodeURIComponent(classroomSlug(room))}?room=${room.roomId}${room.lectureId ? `&lecture=${room.lectureId}` : ''}`;
+
 // Unified classroom creation — public rooms become discoverable, private rooms
 // return an invite URL whose token is the only way in.
 app.post('/api/rooms', (req, res) => {
@@ -253,7 +265,7 @@ app.post('/api/rooms', (req, res) => {
   if (error) return res.status(400).json({ error });
   // Never log the invite token.
   console.log(`[rooms] ${room.roomType} room ${room.roomId} '${room.className}' created (lecture ${room.lectureId}, lang ${room.language})`);
-  const scenePath = `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}${room.lectureId ? `&lecture=${room.lectureId}` : ''}`;
+  const scenePath = classroomPath(room);
   res.status(201).json({
     roomId: room.roomId,
     roomType: room.roomType,
@@ -284,7 +296,7 @@ app.post('/api/rooms/private', (req, res) => {
   console.log(`[rooms] private room ${room.roomId} created (lecture ${room.lectureId}, lang ${room.language}, scene ${room.scene})`);
   res.status(201).json({
     roomId: room.roomId,
-    inviteUrl: `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}&invite=${room.inviteToken}`,
+    inviteUrl: `${classroomPath(room)}&invite=${room.inviteToken}`,
   });
 });
 
@@ -951,7 +963,7 @@ app.post('/api/rooms/:roomId/invite', (req, res) => {
     : { ok: true, room };
   if (!rot.ok) return res.status(403).json({ error: 'Only the host can generate invite links' });
   res.json({
-    inviteUrl: `/scene/${encodeURIComponent(room.scene)}?room=${room.roomId}&lecture=${room.lectureId}&invite=${rot.room.inviteToken}`,
+    inviteUrl: `${classroomPath(rot.room)}&invite=${rot.room.inviteToken}`,
   });
 });
 

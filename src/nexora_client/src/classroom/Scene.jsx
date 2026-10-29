@@ -17,6 +17,7 @@ import { useVoiceChat } from './hooks/useVoiceChat';
 import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage, resolveSlideDoc, shouldAcceptLectureUnit } from './services/ncipSync';
 import { syncLectureClock } from './lectureClock';
 import { API_URL, getParticipantId } from '../shared/config';
+import { classroomSlug } from '../shared/classroomUrl';
 import { getGuestToken, setGuestToken, getMe } from '../shared/auth';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
@@ -520,17 +521,38 @@ function NotFound({ sceneName }) {
 
 export default function Scene() {
   const { sceneName } = useParams();
-  const baseConfig = SCENE_CONFIG[sceneName];
+  const [searchParams] = useSearchParams();
+  const roomId = searchParams.get('room');
+  const direct = SCENE_CONFIG[sceneName];
+  // Classroom slugs (e.g. /classroom/haptics) are not scene keys — resolve the
+  // authoritative scene from the room registry. undefined = still loading.
+  const [meta, setMeta] = useState(undefined);
 
-  if (!baseConfig) {
-    return <NotFound sceneName={sceneName} />;
+  useEffect(() => {
+    if (direct || !roomId) return;
+    let cancelled = false;
+    fetch(`${API_URL}/api/rooms/${roomId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (!cancelled) setMeta(m); })
+      .catch(() => { if (!cancelled) setMeta(null); });
+    return () => { cancelled = true; };
+  }, [direct, roomId]);
+
+  const sceneKey = direct ? sceneName : meta?.scene;
+  if (!sceneKey) {
+    return meta === null
+      ? <NotFound sceneName={sceneName} />
+      : <LoadingOverlay visible />;
   }
 
-  return <SceneRoom sceneName={sceneName} baseConfig={baseConfig} />;
+  return <SceneRoom sceneName={sceneKey} baseConfig={SCENE_CONFIG[sceneKey]} />;
 }
 
 function SceneRoom({ sceneName, baseConfig }) {
   const navigate = useNavigate();
+  // URL path segment (a cosmetic classroom slug or a bare scene key) — the
+  // resolved sceneName prop is the authoritative scene config key.
+  const { sceneName: urlSlug } = useParams();
   const [searchParams] = useSearchParams();
   const lectureId = searchParams.get('lecture');
   // Private-room admission params (invite links carry ?room=&invite=).
@@ -680,9 +702,11 @@ function SceneRoom({ sceneName, baseConfig }) {
     }
   }, [privateRoomId, lectureId, inviteToken, sceneName, navigate]);
 
-  // Canonical scene check: a ?room= link must render the room's registered
-  // scene — if the URL path drifted (stale link, fallback scene), redirect to
-  // the authoritative classroom while preserving room/invite/lecture params.
+  // Canonical slug check: a ?room= link's path segment must be the room's
+  // classroom-name slug (e.g. /classroom/haptics) — stale links, legacy
+  // /scene/<key> URLs, and drifted slugs are rewritten while preserving
+  // room/invite/lecture params. The registry stays authoritative for the
+  // scene itself.
   useEffect(() => {
     if (!privateRoomId) return;
     let cancelled = false;
@@ -691,20 +715,21 @@ function SceneRoom({ sceneName, baseConfig }) {
         const res = await fetch(`${API_URL}/api/rooms/${privateRoomId}`);
         if (!res.ok) return;
         const meta = await res.json();
-        if (!cancelled && meta?.scene && meta.scene !== sceneName) {
+        const canonical = meta ? classroomSlug(meta) : null;
+        if (!cancelled && canonical && canonical !== urlSlug) {
           const q = new URLSearchParams({
             room: privateRoomId,
             ...(inviteToken ? { invite: inviteToken } : {}),
             ...(lectureId ? { lecture: lectureId } : {}),
           });
-          navigate(`/scene/${encodeURIComponent(meta.scene)}?${q}`, { replace: true });
+          navigate(`/classroom/${encodeURIComponent(canonical)}?${q}`, { replace: true });
         }
       } catch (err) {
         console.warn('[room-meta]', err);
       }
     })();
     return () => { cancelled = true; };
-  }, [privateRoomId, sceneName, inviteToken, lectureId, navigate]);
+  }, [privateRoomId, urlSlug, inviteToken, lectureId, navigate]);
 
   // Invite links are single-use: the host mints a fresh one on each share
   // (server rotates the token). Guests never see this control.
@@ -1524,12 +1549,15 @@ function SceneRoom({ sceneName, baseConfig }) {
     setSceneReady(true);
   }, []);
 
-  // One-time centered hint on scene entry; auto-dismisses and hides on F5.
+  // One-time controls intro on scene entry; auto-dismisses, and hides as soon
+  // as the user starts moving or toggles the camera.
   useEffect(() => {
     if (!sceneReady) return;
     setCamHint(true);
-    const t = setTimeout(() => setCamHint(false), 8000);
-    const onKey = (e) => { if (e.key === 'F5') setCamHint(false); };
+    const t = setTimeout(() => setCamHint(false), 15000);
+    const onKey = (e) => {
+      if (e.key === 'F5' || e.key.startsWith('Arrow')) setCamHint(false);
+    };
     window.addEventListener('keydown', onKey);
     return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
   }, [sceneReady]);
@@ -1690,12 +1718,27 @@ function SceneRoom({ sceneName, baseConfig }) {
           the old name prompt is intentionally gone. */}
 
       {sceneReady && camHint && (
-        <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center'>
-          <div className='rounded-2xl border border-slate-700/60 bg-slate-900/85 px-8 py-5 text-center shadow-2xl backdrop-blur'>
-            <p className='text-sm font-semibold text-white'>
-              Press <span className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>F5</span> to toggle camera
-            </p>
-            <p className='mt-1.5 text-xs text-slate-400'>Switch between first-person and third-person view</p>
+        <div
+          className='fixed inset-0 z-40 flex items-center justify-center'
+          onClick={() => setCamHint(false)}
+        >
+          <div className='rounded-2xl border border-slate-700/60 bg-slate-900/85 px-8 py-6 text-center shadow-2xl backdrop-blur'>
+            <p className='text-base font-bold text-white'>Welcome to the classroom</p>
+            <div className='mt-4 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2.5 text-left'>
+              <span className='flex gap-1'>
+                {['↑', '↓', '←', '→'].map((k) => (
+                  <kbd key={k} className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>{k}</kbd>
+                ))}
+              </span>
+              <span className='text-xs text-slate-300'>Walk around the room</span>
+              <kbd className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>Shift</kbd>
+              <span className='text-xs text-slate-300'>Hold to run faster</span>
+              <kbd className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>Drag</kbd>
+              <span className='text-xs text-slate-300'>Click &amp; drag to look around</span>
+              <kbd className='rounded-md bg-slate-700 px-2 py-0.5 font-mono text-cyan-300'>F5</kbd>
+              <span className='text-xs text-slate-300'>Switch first / third person view</span>
+            </div>
+            <p className='mt-4 text-[11px] text-slate-500'>Click anywhere or start moving to dismiss</p>
           </div>
         </div>
       )}
