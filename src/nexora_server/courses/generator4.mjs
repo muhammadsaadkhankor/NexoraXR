@@ -26,34 +26,52 @@ import {
 export const GENERATOR_VERSION = 'fast.1';
 export const PROMPT_VERSION = 'fast-2call-2026-10-26';
 
-const TARGET_WORDS = Math.round(
-  Math.min(10, Math.max(5, Number(process.env.COURSE_FAST_MINUTES || TARGET_MINUTES))) * EFFECTIVE_WPM);
+// Planning word budget — PLAN_WPM is the words the script should contain
+// (~130 → a 10-minute target ≈ 1,300 words of rich narration). EFFECTIVE_WPM
+// stays 72 for AUDIO-duration estimates (measured VoxCPM rate) — the two are
+// deliberately different: script length drives teaching depth, not playback
+// clock time, which the user reviews before baking audio.
+const FAST_MINUTES = Math.min(15, Math.max(5, Number(process.env.COURSE_FAST_MINUTES || TARGET_MINUTES)));
+const PLAN_WPM = Math.min(160, Math.max(80, Number(process.env.COURSE_PLAN_WPM || 130)));
+// Pre-TTS draft gate (drafts.mjs: validateDraftScript) rejects scripts over
+// 1500 words — never budget beyond this ceiling or generated drafts can't
+// be approved/baked. 1450 leaves margin for reviewer edits.
+const SCRIPT_WORD_CEILING = Number(process.env.COURSE_SCRIPT_WORD_CEILING || 1450);
+const targetWordsFor = (minutes) =>
+  Math.min(SCRIPT_WORD_CEILING, Math.round(minutes * PLAN_WPM));
 const MAX_TOKENS = Number(process.env.COURSE_FAST_MAXTOK || 6000);
-const MAX_EVIDENCE_CHARS = Number(process.env.COURSE_FAST_EVIDENCE || 14000);
+const MAX_EVIDENCE_CHARS = Number(process.env.COURSE_FAST_EVIDENCE || 24000);
+// Minimum narration a concept deserves — high importance needs a worked
+// explanation, medium a solid paragraph. Drives the recommendedMinutes
+// estimate when the requested duration can't fit the full topic inventory.
+const MIN_WORDS_PER_CONCEPT = { high: 130, medium: 80 };
 
 const num = (v, def = null) => (Number.isFinite(Number(v)) ? Number(v) : def);
 
 // ---- Stage B — compact teaching plan (ONE call) ------------------------------
 export function planPrompt(outlineEntry, corpus) {
-  const outline = corpus.teaching.slice(0, 40).map((s) =>
+  const outline = corpus.teaching.slice(0, 80).map((s) =>
     `- "${s.title}" (${s.filename} p.${s.pageStart}–${s.pageEnd}${s.summary ? `: ${String(s.summary).slice(0, 90)}` : ''})`
   ).join('\n');
   return {
     sys:
       `You are a senior lecturer planning ONE lecture titled "${outlineEntry.title}". ` +
-      `From the document outline, select the 4–6 MOST IMPORTANT concepts a student must ` +
-      `understand — depth over breadth: it is better to explain four ideas well ` +
-      `than to name six superficially. ` +
+      `From the document outline, select the concepts a student must ` +
+      `understand — cover EVERY instructional topic in the outline (typically 4–8 concepts, ` +
+      `more when the material genuinely has more; administrative slides like syllabus, ` +
+      `grading, schedule, and logistics are the only legitimate omissions). ` +
+      `Merge related slides into ONE concept — do not make one concept per slide — but never ` +
+      `skip a substantive later slide just because earlier ones exist. ` +
       `Order them by LEARNING DEPENDENCY — each concept should be understandable ` +
       `only from concepts before it (prerequisites first, then applications). ` +
-      `Exclude administrative material (syllabus, grading, schedule, logistics) ` +
-      `and anything already covered by an earlier concept. ` +
       `Return ONLY JSON {"objective":"<one-line teaching objective>","concepts":` +
       `[{"title":"<concept>","importance":"high|medium","why":"<1-line reason it matters>",` +
       `"examples":["<concrete example from source>"],"source":"<exact filename>",` +
-      `"pageStart":<int>,"pageEnd":<int>}],"omitted":["<secondary topic skipped>"]}. ` +
+      `"pageStart":<int>,"pageEnd":<int>}],"omitted":["<topic genuinely absent or non-essential>"]}. ` +
       `At most 2 concepts may be "medium" importance — the rest are the lecture's core. ` +
-      `Sources must exactly match document names listed; pages come from the outline ranges.`,
+      `Sources must exactly match document names listed; pages come from the outline ranges. ` +
+      `Give each concept the TIGHTEST page range that covers it — page ranges are used to ` +
+      `sync narration to slides, so a concept must not claim pages belonging to another topic.`,
     usr:
       `Lecture: "${outlineEntry.title}"\n\nDocument outline (title — file pages — summary):\n${outline}\n\n` +
       `Pick the essential 4–6 concepts in teachable dependency order.`,
@@ -63,7 +81,7 @@ export function planPrompt(outlineEntry, corpus) {
 // Deterministic fallback plan — preserve source order (proven correct), flag
 // degraded output explicitly in meta.
 export function fallbackPlan(outlineEntry, corpus) {
-  const secs = corpus.teaching.slice(0, 6);
+  const secs = corpus.teaching.slice(0, 12);
   return {
     objective: outlineEntry.title,
     concepts: secs.map((s, i) => ({
@@ -85,7 +103,7 @@ export function validatePlan(raw, corpus) {
   }
   return { ok: true, plan: {
     objective: raw.objective.trim(),
-    concepts: concepts.slice(0, 8).map((c, i) => ({
+    concepts: concepts.slice(0, 12).map((c, i) => ({
       title: c.title.trim(), order: i + 1, why: String(c.why || '').slice(0, 200),
       importance: /medium|low|minor|supporting/i.test(String(c.importance || '')) ? 'medium' : 'high',
       examples: Array.isArray(c.examples) ? c.examples.slice(0, 3).map(String) : [],
@@ -101,7 +119,7 @@ export function validatePlan(raw, corpus) {
 // Evidence per concept: spread across its page range (first + later chunks)
 // instead of a contiguous head slice, so worked examples/deeper material is
 // visible to the writer.
-export function conceptEvidence(concept, corpus, cap = 1800) {
+export function conceptEvidence(concept, corpus, cap = 3200) {
   const chunks = corpus.teaching.filter((s) => s.filename === concept.source)
     .flatMap((s) => s.chunks || [])
     .filter((c) => c.page == null ||
@@ -109,12 +127,17 @@ export function conceptEvidence(concept, corpus, cap = 1800) {
   if (!chunks.length) {
     return evidenceForBlock({ sources: [{ filename: concept.source, pageStart: concept.pageStart - 1, pageEnd: concept.pageEnd + 1 }] }, corpus).slice(0, cap);
   }
-  const pick = [chunks[0], chunks[Math.floor(chunks.length / 2)], chunks[chunks.length - 1]]
-    .filter((v, i, a) => v && a.indexOf(v) === i);
+  // Spread up to 5 chunks evenly across the range — math slides need the
+  // derivation pages, not just the opener/closer.
+  const pick = chunks.length <= 5 ? chunks
+    : Array.from({ length: 5 }, (_, i) => chunks[Math.round(i * (chunks.length - 1) / 4)])
+        .filter((v, i, a) => a.indexOf(v) === i);
   return pick.map((c) => `[src] ${c.filename} p.${c.page ?? '?'}\n${String(c.text).slice(0, Math.floor(cap / pick.length))}`).join('\n\n');
 }
 
-export function narrationPrompt(outlineEntry, plan, corpus, fix = '') {
+export function narrationPrompt(outlineEntry, plan, corpus, fix = '', opts = {}) {
+  const targetWords = opts.targetWords || targetWordsFor(FAST_MINUTES);
+  const minutes = opts.minutes || FAST_MINUTES;
   const evidence = [];
   let left = MAX_EVIDENCE_CHARS;
   for (const c of plan.concepts) {
@@ -126,7 +149,7 @@ export function narrationPrompt(outlineEntry, plan, corpus, fix = '') {
   }
   const weightOf = (c) => (c.importance === 'medium' ? 1 : 2);
   const totalW = plan.concepts.reduce((n, c) => n + weightOf(c), 0);
-  const bodyWords = Math.max(0, TARGET_WORDS - 100);
+  const bodyWords = Math.max(0, targetWords - 100);
   const budgetOf = (c) => Math.max(c.importance === 'medium' ? 60 : 100,
     Math.round(bodyWords * weightOf(c) / totalW));
   return {
@@ -138,6 +161,12 @@ export function narrationPrompt(outlineEntry, plan, corpus, fix = '') {
       `– Explain the idea BEFORE naming the jargon. A student must understand the mechanism, not just hear the term. ` +
       `– Every concept gets a real explanation (what it is, how it works, why it matters) — never a one-sentence definition followed by nothing. ` +
       `– When an example is given, use it to show HOW the concept works — walk through it — don't just name it. ` +
+      `– Mathematics and algorithms: when the evidence contains an equation or formula, ` +
+      `explain it fully — name every symbol and variable in words, describe what the ` +
+      `equation computes and why, and walk through the small numeric example when the ` +
+      `source provides one. Verbalize notation for speech (write "w zero", "J of w", ` +
+      `"x superscript i", "sum over n", "the derivative of J with respect to w") — ` +
+      `never output raw symbols like f(x), w₀, J(w₁), ∂, or ∑ alone. ` +
       `– Connect concepts: each new idea should clearly follow from the previous one (brief natural transitions, no robotic "now let's discuss"). ` +
       `– No repeated definitions, no restating the same idea in different words. ` +
       `– NO filler: never write "an example illustrates…", "this concept is important…", "these components work together…" without actual explanation. ` +
@@ -146,7 +175,7 @@ export function narrationPrompt(outlineEntry, plan, corpus, fix = '') {
       `– Open by explaining "${plan.objective}" in plain terms (no "welcome"); close with a conceptual recap that ties the ideas together. ` +
       `Return ONLY JSON {"segments":[{"document":"<exact filename>","page":<int>,` +
       `"concept":"<the concept this segment teaches>","text":"<spoken words>"}]}. ` +
-      `TOTAL across all segments ≈ ${TARGET_WORDS} words (target ≈ ${Math.round(TARGET_WORDS / EFFECTIVE_WPM)} minutes). ` +
+      `TOTAL across all segments ≈ ${targetWords} words (target ≈ ${minutes} minutes). ` +
       `Approximate words per concept are listed in the plan — high-importance ` +
       `concepts get more explanation, medium ones a solid paragraph. ` +
       `Each segment's document MUST be one of ${JSON.stringify([...new Set(plan.concepts.map((c) => c.source))])} ` +
@@ -175,30 +204,120 @@ export function detectFiller(segments) {
   return out;
 }
 
+// Spoken-math vocabulary — verbalized notation ("w zero", "sum over n"),
+// math words, or digits — what TTS must actually say for an equation.
+export const MATH_NARRATION_RE =
+  /\b(equation|formula|variable|parameter|coefficient|derivative|gradient|squared|square root|summation|sum over|superscript|subscript|matrix|vector|multiply|multiplied|divided|slope|intercept|cost function|minimi[sz]e|optimi[sz]e|equals|times|plus|minus|sigma|theta|beta|alpha|hat|numerator|denominator|\d|zero|one|two|three)\b/i;
+// Equation-bearing source evidence.
+export const MATH_EVIDENCE_RE =
+  /[=∑∂∇√±×÷≈≤≥]|\b(gradient|derivative|cost function|equation|summation|integral|matrix multiplication)\b/i;
+
 // Fast gate = shared V3 validator + fast-specific shallowness/filler checks.
-export function validateFast(parsed, allowedDocs, plan) {
+// opts: {targetWords, minutes, mathByBlock, teaching} — the V3 length band is
+// replaced by this call's configured target so a deliberate long/short lecture
+// isn't force-fit into the global default band. `teaching` (the original
+// instructional inventory from loadCorpus) enables an INDEPENDENT coverage
+// check — the plan's own "omitted" list is not trusted to be complete.
+export function validateFast(parsed, allowedDocs, plan, opts = {}) {
   const v = validateLectureV3(parsed, allowedDocs, plan);
-  const problems = [...v.problems];
+  const target = opts.targetWords || targetWordsFor(opts.minutes || FAST_MINUTES);
+  const problems = v.problems.filter((p) => !/^too (short|long)/.test(p));
+  const warnings = [...(v.warnings || [])];
   const words = (id) => parsed.segments.filter((s) => s.blockId === id)
     .reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
-  // High-importance concepts need depth — under 60 words is a named-not-taught.
+  // Duration: hard-fail a badly under-delivered script; overshoot is a
+  // warning (long lectures are the reviewer's call, not a compressor's).
+  if (v.words < target * 0.7) problems.push(`too short for target (${v.words}w < ${Math.round(target * 0.7)}w of ~${target}w)`);
+  if (v.words > target * 1.15) warnings.push(`overshoot: ${v.words}w vs ~${target}w target`);
+  // High-importance concepts need depth — under 80 words is named-not-taught.
   for (const c of plan.concepts || []) {
-    if (c.importance === 'high' && words(c.blockId) < 60) {
-      problems.push(`core concept "${c.title}" is under-explained (${words(c.blockId)}w < 60w)`);
+    if (c.importance === 'high' && words(c.blockId) < 80) {
+      problems.push(`core concept "${c.title}" is under-explained (${words(c.blockId)}w < 80w)`);
     }
   }
   const filler = detectFiller(parsed.segments);
   if (filler.length) problems.push(`${filler.length} filler segment(s) (e.g. segment ${filler[0].segment})`);
-  return { ok: !problems.length, problems, words: v.words };
+
+  // Independent coverage check against the ORIGINAL instructional inventory —
+  // a teaching section (non-admin) with no narration page inside its range was
+  // silently dropped, regardless of what the plan claims.
+  if (Array.isArray(opts.teaching) && opts.teaching.length) {
+    const covered = parsed.segments.filter((s) => s.page != null && s.document)
+      .map((s) => `${s.document}#${s.page}`);
+    const coveredSet = new Set(covered);
+    const uncovered = opts.teaching.filter((s) => {
+      const lo = s.page_start ?? s.pageStart ?? 1;
+      const hi = s.page_end ?? s.pageEnd ?? lo;
+      for (let p = lo; p <= hi; p++) {
+        if (coveredSet.has(`${s.filename}#${p}`)) return false;
+      }
+      return true;
+    });
+    const ratio = uncovered.length / opts.teaching.length;
+    if (ratio > 0.35) {
+      problems.push(`instructional coverage ${Math.round((1 - ratio) * 100)}% — ` +
+        `no narration on: ${uncovered.slice(0, 5).map((s) => `"${s.title}" p.${s.page_start ?? s.pageStart}`).join(', ')}${uncovered.length > 5 ? ` (+${uncovered.length - 5} more)` : ''}`);
+    } else if (uncovered.length) {
+      warnings.push(`${uncovered.length} instructional slide(s) without narration: ${uncovered.slice(0, 4).map((s) => `"${s.title}" p.${s.page_start ?? s.pageStart}`).join(', ')}`);
+    }
+  }
+
+  // Coverage honesty — omitted topics and a recommended longer duration are
+  // reported to the reviewer, never silently dropped.
+  if (plan.recommendedMinutes && plan.recommendedMinutes > (opts.minutes || FAST_MINUTES)) {
+    warnings.push(`full topic coverage needs ~${plan.recommendedMinutes} min; target is ${opts.minutes || FAST_MINUTES} — omitted: ${(plan.omitted || []).join('; ') || 'none'}`);
+  } else if (plan.omitted?.length) {
+    warnings.push(`topics omitted from narration: ${plan.omitted.join('; ')}`);
+  }
+
+  // Per-concept math check — a block whose evidence contains equations must
+  // produce narration that actually verbalizes the math, not merely exists.
+  for (const [blockId, title] of Object.entries(opts.mathByBlock || {})) {
+    const segs = parsed.segments.filter((s) => s.blockId === blockId);
+    if (segs.length && !segs.some((s) => MATH_NARRATION_RE.test(s.text))) {
+      problems.push(`concept "${title}" has equation-bearing slides but the narration never explains the math`);
+    }
+  }
+  return { ok: !problems.length, problems, warnings, words: v.words };
 }
 
 // The model sometimes reports a page outside the concept's source range
 // (observed: pages 3–4 on a 2-page PDF). Clamp to the nearest page in the
 // concept's assigned range — provenance stays real, never invented — and
 // record the clamp as a warning so review sees it.
-export function normalizeSegmentPages(parsed, plan) {
+export function normalizeSegmentPages(parsed, plan, corpus = null) {
   const warnings = [];
   const rangeOf = new Map(plan.concepts.map((c) => [c.blockId, c]));
+  const chunksByConcept = new Map();
+  const chunksFor = (c) => {
+    if (!chunksByConcept.has(c.blockId)) {
+      chunksByConcept.set(c.blockId,
+        (corpus?.teaching || []).filter((s) => s.filename === c.source)
+          .flatMap((s) => s.chunks || [])
+          .filter((ch) => ch.page != null));
+    }
+    return chunksByConcept.get(c.blockId);
+  };
+  // Word-overlap score between a segment and each source chunk — used to pick
+  // the BEST page inside the concept's range rather than blindly clamping to
+  // the nearest edge, which only manufactures false confidence in the mapping.
+  const tokenize = (t) => new Set(String(t || '').toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3));
+  const bestPage = (text, c, lo, hi) => {
+    const cands = chunksFor(c).filter((ch) => ch.page >= lo && ch.page <= hi);
+    if (!cands.length) return null;
+    const toks = tokenize(text);
+    if (!toks.size) return null;
+    let best = null, score = 0;
+    for (const ch of cands) {
+      const ct = tokenize(ch.text);
+      let n = 0;
+      for (const w of toks) if (ct.has(w)) n++;
+      const s = n / toks.size;
+      if (s > score) { score = s; best = ch.page; }
+    }
+    return score >= 0.15 ? best : null;
+  };
   for (const s of parsed.segments) {
     const c = rangeOf.get(s.blockId);
     if (!c) continue;
@@ -210,9 +329,11 @@ export function normalizeSegmentPages(parsed, plan) {
       s.mapped = 'auto';
     }
     if (s.page == null || s.page < lo || s.page > hi) {
+      const matched = bestPage(s.text, c, lo, hi);
       const clamped = s.page == null ? lo : Math.min(hi, Math.max(lo, s.page));
-      warnings.push(`segment ${s.id}: page ${s.page ?? '∅'} → ${clamped} (outside ${c.source} p.${lo}–${hi})`);
-      s.page = clamped;
+      const page = matched ?? clamped;
+      warnings.push(`segment ${s.id}: page ${s.page ?? '∅'} → ${page}${matched != null ? ' (content-matched)' : ''} (outside ${c.source} p.${lo}–${hi})`);
+      s.page = page;
       s.mapped = 'auto';
     }
   }
@@ -244,8 +365,13 @@ export function assignConcepts(parsed, plan) {
 }
 
 // ---- public API ---------------------------------------------------------------
-export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
+export async function generateLectureFast(courseId, outlineEntry, deps = {}, opts = {}) {
+  // Narration duration target — per-call option (instructor build setting)
+  // overrides env defaults. 5–15 min band.
+  const minutes = Math.min(15, Math.max(5, Number(opts.minutes ?? deps.minutes ?? FAST_MINUTES)));
+  const targetWords = targetWordsFor(minutes);
   const meta = {
+    minutes, targetWords,
     generator: GENERATOR_VERSION, promptVersion: PROMPT_VERSION,
     llmCalls: 0, promptChars: 0, blockAttempts: 0, repairedBlocks: 0,
     llmUsage: { promptTokens: 0, genTokens: 0, loadDurationMs: 0, promptEvalMs: 0, evalMs: 0, totalMs: 0 },
@@ -296,8 +422,18 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
     console.warn(`[fast] plan fallback for lecture ${outlineEntry.idx}: ${planReason}`);
   }
 
+  // Duration feasibility — estimate the minimum words each concept needs and
+  // report a recommended duration when the target can't fund full coverage.
+  // The plan keeps going either way; the warning surfaces to the reviewer.
+  const neededWords = 120 + plan.concepts.reduce((n, c) =>
+    n + (c.importance === 'medium' ? MIN_WORDS_PER_CONCEPT.medium : MIN_WORDS_PER_CONCEPT.high), 0);
+  plan.recommendedMinutes = Math.ceil(neededWords / PLAN_WPM);
+  if (plan.recommendedMinutes > minutes) {
+    console.warn(`[fast] lecture ${outlineEntry.idx}: ${plan.concepts.length} concepts need ~${plan.recommendedMinutes} min, target ${minutes} — reviewer sees coverage warning`);
+  }
+
   // Shape concepts into plan.blocks (shared V3 contract for gates/repairs).
-  const bodyWords = Math.max(0, TARGET_WORDS - 100);
+  const bodyWords = Math.max(0, targetWords - 100);
   const perConcept = Math.max(45, Math.round(bodyWords / plan.concepts.length));
   plan.blocks = plan.concepts.map((c, i) => ({
     id: `c${i + 1}`, title: c.title, role: 'core',
@@ -315,7 +451,8 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
   const files = [...new Set(plan.concepts.map((c) => c.source))];
   for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
     const { sys, usr } = narrationPrompt(outlineEntry, plan, corpus,
-      attempt ? `\n\nPrevious reply rejected: ${reason}. Return ONLY the JSON — segments must each contain ≥15 spoken words.` : '');
+      attempt ? `\n\nPrevious reply rejected: ${reason}. Return ONLY the JSON — segments must each contain ≥15 spoken words.` : '',
+      { targetWords, minutes });
     let raw = null;
     try { raw = await countedChat([{ role: 'system', content: sys }, { role: 'user', content: usr }], { json: true, maxTokens: MAX_TOKENS }); }
     catch (e) { reason = `transport error: ${String(e.message || e).slice(0, 100)}`; }
@@ -336,7 +473,7 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
   assignConcepts(parsed, plan);
   // Clamp any out-of-range document/page references to the concept's real
   // source range — provenance stays source-grounded, never invented.
-  const provenanceWarnings = normalizeSegmentPages(parsed, plan);
+  const provenanceWarnings = normalizeSegmentPages(parsed, plan, corpus);
   // Dedup → gap check → ONE bounded repair pass on missing/under-explained blocks.
   {
     const { segments: dd, removedIds } = dedupeSegments(parsed.segments);
@@ -355,11 +492,16 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
     }
     for (const c of plan.concepts) {
       const w = wBy.get(c.blockId) || 0;
-      if (c.importance === 'high' && w < 60 && !gaps.some((g) => g.blockId === c.blockId)) {
-        const b = plan.blocks.find((x) => x.id === c.blockId);
+      const floor = c.importance === 'medium' ? 60 : 80;
+      const b = plan.blocks.find((x) => x.id === c.blockId);
+      // A concept must reach the higher of its per-importance floor or 60% of
+      // its planned budget — under-delivery gets a targeted expansion repair,
+      // not a silent pass.
+      const need = Math.max(floor, Math.round((b?.budget || 120) * 0.6));
+      if (w < need && !gaps.some((g) => g.blockId === c.blockId)) {
         gaps.push({ ...(b || {}), blockId: c.blockId, title: c.title,
           objective: c.why, budget: b?.budget || 120, sources: b?.sources || c.sources || [],
-          reason: `under-explained (${w}w < 60w)` });
+          reason: `under-explained (${w}w < ${need}w)` });
       }
     }
   }
@@ -377,23 +519,37 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}) {
   // compresses once; nothing else gets a second pass.
   const allowedDocs = Object.fromEntries((outlineEntry.sources || [])
     .map((s) => [s.filename, { documentId: s.documentId, pages: s.pages }]));
-  let final = validateFast(parsed, allowedDocs, plan);
+  // Per-concept math map — blocks whose evidence carries equations need
+  // narration that actually verbalizes the math.
+  const mathByBlock = {};
+  for (const c of plan.concepts) {
+    if (MATH_EVIDENCE_RE.test(conceptEvidence(c, corpus))) mathByBlock[c.blockId] = c.title;
+  }
+  const gateOpts = { targetWords, minutes, mathByBlock, teaching: corpus.teaching };
+  let final = validateFast(parsed, allowedDocs, plan, gateOpts);
   if (!final.ok && final.problems.some((p) => p.startsWith('too long'))) {
     parsed = await compressOvershootV3(parsed, plan, myDeps);
     const { segments: dd3, removedIds: rm3 } = dedupeSegments(parsed.segments);
     if (rm3.length) parsed.segments = dd3;
     parsed.sections = segsToSections(parsed.segments);
     parsed.segments.forEach((s, i) => { s.id = i; });
-    final = validateFast(parsed, allowedDocs, plan);
+    final = validateFast(parsed, allowedDocs, plan, gateOpts);
   }
   const warnings = [...provenanceWarnings, ...(final.warnings || [])];
   parsed.validation = final.ok
     ? (warnings.length ? { ok: true, warnings } : undefined)
     : { ok: false, problems: final.problems, warnings };
+  // Coverage report for the review UI — full topic inventory + what didn't fit.
+  parsed.coverage = {
+    checklist: plan.concepts.map((c, i) => ({ n: i + 1, title: c.title })),
+    missing: (plan.omitted || []).map((t, i) => ({ n: i + 1, title: typeof t === 'string' ? t : t?.title || String(t) })),
+    ...(plan.recommendedMinutes > minutes ? { recommendedMinutes: plan.recommendedMinutes } : {}),
+  };
   parsed.wordCount = parsed.segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
   parsed.estimatedMinutes = parsed.wordCount / EFFECTIVE_WPM;
   parsed.plan = { subject: plan.objective, objective: plan.objective,
-    blocks: plan.blocks, omitted: plan.omitted, degraded: !!meta.planFallback };
+    blocks: plan.blocks, omitted: plan.omitted, degraded: !!meta.planFallback,
+    recommendedMinutes: plan.recommendedMinutes };
   parsed.inventorySummary = {
     concepts: plan.concepts.map((c) => ({ title: c.title, role: 'core' })),
     excluded: corpus.excluded.map((s) => ({ title: s.title, kind: s._class?.kind || 'admin' })),

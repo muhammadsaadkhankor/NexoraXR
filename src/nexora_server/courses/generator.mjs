@@ -919,7 +919,8 @@ export async function emitLecture(courseId, outlineEntry, lecture, { buildId = n
        validation: lecture.validation || { ok: true },
        ...(lecture.coverage ? { coverage: {
          checklist: lecture.coverage.checklist.map((t) => `${t.n}. ${t.title}`),
-         missing: lecture.coverage.missing.map((t) => `${t.n}. ${t.title}`) } } : {}),
+         missing: lecture.coverage.missing.map((t) => `${t.n}. ${t.title}`),
+         ...(lecture.coverage.recommendedMinutes ? { recommendedMinutes: lecture.coverage.recommendedMinutes } : {}) } } : {}),
        ...(lecture.contextMode ? { context_mode: lecture.contextMode } : {}),
      })]);
   return { lectureId, title: lecture.title, segments: segs.length, wordCount: lecture.wordCount };

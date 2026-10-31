@@ -3,7 +3,7 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
@@ -20,16 +20,27 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
   // FINISHED (i.e. the head advanced past it). The live message is never
   // written here — SpeakingTranscript reveals its words progressively from
   // the audio clock, so a new segment can never flash its full text.
+  const segNumOf = (id) => {
+    const m = /_seg_(\d+)$/.exec(id || '');
+    return m ? Number(m[1]) : null;
+  };
   const prevMessageRef = useRef(null);
   useEffect(() => {
     const prev = prevMessageRef.current;
     prevMessageRef.current = message;
     if (prev?.type === 'lecture' && prev.text && prev.id !== message?.id) {
-      setLectureLines((lines) =>
-        lines.some((l) => l.id === prev.id)
-          ? lines
-          : [...lines, { id: prev.id, text: prev.text, time: new Date() }]
-      );
+      setLectureLines((lines) => {
+        if (lines.some((l) => l.id === prev.id)) return lines;
+        const entry = { id: prev.id, text: prev.text, time: new Date() };
+        // Dynamic utterances (opening, transitions, recaps) are emitted with
+        // '_dyn_' ids — record which prepared segment they followed so the
+        // script box can show them in chronological position.
+        if (prev.id.includes('_dyn_')) {
+          entry.dynamic = prev.dynamic || 'dynamic';
+          entry.afterSeg = Math.max(-1, ...lines.map((l) => segNumOf(l.id) ?? -1));
+        }
+        return [...lines, entry];
+      });
     }
     if (!message || !message.text || message.type === 'lecture') return;
     setChatHistory((prev2) => {
@@ -52,6 +63,28 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
   useEffect(() => {
     if (transcriptEpoch > 0) setLectureLines([]);
   }, [transcriptEpoch]);
+
+  // Full prepared script view — every segment the professor will speak, in
+  // playback order, visible before Start Class. The active segment is
+  // highlighted and auto-scrolled into view; manual scrolling wins briefly
+  // so the user can read ahead without the view jumping.
+  const scriptScrollRef = useRef(null);
+  const activeSegRef = useRef(null);
+  const manualScrollUntilRef = useRef(0);
+  const activeSegNum = segNumOf(activeMessage?.id);
+  const activeDynamic = activeMessage?.id?.includes('_dyn_') ? activeMessage : null;
+  // Completed dynamic units anchored after each prepared segment id
+  // (-1 = before segment 0, e.g. the opening welcome).
+  const dynamicBySeg = lectureLines
+    .filter((l) => l.dynamic)
+    .reduce((m, l) => { (m[l.afterSeg] ??= []).push(l); return m; }, {});
+  const lastPlayedSeg = Math.max(-1,
+    ...lectureLines.map((l) => segNumOf(l.id) ?? -1), activeSegNum ?? -1);
+  useEffect(() => {
+    if (activeSegRef.current && Date.now() > manualScrollUntilRef.current) {
+      activeSegRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [activeSegNum]);
 
   // Seed played segments (refresh/recovery) so the script shows everything
   // already covered, not only the segments played since this client loaded.
@@ -265,6 +298,76 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, floorHolder, isFl
               </div>
             </div>
           ))}
+
+          {/* Full prepared lecture script — the same manifest the server
+              queues to TTS, segment by segment. Played = normal, active =
+              highlighted, upcoming = dimmed. Dynamic professor speech
+              (answers, recaps) still appears as chat bubbles above/below in
+              chronological order; this list never replaces them. */}
+          {lectureScript?.length > 0 && (
+            <div className="flex items-end gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
+                <Bot size={14} />
+              </div>
+              <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-slate-800/50 text-slate-100 ring-1 ring-slate-600/40">
+                <div className="text-[10px] mb-1 font-semibold text-slate-400 uppercase tracking-wide">
+                  Lecture script · {lectureScript.length} segments
+                </div>
+                <div
+                  ref={scriptScrollRef}
+                  onWheel={() => { manualScrollUntilRef.current = Date.now() + 5000; }}
+                  onTouchMove={() => { manualScrollUntilRef.current = Date.now() + 5000; }}
+                  className="max-h-44 overflow-y-auto space-y-2 pr-1"
+                >
+                  {/* Dynamic units delivered before segment 0 (opening). */}
+                  {(dynamicBySeg[-1] || []).map((l) => (
+                    <p key={l.id} className="border-l-2 border-violet-400/60 pl-2 text-violet-300/90">
+                      <span className="mr-1 text-[9px] font-semibold uppercase tracking-wide text-violet-400/80">Dynamic · {l.dynamic}</span>
+                      {l.text}
+                    </p>
+                  ))}
+                  {lectureScript.map((seg) => {
+                    const sid = `${lectureId}_seg_${seg.id}`;
+                    const isActive = activeSegNum === seg.id;
+                    const played = lectureLines.some((l) => l.id === sid)
+                      || (activeSegNum !== null && seg.id < activeSegNum);
+                    return (
+                      <div key={sid}>
+                        <p
+                          ref={isActive ? activeSegRef : null}
+                          className={
+                            isActive
+                              ? 'text-cyan-200 font-medium border-l-2 border-cyan-400 pl-2'
+                              : played
+                                ? 'text-slate-400'
+                                : 'text-slate-500'
+                          }
+                        >
+                          {seg.text}
+                        </p>
+                        {/* Dynamic utterances delivered right after this
+                            segment — transitions, re-explanations, recaps. */}
+                        {(dynamicBySeg[seg.id] || []).map((l) => (
+                          <p key={l.id} className="mt-1 border-l-2 border-violet-400/60 pl-2 text-violet-300/90">
+                            <span className="mr-1 text-[9px] font-semibold uppercase tracking-wide text-violet-400/80">Dynamic · {l.dynamic}</span>
+                            {l.text}
+                          </p>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  {/* A dynamic unit speaking right now — appended after the
+                      last played segment so the list stays chronological. */}
+                  {activeDynamic && (
+                    <p ref={activeSegRef} className="border-l-2 border-violet-400 pl-2 text-violet-200 font-medium">
+                      <span className="mr-1 text-[9px] font-semibold uppercase tracking-wide text-violet-300">Dynamic · {activeDynamic.dynamic || 'speaking'}</span>
+                      {activeDynamic.text}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {(lectureLines.length > 0 || activeMessage?.text) && (
             <div className="flex items-end gap-3">

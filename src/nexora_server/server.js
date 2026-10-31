@@ -33,7 +33,7 @@ import { registerDocument, ingestDocument } from "./courses/pipeline.mjs";
 import { startBuild, runBuild, runAudioPhase, runTranslationPhase, buildRunning, buildStatus, resumeInterrupted } from "./courses/builds.mjs";
 import { loadLectureDraft, saveLectureDraft, saveLectureFullDraft, saveLectureLangDraft,
          loadLectureLangDraft, invalidateSegmentAudio, textFingerprintForBake,
-         audioApprovalGate, TRANSLATION_LANGS } from "./courses/drafts.mjs";
+         audioApprovalGate, validateDraftScript, TRANSLATION_LANGS } from "./courses/drafts.mjs";
 import { planFromDocuments } from "./courses/generator.mjs";
 import adminRouter from "./admin/routes.mjs";
 import brandingRouter from "./branding/routes.mjs";
@@ -323,6 +323,17 @@ app.post('/api/courses', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), 
   if (!name) return res.status(400).json({ error: 'A course name is required' });
   const scene = /^[A-Za-z0-9_-]{1,64}$/.test(req.body?.scene || '') ? req.body.scene : 'Multimedia';
   try {
+    // Case-insensitive per-owner duplicate guard — 'Machine Learning' and
+    // 'machine learning' must not become two courses (the DB unique index
+    // is case-sensitive, so it can't catch this alone).
+    const { rows: dup } = await getPool().query(
+      `SELECT id FROM courses WHERE owner_id=$1 AND lower(name)=lower($2)`,
+      [req.user.id, name]);
+    if (dup.length) {
+      return res.status(409).json({
+        error: `You already have a course named "${name}".`,
+        courseId: dup[0].id });
+    }
     const { rows } = await getPool().query(
       `INSERT INTO courses (id, owner_id, name, scene) VALUES ($1,$2,$3,$4)
        ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name
@@ -354,6 +365,9 @@ app.post('/api/courses/:id/build', requireAuth, requireRole('INSTRUCTOR', 'SUPER
   const courseId = req.params.id;
   const lectureCount = Math.max(1, Math.min(500, Number.parseInt(req.body?.lectureCount, 10) || 8));
   const lang = /^[a-z]{2}$/.test(req.body?.lang || '') ? req.body.lang : 'en';
+  // Optional per-lecture narration target (minutes) — null keeps env default.
+  const minutes = Number.isFinite(+req.body?.minutes)
+    ? Math.min(15, Math.max(5, +req.body.minutes)) : null;
   if (buildRunning(courseId)) {
     return res.status(409).json({ error: 'A build is already running for this course' });
   }
@@ -376,7 +390,7 @@ app.post('/api/courses/:id/build', requireAuth, requireRole('INSTRUCTOR', 'SUPER
           })),
         }))
       : null;
-    const buildId = await startBuild(courseId, lecturePlan?.length || lectureCount, lang, lecturePlan);
+    const buildId = await startBuild(courseId, lecturePlan?.length || lectureCount, lang, lecturePlan, minutes);
     setImmediate(() => runBuild(buildId, courseId, lecturePlan?.length || lectureCount, lang, lecturePlan));
     res.status(202).json({ ok: true, buildId, build: 'running' });
   } catch (err) {
@@ -486,8 +500,16 @@ app.put('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER
     const pool = getPool();
     const { rows: [build] } = await pool.query(
       `SELECT id, status FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
-    if (!build || !['awaiting_review', 'ready', 'failed'].includes(build.status)) {
-      return res.status(409).json({ error: 'No reviewable draft scripts for this course' });
+    if (!build) {
+      return res.status(409).json({ error: 'No build exists for this course yet — generate scripts first' });
+    }
+    if (['translating', 'audio', 'validating'].includes(build.status)) {
+      return res.status(409).json({
+        error: 'Audio generation is already in progress — wait for it to finish before editing scripts' });
+    }
+    if (!['awaiting_review', 'ready', 'failed'].includes(build.status)) {
+      return res.status(409).json({
+        error: `Scripts are not editable while the build is '${build.status}'` });
     }
     const edits = Array.isArray(req.body?.lectures) ? req.body.lectures : [];
     const changed = [];
@@ -551,14 +573,45 @@ app.put('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER
 
 // Approve canonical scripts → translation stage (atomic gate flip; a second
 // click can never start a duplicate job).
+// A bake-sourced duration failure used to be written into
+// artifacts.validation — that is an AUDIO problem, not a script problem, and
+// must not block approval/retry. Filter it out of the validation gate.
+const isBakeOnlyFailure = (artifacts) => {
+  const problems = artifacts?.validation?.problems || [];
+  return problems.length > 0 &&
+    problems.every((p) => /duration .* outside .*band|segments failed|TTS service/i.test(String(p)));
+};
+// The stored artifacts.validation is generator-time STRICT validation — an
+// advisory flag for the reviewer. A draft save re-validates with the lighter
+// reviewer-facing rules (validateDraftScript), so an approved-without-edits
+// script must be judged by the SAME rules here: re-validate the current
+// on-disk draft rather than trusting the stale strict flag.
+const scriptInvalidLectures = async (rows, pool, courseId) => {
+  const bad = [];
+  for (const r of rows) {
+    if (r.artifacts?.validation?.ok !== false) continue;
+    if (isBakeOnlyFailure(r.artifacts)) continue;
+    const d = await loadLectureDraft(r.lecture_id);
+    const v = validateDraftScript(d?.segments || []);
+    if (v.ok) {
+      await pool.query(
+        `UPDATE course_lectures SET artifacts = COALESCE(artifacts,'{}'::jsonb) || $3::jsonb
+         WHERE course_id=$1 AND lecture_id=$2`,
+        [courseId, r.lecture_id, JSON.stringify({ validation: v })]);
+    } else bad.push(r);
+  }
+  return bad;
+};
+
 app.post('/api/courses/:id/approve-scripts', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
   try {
     const courseId = req.params.id;
     if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
     const pool = getPool();
-    const { rows: bad } = await pool.query(
-      `SELECT lecture_id FROM course_lectures WHERE course_id=$1
+    const { rows: lecRows } = await pool.query(
+      `SELECT lecture_id, artifacts FROM course_lectures WHERE course_id=$1
          AND (artifacts->'validation'->>'ok')::boolean IS NOT TRUE`, [courseId]);
+    const bad = await scriptInvalidLectures(lecRows, pool, courseId);
     if (bad.length) {
       return res.status(409).json({
         error: `Cannot approve: ${bad.length} lecture(s) failed script validation` });
@@ -566,11 +619,14 @@ app.post('/api/courses/:id/approve-scripts', requireAuth, requireRole('INSTRUCTO
     const { rows: [build] } = await pool.query(
       `SELECT id, status FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
     if (!build) return res.status(404).json({ error: 'No build for this course' });
+    // Retryable: a build that failed inside the translation stage re-enters
+    // here — reviewed scripts and fingerprints are preserved.
     const { rows: [flipped] } = await pool.query(
       `UPDATE course_builds SET status='translating', updated_at=now()
-        WHERE id=$1 AND status='awaiting_review'
-          AND COALESCE(stats->>'stage','scripts')='scripts'
-        RETURNING id`, [build.id]);
+        WHERE id=$1 AND (
+          (status='awaiting_review' AND COALESCE(stats->>'stage','scripts')='scripts')
+          OR (status='failed' AND stats->>'stage' IN ('translations'))
+        ) RETURNING id`, [build.id]);
     if (!flipped) {
       return res.status(409).json({ error: 'Scripts are not awaiting canonical review' });
     }
@@ -591,9 +647,10 @@ app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR'
     if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
     const pool = getPool();
     // All draft lectures must exist and pass validation before audio starts.
-    const { rows: bad } = await pool.query(
-      `SELECT lecture_id FROM course_lectures WHERE course_id=$1
+    const { rows: lecRows } = await pool.query(
+      `SELECT lecture_id, artifacts FROM course_lectures WHERE course_id=$1
          AND (artifacts->'validation'->>'ok')::boolean IS NOT TRUE`, [courseId]);
+    const bad = await scriptInvalidLectures(lecRows, pool, courseId);
     if (bad.length) {
       return res.status(409).json({
         error: `Cannot approve: ${bad.length} lecture(s) failed script validation` });
@@ -602,10 +659,12 @@ app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR'
       `SELECT id, status, lecture_count, lang FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`,
       [courseId]);
     if (!build) return res.status(404).json({ error: 'No build for this course' });
-    // Instructor selects which languages get audio (default: teaching lang).
-    const audioLangs = (Array.isArray(req.body?.audioLangs) && req.body.audioLangs.length
+    // Instructor may select languages; the default is ALL supported languages
+    // (en + every translation) — missing drafts are auto-prepared during the
+    // audio phase, so the reviewer never has to tick them one by one.
+    const audioLangs = [...new Set((Array.isArray(req.body?.audioLangs) && req.body.audioLangs.length
       ? req.body.audioLangs.filter((l) => l === 'en' || TRANSLATION_LANGS.includes(l))
-      : [build.lang || 'en']);
+      : [build.lang || 'en', ...TRANSLATION_LANGS]))];
     if (!audioLangs.length) audioLangs.push('en');
     // Gate: every selected language needs a current, reviewed script tied to
     // the canonical version; uncertain alignments need explicit confirmation.
@@ -625,7 +684,18 @@ app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR'
     const gate = audioApprovalGate(drafts, langDocs, audioLangs,
       { confirmUncertain: req.body?.confirmUncertain === true });
     if (!gate.ok) {
-      return res.status(409).json({ error: 'Cannot approve audio', blocked: gate.blocked });
+      // Missing machine translations and outdated UNEDITED translations are
+      // auto-fixable — runAudioPhase (re)prepares them. Only a stale
+      // REVIEWED translation or a missing canonical script is a hard block.
+      const hard = gate.blocked.filter((b) => {
+        const m = String(b).match(/^(\S+)\/(\w+): (no script|outdated)/);
+        if (!m) return true;
+        return !!langDocs[m[1]]?.[m[2]]?.edited;
+      });
+      if (hard.length) {
+        return res.status(409).json({ error: 'Cannot approve audio', blocked: hard });
+      }
+      console.warn(`[course] audio approval: ${gate.blocked.length} translation(s) will be auto-prepared during bake`);
     }
     if (gate.warnings?.length) {
       console.warn(`[course] audio approval warnings (non-blocking): ${gate.warnings.join('; ')}`);
@@ -639,14 +709,18 @@ app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR'
       }
     }
     // Atomic transition — only ONE caller wins. 'failed' builds whose failure
-    // happened after script approval (translation/audio phase) are retryable;
-    // audio is skipped-per-segment, so retries reuse completed assets.
+    // happened after script approval are retryable — detected via the stage
+    // marker OR the presence of approval fingerprints (covers failed builds
+    // written before the stage marker existed). Audio bake is skipped per
+    // already-baked segment, so retries reuse completed assets.
     const { rows: [flipped] } = await pool.query(
       `UPDATE course_builds SET status='audio',
          stats=COALESCE(stats,'{}'::jsonb) || $2::jsonb, updated_at=now()
         WHERE id=$1 AND (
           status='awaiting_review'
-          OR (status='failed' AND stats->>'stage' IN ('translations','audio','validating'))
+          OR (status='failed' AND (
+            stats->>'stage' IN ('translations','audio','validating')
+            OR stats ? 'approved'))
         ) RETURNING id`,
       [build.id, JSON.stringify({ approved, audio_langs: audioLangs })]);
     if (!flipped) {
@@ -662,6 +736,94 @@ app.post('/api/courses/:id/approve-audio', requireAuth, requireRole('INSTRUCTOR'
     res.status(202).json({ ok: true, buildId, build: 'audio' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to approve scripts' });
+  }
+});
+
+// Resume/backfill audio for an existing course — prepares missing translations
+// and bakes only the languages requested (default: all supported). Reuses the
+// approved fingerprints and the per-segment audio cache, so nothing already
+// baked is re-synthesized and no scripts are regenerated. Works on
+// 'awaiting_review', 'failed', and 'ready' (adds missing languages to a
+// completed build).
+app.post('/api/courses/:id/prepare-audio', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+    if (buildRunning(courseId)) {
+      return res.status(409).json({ error: 'A build is already running for this course' });
+    }
+    const pool = getPool();
+    const { rows: [build] } = await pool.query(
+      `SELECT id, status, lecture_count, lang FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`,
+      [courseId]);
+    if (!build) return res.status(404).json({ error: 'No build for this course' });
+    const ALL = ['en', ...TRANSLATION_LANGS];
+    const langs = [...new Set((Array.isArray(req.body?.langs) && req.body.langs.length
+      ? req.body.langs : ALL).filter((l) => ALL.includes(l)))];
+    if (!langs.length) return res.status(400).json({ error: 'No valid languages requested' });
+    // Approved fingerprints stay untouched — runAudioPhase still verifies the
+    // canonical text matches what was approved. audio_langs only extends the
+    // language set; existing approved fingerprints are not cleared.
+    const { rows: [flipped] } = await pool.query(
+      `UPDATE course_builds SET status='audio',
+         stats=COALESCE(stats,'{}'::jsonb) || $2::jsonb, updated_at=now()
+        WHERE id=$1 AND status IN ('awaiting_review','ready','failed')
+        RETURNING id`,
+      [build.id, JSON.stringify({ audio_langs: langs })]);
+    if (!flipped) {
+      return res.status(409).json({ error: `Build is not resumable (status ${build.status})` });
+    }
+    setImmediate(() => runAudioPhase(flipped.id, courseId, build.lecture_count));
+    res.status(202).json({ ok: true, buildId: flipped.id, build: 'audio', langs });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to start audio preparation' });
+  }
+});
+
+// Per-lecture, per-language readiness — counts REAL artifacts on disk:
+// a language is 'ready' only when every segment wav exists in its
+// language-keyed cache bucket; 'partial' some wavs; 'translated' text-only;
+// 'missing' nothing. 'preparing' reflects a running translation/audio build.
+app.get('/api/courses/:id/lang-status', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+    const pool = getPool();
+    const LANGS = ['en', ...TRANSLATION_LANGS];
+    const segRoot = path.join(REPO_ROOT, 'src', 'nexora_ai', 'lecture_cache', 'segments');
+    const { rows: [build] } = await pool.query(
+      `SELECT status, stats FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
+    const preparing = ['translating', 'audio', 'validating'].includes(build?.status);
+    const { rows } = await pool.query(
+      `SELECT lecture_id, title, status FROM course_lectures WHERE course_id=$1 ORDER BY idx`, [courseId]);
+    const lectures = [];
+    for (const l of rows) {
+      let nSegs = 0;
+      try {
+        nSegs = (JSON.parse(await fs.readFile(
+          path.join(REPO_ROOT, 'profbrain', 'lectures', l.lecture_id, 'segments.json'), 'utf-8'))
+          .segments || []).length;
+      } catch {}
+      const langs = {};
+      for (const lang of LANGS) {
+        const key = lang === 'en' ? l.lecture_id : `${l.lecture_id}__${lang}`;
+        let wavs = 0, txts = 0;
+        try {
+          const files = await fs.readdir(path.join(segRoot, key));
+          wavs = files.filter((f) => /^segment_\d+\.wav$/.test(f)).length;
+          txts = files.filter((f) => /^segment_\d+\.txt$/.test(f)).length;
+        } catch {}
+        langs[lang] = !nSegs ? 'missing'
+          : wavs >= nSegs ? 'ready'
+          : wavs > 0 ? 'partial'
+          : txts > 0 ? 'translated'
+          : 'missing';
+      }
+      lectures.push({ lectureId: l.lecture_id, title: l.title, status: l.status, segments: nSegs, langs });
+    }
+    res.json({ lectures, preparing, progress: build?.stats?.progress || null, status: build?.status || null });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read language status' });
   }
 });
 
@@ -749,8 +911,18 @@ app.get('/api/courses/by-name/:name/lectures', async (req, res) => {
   try {
     const norm = decodeURIComponent(req.params.name)
       .replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+    // Multiple courses can share a (case-folded) name — pick deterministically:
+    // the caller's own course first, then one that actually has ready
+    // lectures, then newest. Never silently serve the wrong course's list.
     const { rows: [course] } = await getPool().query(
-      `SELECT id, name FROM courses WHERE lower(name)=$1 ORDER BY created_at DESC LIMIT 1`, [norm]);
+      `SELECT c.id, c.name FROM courses c
+        WHERE lower(c.name)=$1
+        ORDER BY
+          (c.owner_id = $2) DESC,
+          EXISTS (SELECT 1 FROM course_lectures l
+                  WHERE l.course_id=c.id AND l.status='ready') DESC,
+          c.created_at DESC
+        LIMIT 1`, [norm, req.user?.id || null]);
     if (!course) return res.json({ course: null, lectures: [] });
     const { rows } = await getPool().query(
       `SELECT lecture_id, title FROM course_lectures WHERE course_id=$1 AND status='ready' ORDER BY idx`,
@@ -880,10 +1052,23 @@ app.get('/api/courses/:id/lectures/:lectureId/script', requireAuth, requireRole(
     if (req.user.role !== 'SUPER_ADMIN' && lec.owner_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only review lectures from your own courses' });
     }
+    // Authoritative spoken script = segments.json (playback order — the same
+    // manifest the lecture run emits to TTS). summary.json is the generator's
+    // summary document and can drift after script edits/re-segmentation;
+    // it's the fallback only for lectures that predate segments.json.
+    const segPath = path.join(REPO_ROOT, 'profbrain', 'lectures', req.params.lectureId, 'segments.json');
     const summaryPath = path.join(REPO_ROOT, 'profbrain', 'lectures', req.params.lectureId, 'summary.json');
-    const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
+    let text = null;
+    try {
+      const segs = JSON.parse(await fs.readFile(segPath, 'utf-8')).segments;
+      if (segs?.length) text = segs.map((s) => s.text).join('\n\n');
+    } catch {}
+    if (!text) {
+      const summary = JSON.parse(await fs.readFile(summaryPath, 'utf-8'));
+      text = summary.text;
+    }
     res.json({ title: lec.title, status: lec.status, artifacts: lec.artifacts,
-      text: summary.text, wordCount: summary.word_count });
+      text, wordCount: text.split(/\s+/).filter(Boolean).length });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load script' });
   }
@@ -902,7 +1087,7 @@ app.post('/api/courses/:id/lectures/:lectureId/approve', requireAuth, requireRol
       `SELECT status, artifacts FROM course_lectures WHERE course_id=$1 AND lecture_id=$2`,
       [req.params.id, req.params.lectureId]);
     if (!lec) return res.status(404).json({ error: 'Lecture not found' });
-    if (lec.artifacts?.validation?.ok === false) {
+    if (lec.artifacts?.validation?.ok === false && !isBakeOnlyFailure(lec.artifacts)) {
       const problems = (lec.artifacts.validation.problems || []).slice(0, 3).join('; ');
       return res.status(409).json({ error: `Cannot publish: validation failed — ${problems}` });
     }
@@ -920,6 +1105,27 @@ app.get('/api/rooms/:roomId', (req, res) => {
   if (!room) return res.status(404).json({ error: 'Not found' });
   const { roomId, roomType, className, courseId, courseName, lectureId, language, scene } = room;
   res.json({ roomId, roomType, className, courseId, courseName, lectureId, language, scene });
+});
+
+// Lectures for the room's bound course. Unlike the public course endpoint
+// (ready-only), joiners see every lecture — including drafts under review —
+// because room admission is the gate and the host teaches from this list.
+app.get('/api/rooms/:roomId/lectures', async (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Not found' });
+  if (!/^[0-9a-f-]{36}$/i.test(room.courseId || '')) {
+    return res.json({ course: null, lectures: [] });
+  }
+  try {
+    const pool = getPool();
+    const { rows: [course] } = await pool.query('SELECT id, name FROM courses WHERE id=$1', [room.courseId]);
+    const { rows } = await pool.query(
+      `SELECT lecture_id, title, status FROM course_lectures WHERE course_id=$1 ORDER BY idx`,
+      [room.courseId]);
+    res.json({ course: { course_id: room.courseId, title: course?.name || room.courseName || 'Course' }, lectures: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load lectures' });
+  }
 });
 
 // Returns the room's current invite link (stable, reusable — host approval
@@ -1845,10 +2051,31 @@ io.on('connection', (socket) => {
 
   // NCIP language.change: the server owns the room language — clients request,
   // the room state machine validates and broadcasts the authoritative result.
-  socket.on('language.change', ({ language } = {}) => {
+  socket.on('language.change', async ({ language } = {}) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const ncip = getNcipRoom(ctx.roomId);
+    // Availability gate: a prepared language has translated text and/or baked
+    // audio in its language-keyed cache bucket. Rejecting unprepared langs
+    // avoids a mid-lecture translate+TTS storm on every segment — the room
+    // keeps the current language instead of degrading to English or stalling.
+    const activeLid = ncip.lectureRun?.lectureId;
+    if (activeLid && language !== 'en') {
+      try {
+        const files = await fs.readdir(path.join(
+          REPO_ROOT, 'src', 'nexora_ai', 'lecture_cache', 'segments',
+          `${activeLid}__${language}`));
+        if (!files.some((f) => /^segment_\d+\.(wav|txt)$/.test(f))) {
+          socket.emit('lecture-control', { action: 'language-error',
+            error: `${String(language).toUpperCase()} is not prepared for this lecture yet — it is still being translated or baked. English and prepared languages continue to work.` });
+          return;
+        }
+      } catch {
+        socket.emit('lecture-control', { action: 'language-error',
+          error: `${String(language).toUpperCase()} is not prepared for this lecture yet.` });
+        return;
+      }
+    }
     const result = ncip.changeLanguage(ctx.participantId, language);
     if (!result.ok) {
       socket.emit('lecture-control', { action: 'language-error', error: result.error });

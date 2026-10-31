@@ -1,7 +1,7 @@
 // Shared administrative-content detection — single source of truth for the
 // ingest filter, retrieval filter, and narration validator.
 
-export const ADMIN_RE = /\b(grading|grade scheme|syllabus|office hours?|office\b|email|e-mail|contact|course policy|policies|deadline|late work|attendance|schedule|assignment|assessment|project grade|exam dates?|midterm|final exam|textbook|plagiarism|academic integrity|prerequisite|logistics|ta\b|teaching assistant|instructor|professor\b.*@|announcement|canvas|blackboard|course structure|learning outcomes|what you('| wi)ll learn|lecture 1 introduction to the course)\b/i;
+export const ADMIN_RE = /\b(grading|grade scheme|syllabus|office hours?|office\b|email|e-mail|contact|course policy|policies|deadline|late work|attendance|schedule|assignment|assessment|project grade|exam dates?|midterm|final exam|textbook|plagiarism|academic integrity|prerequisite|logistics|ta\b|teaching assistant|instructor|professor\b.*@|announcement|canvas|blackboard|brightspace|wooclap|course structure|course overview|course description|course aims|learning outcomes|what you('| wi)ll learn|lecture 1 introduction to the course)\b/i;
 
 // True when a text is dominated by admin content (≥3 hits) or is a short
 // admin-flavored fragment (<40 words and matches at all).

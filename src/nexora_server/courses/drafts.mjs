@@ -388,6 +388,13 @@ export async function prepareTranslations(courseId) {
         report.push({ lectureId: lid, lang, status: 'kept-reviewed' });
         continue;
       }
+      // Up-to-date machine draft → keep it. Retries only regenerate what is
+      // missing, stale (script version moved on), or previously failed.
+      if (existing && existing.basedOnVersion === version &&
+          (existing.segments || []).length === parsed.segments.length) {
+        report.push({ lectureId: lid, lang, status: 'kept-current' });
+        continue;
+      }
       const segments = [];
       let failed = false;
       for (const s of parsed.segments) {

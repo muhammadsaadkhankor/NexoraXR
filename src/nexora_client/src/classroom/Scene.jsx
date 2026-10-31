@@ -669,6 +669,14 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [professorStatus, setProfessorStatus] = useState('IDLE');
   const [floorAnswering, setFloorAnswering] = useState(false);
   const [floorError, setFloorError] = useState(null);
+  // Transient notice for rejected language changes (unprepared language).
+  const [langNotice, setLangNotice] = useState(null);
+  const langNoticeTimer = useRef(null);
+  const flashLangNotice = (msg) => {
+    setLangNotice(msg);
+    clearTimeout(langNoticeTimer.current);
+    langNoticeTimer.current = setTimeout(() => setLangNotice(null), 8000);
+  };
   // Server-authoritative: this participant joined a lecture already underway
   // and has a recap anchor — offered via the hand menu ("Catch me up").
   const [canCatchUp, setCanCatchUp] = useState(false);
@@ -695,20 +703,23 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   // Room joins without a lecture yet go through the course picker — the
   // lecture is chosen on entry, then the room/invite params are carried back.
+  // Uses the URL slug (the class name, e.g. "machine-learning") — the
+  // by-name endpoint normalizes separators, so it still resolves the course.
   useEffect(() => {
     if (privateRoomId && !lectureId) {
       const q = new URLSearchParams({ room: privateRoomId, ...(inviteToken ? { invite: inviteToken } : {}) });
-      navigate(`/course/${encodeURIComponent(sceneName)}?${q}`, { replace: true });
+      navigate(`/course/${encodeURIComponent(urlSlug)}?${q}`, { replace: true });
     }
-  }, [privateRoomId, lectureId, inviteToken, sceneName, navigate]);
+  }, [privateRoomId, lectureId, inviteToken, urlSlug, navigate]);
 
   // Canonical slug check: a ?room= link's path segment must be the room's
   // classroom-name slug (e.g. /classroom/haptics) — stale links, legacy
   // /scene/<key> URLs, and drifted slugs are rewritten while preserving
   // room/invite/lecture params. The registry stays authoritative for the
-  // scene itself.
+  // scene itself. No-lecture joins defer to the course picker instead —
+  // rewriting here would race the picker redirect and abandon it.
   useEffect(() => {
-    if (!privateRoomId) return;
+    if (!privateRoomId || !lectureId) return;
     let cancelled = false;
     (async () => {
       try {
@@ -870,6 +881,27 @@ function SceneRoom({ sceneName, baseConfig }) {
       setLectureError(null);
     };
   }, [clearMessages]);
+
+  // Full prepared narration for the Script view — fetched eagerly when a
+  // lecture is selected so the whole script is readable before Start Class.
+  // Same manifest endpoint the server plays from; no extra generation.
+  const [lectureScript, setLectureScript] = useState([]);
+  useEffect(() => {
+    setLectureScript([]);
+    if (!lectureId) return;
+    let cancelled = false;
+    fetch(`${API_URL}/api/lecture/segments/${lectureId}?lang=${lectureLang}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.segments?.length) {
+          setLectureScript(d.segments);
+          if (!lectureManifestRef.current.length) lectureManifestRef.current = d.segments;
+          setLectureTitle((t) => t || d.title);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [lectureId, lectureLang]);
 
   // Lazily fetch the segment manifest for transcript-seeding and language-
   // switch rebuilds — metadata only, NEVER pushed to the playback queue
@@ -1401,6 +1433,7 @@ function SceneRoom({ sceneName, baseConfig }) {
         languageChangeRef.current?.(data.language, data.segmentIndex);
       } else if (data?.action === 'language-error') {
         console.warn('[client] language change rejected:', data?.error);
+        flashLangNotice(data?.error || 'That language is not prepared for this lecture.');
       }
     }));
 
@@ -1786,10 +1819,17 @@ function SceneRoom({ sceneName, baseConfig }) {
             canEndLecture={canEndLecture}
           />
 
+          {langNotice && (
+            <div className='fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-xl border border-amber-500/40 bg-slate-900/95 px-4 py-2.5 text-xs text-amber-200 shadow-2xl backdrop-blur'>
+              {langNotice}
+            </div>
+          )}
+
           <ChatInterface
             hidden={!chatOpen}
             onMinimize={() => setChatOpen(false)}
             lectureId={lectureId}
+            lectureScript={lectureScript}
             scriptSeed={scriptSeed}
             transcriptEpoch={transcriptEpoch}
             floorHolder={activeSpeaker}

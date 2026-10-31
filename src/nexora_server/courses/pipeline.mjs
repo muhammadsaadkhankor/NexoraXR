@@ -128,7 +128,24 @@ export function parseSections(pageTexts) {
   flushSection(pageTexts.length);
   // PPT-style PDFs yield almost no headings — each page IS a slide. Treat each
   // page as its own section so provenance resolves to the exact slide.
-  if (sections.length < 3 && pageTexts.length > 5) {
+  // Heading parsing also fails on formula/math characters: extracted junk
+  // tokens like "LJ", "I", "IMENSIONALLY {" pass the ALL-CAPS check and
+  // produce garbage sections that collapse the whole deck into a few ranges.
+  // Detect that: a slide deck (short pages) whose section titles are mostly
+  // non-informative must also fall back to per-page sectioning.
+  const isBadTitle = (t) => {
+    const s = String(t || '');
+    if (s === 'Document start' || s.length < 3) return true;
+    const words = s.replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)
+      .filter((w) => /[\p{L}]/u.test(w) && w.length >= 3);
+    return words.length < 2;
+  };
+  const pageWords = pageTexts.map((t) => String(t || '').split(/\s+/).filter(Boolean).length);
+  const medianWords = pageWords.slice().sort((a, b) => a - b)[Math.floor(pageWords.length / 2)] || 0;
+  const slideDeck = pageTexts.length > 5 && medianWords < 150;
+  const badRatio = sections.length
+    ? sections.filter((s) => isBadTitle(s.title)).length / sections.length : 1;
+  if ((sections.length < 3 && pageTexts.length > 5) || (slideDeck && badRatio >= 0.5)) {
     return pageTexts
       .map((t, i) => ({
         title: t.split(/\r?\n|(?<=[.!?])\s/).map((x) => x.trim()).find((x) => x.length > 3 && x.length <= 90) || `Page ${i + 1}`,

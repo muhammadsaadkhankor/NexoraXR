@@ -38,13 +38,20 @@ export default function CoursePage() {
       }
       let data;
       if (courseUuid) {
-        // Owner first: /status includes draft lectures pending approval;
-        // guests/other users fall back to the public ready-only list.
-        const own = await fetch(`${API_URL}/api/courses/${courseUuid}/status`, { credentials: 'include' })
+        // Room-bound joiners get the room's full lecture list (drafts too —
+        // the host teaches from it). Guests otherwise only saw 'ready'
+        // lectures, leaving an empty picker while every lecture is a draft.
+        const roomList = await fetch(`${API_URL}/api/rooms/${roomId}/lectures`)
           .then((r) => r.ok ? r.json() : null).catch(() => null);
-        data = own?.lectures?.length
-          ? { course: { course_id: courseUuid, title: meta?.courseName || 'Course' }, lectures: own.lectures }
-          : await fetch(`${API_URL}/api/courses/${courseUuid}/lectures`).then((r) => r.json());
+        if (roomList?.lectures?.length) {
+          data = roomList;
+        } else {
+          const own = await fetch(`${API_URL}/api/courses/${courseUuid}/status`, { credentials: 'include' })
+            .then((r) => r.ok ? r.json() : null).catch(() => null);
+          data = own?.lectures?.length
+            ? { course: { course_id: courseUuid, title: meta?.courseName || 'Course' }, lectures: own.lectures }
+            : await fetch(`${API_URL}/api/courses/${courseUuid}/lectures`).then((r) => r.json());
+        }
       } else {
         // Try generated-course lectures for this scene name first — a built
         // course (e.g. "Machine learning") wins over the static scene list.
@@ -97,6 +104,12 @@ export default function CoursePage() {
         {error && (
           <div className='rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-200'>
             {error}
+          </div>
+        )}
+
+        {!loading && !error && lectures.length === 0 && (
+          <div className='rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-center text-slate-400'>
+            No lectures are available for this class yet.
           </div>
         )}
 

@@ -11,3 +11,19 @@ at,version,model,course,idx,title,words,estMin,llmCalls,revisions,elapsedMs,vali
 2026-10-27T01:01:43.674Z,fast.1,qwen3:8b,f0a92d57,1,"Lecture 1: Introduction",530,7.4,4,,131414,FAIL,8,8,1
 2026-10-27T01:03:49.990Z,fast.1,qwen3:8b,f0a92d57,2,"Lecture 2: Linear Regression",492,6.8,4,,126297,ok,6,6,0
 2026-10-27T02:45:22.369Z,fast.1,qwen3:8b,fdc439ac,1,"Haptics Course Primer 1",594,8.3,5,,165885,FAIL,6,6,0
+2026-10-29T19:06:00.084Z,fast.1,qwen3:8b,6958a6fb,1,"Lecture 1: Introduction",403,5.6,4,,93737,FAIL,6,6,6
+2026-10-29T19:08:59.920Z,fast.1,qwen3:8b,6958a6fb,2,"Lecture 2: Linear Regression",498,6.9,5,,179826,ok,6,6,0
+2026-10-29T20:54:42.012Z,v3.1,qwen3:8b,6958a6fb,1,"Lecture 1: Introduction",488,6.8,5,,185619,ok,7,7,0
+2026-10-29T21:08:47.007Z,fast.1,qwen3:8b,602626d1,1,"Lecture 1: Introduction",548,7.6,5,,173755,FAIL,7,7,2
+2026-10-29T21:11:50.953Z,fast.1,qwen3:8b,602626d1,2,"Lecture 2: Linear Regression",500,6.9,4,,183926,ok,6,6,0
+2026-10-29T21:39:23.904Z,fast.1,qwen3:8b,079f9676,1,"Lecture 1: Introduction",897,12.5,4,,272712,FAIL,9,9,1
+2026-10-29T21:44:08.207Z,fast.1,qwen3:8b,079f9676,2,"Lecture 2: Linear Regression",1010,14.0,5,,284292,FAIL,7,7,0
+2026-10-29T22:43:52.909Z,fast.1,qwen3:8b,e4e587ee,1,"Lecture 1: Introduction",1010,14.0,5,,308096,FAIL,9,9,2
+2026-10-29T22:49:16.907Z,fast.1,qwen3:8b,e4e587ee,2,"Lecture 2: Linear Regression",924,12.8,6,,323985,FAIL,9,9,0
+2026-10-29T23:18:13.189Z,fast.1,qwen3:8b,d35af6b0,1,"Lecture 1: Introduction",1116,15.5,9,,216554,FAIL,13,13,1
+2026-10-29T23:22:25.071Z,fast.1,qwen3:8b,d35af6b0,2,"Lecture 2: Linear Regression",863,12.0,4,,251862,FAIL,7,7,0
+2026-10-30T03:03:59.874Z,fast.1,qwen3:8b,1ae03ac1,1,"Lecture 3: Classification",1026,14.3,4,,238199,FAIL,6,6,2
+2026-10-30T15:17:55.628Z,fast.1,qwen3:8b,a3f4b21f,1,"Lecture 1: Introduction",1053,14.6,6,,237345,FAIL,10,10,1
+2026-10-30T16:15:44.940Z,fast.1,qwen3:8b,8c950527,1,"Lecture 1: Introduction",1009,14.0,9,,233967,FAIL,13,13,1
+2026-10-30T16:31:21.344Z,fast.1,qwen3:8b,e475e4c2,1,"Lecture 1: Introduction",1146,15.9,9,,252437,FAIL,13,13,0
+2026-10-30T18:27:22.817Z,fast.1,qwen3:8b,1ca690c6,1,"Lecture 1: Introduction",1054,14.6,5,,269047,FAIL,9,9,1

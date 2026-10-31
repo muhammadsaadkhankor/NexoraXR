@@ -125,9 +125,11 @@ test('detectRepetition flags a re-stated definition', () => {
   assert.ok(reps.some((r) => r.segment === 2 && r.also === 0));
 });
 
-test('detectAdminLeak flags "this course" narration', () => {
-  const leaks = detectAdminLeak([{ id: 0, text: 'This course combines theory and coding projects.' }]);
+test('detectAdminLeak flags real admin, not course-outcome phrasing', () => {
+  const leaks = detectAdminLeak([{ id: 0, text: 'First let me cover the grading policy and office hours.' }]);
   assert.equal(leaks.length, 1);
+  // "This course explores…" is legitimate intro narration — not an admin leak.
+  assert.equal(detectAdminLeak([{ id: 0, text: 'This course combines theory and coding projects.' }]).length, 0);
   assert.equal(detectAdminLeak([{ id: 0, text: 'A model maps inputs to outputs.' }]).length, 0);
 });
 

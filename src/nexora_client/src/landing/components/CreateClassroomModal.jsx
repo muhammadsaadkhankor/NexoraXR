@@ -27,20 +27,25 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
   const [status, setStatus] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   // Stages: 'form' → 'plan' (confirm lecture order/titles, one PDF each)
-  // → 'review' (edit canonical script) → 'review-langs' (edit each language)
-  // → audio bake → ready. reviewRef carries course/room through the stages.
+  // → 'review' (edit canonical script) → one click bakes audio for ALL
+  // languages → ready. reviewRef carries course/room through the stages.
   const [stage, setStage] = useState('form');
   const [plan, setPlan] = useState(null);           // [{idx,title,titleGuessed,sources}]
+  const [lectureMinutes, setLectureMinutes] = useState(10); // narration duration target
   const [planAmbiguous, setPlanAmbiguous] = useState(false);
   const [drafts, setDrafts] = useState(null);
-  const [reviewLang, setReviewLang] = useState('en');
-  const [audioLangs, setAudioLangs] = useState(['en']);
+  const [audioLangs] = useState(['en', 'ar', 'fr', 'de', 'es', 'zh']);
   const [approveBlocked, setApproveBlocked] = useState(null);
   const [approving, setApproving] = useState(false);
   const [canRetryIngest, setCanRetryIngest] = useState(false);
-  const [extraLangs, setExtraLangs] = useState([]);
-  const [langsOpen, setLangsOpen] = useState(false);
+  // Live backend build state — the Approve button's disabled/label logic
+  // reads THIS (not local flags), so reopening the modal or refreshing the
+  // page mid-build can never enable a duplicate submission.
+  const [buildState, setBuildState] = useState(null); // {status, progress}
   const reviewRef = useRef(null);
+
+  const BUILDING = ['translating', 'audio', 'validating'];
+  const processing = BUILDING.includes(buildState?.status);
 
   useEffect(() => {
     fetch(`${API_URL}/api/courses`, { credentials: 'include' })
@@ -62,10 +67,14 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
     setFiles((prev) => [...prev, ...pdfs.filter((f) => f.size <= MAX_PDF_MB * 1024 * 1024)].slice(0, MAX_PDFS));
   };
 
-  // Shared status poller — resolves 'awaiting_review' | 'ready' | 'failed' |
-  // 'timeout'. Records the first ready lecture id for classroom entry.
+  // Shared status poller — resolves 'awaiting_review' | 'ready' | 'failed'.
+  // Records the first ready lecture id for classroom entry. No deadline:
+  // a mid-flight build is never reported as an error just for being slow.
   const pollUntilGate = async (courseId) => {
-    const deadline = Date.now() + 20 * 60 * 1000;
+    // No hard deadline: a real bake (translate ×5 + TTS ×6) regularly exceeds
+    // 20 min. Timing out used to print "did not complete" while the backend
+    // was still working — now we keep watching until a terminal state.
+    const started = Date.now();
     const STEP_LABEL = {
       ingesting: 'Generating scripts · reading your documents…',
       planning: 'Generating scripts · designing the curriculum…',
@@ -74,28 +83,81 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       audio: 'Generating audio · recording professor narration…',
       validating: 'Generating audio · verifying course artifacts…',
     };
-    while (Date.now() < deadline) {
+    for (;;) {
       await new Promise((r) => setTimeout(r, 3000));
       const st = await fetch(`${API_URL}/api/courses/${courseId}/status`, { credentials: 'include' })
         .then((r) => r.json()).catch(() => null);
       if (!st) continue;
       const step = st.build?.status;
       const progress = st.build?.stats?.progress;
-      setStatus(STEP_LABEL[step]
+      setBuildState({ status: step, progress, stage: st.build?.stats?.stage });
+      const long = Date.now() - started > 20 * 60 * 1000;
+      setStatus((STEP_LABEL[step]
         ? `${STEP_LABEL[step]}${progress ? ` (${progress})` : ''}`
-        : BUILD_MSGS[(Math.random() * BUILD_MSGS.length) | 0]);
+        : BUILD_MSGS[(Math.random() * BUILD_MSGS.length) | 0])
+        + (long ? ' — still working, progress is preserved even if you close this window' : ''));
       if (step === 'awaiting_review') return st.build?.stats?.stage || 'scripts';
       if (step === 'ready') {
         if (reviewRef.current) reviewRef.current.firstLecture = st.lectures?.[0]?.lectureId || null;
         return 'ready';
       }
       if (step === 'failed') {
-        setError(`Course build failed: ${st.build.error || 'server error'}. The classroom is created; you can rebuild later.`);
+        // Failure AFTER scripts were written (translation/audio/validating)
+        // is retryable — scripts persist; the build can be resumed by
+        // approving again. Pre-script failures still need a rebuild.
+        const retryable = ['translations', 'audio', 'validating'].includes(st.build?.stats?.stage);
+        setError(retryable
+          ? `Audio generation failed: ${st.build.error || 'server error'}. Your scripts are saved — fix the issue and press "Retry Missing Audio" to continue (already-baked segments are reused).`
+          : `Course build failed: ${st.build.error || 'server error'}. The classroom is created; you can rebuild later.`);
         return 'failed';
       }
     }
-    return 'timeout';
   };
+
+  // Load the canonical drafts for the review screen (single shape used by
+  // every entry point — origText lets approval skip unchanged scripts).
+  const loadReviewDrafts = async (cid) => {
+    const dr = await fetch(`${API_URL}/api/courses/${cid}/drafts`, { credentials: 'include' })
+      .then((r) => r.json()).catch(() => null);
+    setDrafts((dr?.drafts || []).map((d) => {
+      const text = d.segments.map((s) => s.text).join('\n\n');
+      return { ...d, fullText: text, origText: text };
+    }));
+  };
+
+  // Reopen/refresh recovery: picking a course whose build is mid-flight
+  // jumps straight to a watch-only review — approval stays disabled while
+  // the backend reports translating/audio/validating.
+  const resumeInFlight = async (cid) => {
+    const st = await fetch(`${API_URL}/api/courses/${cid}/status`, { credentials: 'include' })
+      .then((r) => r.json()).catch(() => null);
+    const step = st?.build?.status;
+    if (!BUILDING.includes(step)) return false;
+    reviewRef.current = { courseId: cid, room: null, firstLecture: null,
+      count: st.build.lecture_count || 1 };
+    setBuildState({ status: step, progress: st.build?.stats?.progress });
+    setStatus('Preparing multilingual audio…');
+    await loadReviewDrafts(cid);
+    setStage('review');
+    const outcome = await pollUntilGate(cid);
+    if (outcome === 'ready') {
+      // Find the classroom this course belongs to (room wasn't in memory
+      // after a refresh) and go straight in.
+      const rooms = await fetch(`${API_URL}/api/rooms/mine`, { credentials: 'include' })
+        .then((r) => r.json()).catch(() => ({}));
+      const room = (rooms.rooms || []).find((r) => r.courseId === cid);
+      if (room) { onCreated({ ...room, generatedLectureId: reviewRef.current?.firstLecture }); return true; }
+      setStatus('All languages ready — open the classroom from your list.');
+    }
+    return true; // handled (either still processing-failed or ready)
+  };
+
+  useEffect(() => {
+    // Only while picking an existing course on the form — never fires for
+    // 'new' or inside the build/review stages (ctx already set there).
+    if (stage !== 'form' || !courseId || courseId === 'new') return;
+    resumeInFlight(courseId).catch(() => {});
+  }, [courseId, stage]);
 
   // Wait for async ingestion to finish (documents 'ready'), then fetch the
   // proposed per-document lecture plan. Failed docs abort immediately with
@@ -124,74 +186,33 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
     r.readAsDataURL(file);
   });
 
-  // Save canonical (en) drafts → approve-scripts → translations prepare →
-  // reopen the modal on the per-language review screen.
-  const approveScripts = async () => {
-    const ctx = reviewRef.current;
-    if (!ctx || approving) return;
-    setApproving(true);
-    setError(null);
-    try {
-      const pr = await fetch(`${API_URL}/api/courses/${ctx.courseId}/drafts`, {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lectures: (drafts || []).map((d) => ({
-            lectureId: d.lectureId,
-            fullText: d.fullText,
-          })),
-        }),
-      });
-      const pd = await pr.json().catch(() => ({}));
-      if (!pr.ok) throw new Error(pd.error || 'Failed to save reviewed scripts');
-      if (pd.uncertain?.length) {
-        const n = pd.uncertain.reduce((k, u) => k + u.uncertainIndexes.length, 0);
-        setError(`Saved. Note: ${n} segment(s) had uncertain page mappings. The nearest position was used; verify slides during playback.`);
-      }
-      const ar = await fetch(`${API_URL}/api/courses/${ctx.courseId}/approve-scripts`, {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const ad = await ar.json().catch(() => ({}));
-      if (!ar.ok) throw new Error(ad.error || 'Failed to approve scripts');
-      setStatus('Preparing translations · all supported languages…');
-      const outcome = await pollUntilGate(ctx.courseId);
-      if (outcome === 'translations') {
-        await loadLangDrafts(ctx.courseId);
-        setStage('review-langs');
-        setStatus(null);
-        return;
-      }
-      if (outcome === 'ready') { ctx.room.generatedLectureId = ctx.firstLecture || null; onCreated(ctx.room); return; }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  // Approve Scripts and Generate Audio — saves every language's reviewed
-  // text, then atomically starts the audio stage (server verifies the
-  // fingerprints at bake; a second click is rejected).
+  // Approve Scripts and Generate Audio — saves the reviewed English text,
+  // then atomically starts the audio stage: the server translates the
+  // approved scripts into every supported language and bakes TTS for all
+  // lectures. A second click while running is rejected; a failure keeps
+  // scripts + baked audio and retries only the missing work.
   const approveAudio = async () => {
     const ctx = reviewRef.current;
     if (!ctx || approving) return;
     setApproving(true);
     setError(null);
     try {
-      const pr = await fetch(`${API_URL}/api/courses/${ctx.courseId}/drafts`, {
-        method: 'PUT', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lectures: (drafts || []).flatMap((d) => [
-            { lectureId: d.lectureId, fullText: d.fullText },
-            ...Object.entries(d.langTexts || {}).map(([lang, fullText]) =>
-              ({ lectureId: d.lectureId, lang, fullText })),
-          ]),
-        }),
-      });
-      const pd = await pr.json().catch(() => ({}));
-      if (!pr.ok) throw new Error(pd.error || 'Failed to save reviewed scripts');
+      // Only persist scripts the instructor actually edited — an unchanged
+      // approval must not rewrite drafts (or invalidate audio fingerprints).
+      const edited = (drafts || []).filter((d) => d.fullText !== d.origText);
+      if (edited.length) {
+        const pr = await fetch(`${API_URL}/api/courses/${ctx.courseId}/drafts`, {
+          method: 'PUT', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lectures: edited.map((d) => ({
+              lectureId: d.lectureId, fullText: d.fullText,
+            })),
+          }),
+        });
+        const pd = await pr.json().catch(() => ({}));
+        if (!pr.ok) throw new Error(pd.error || 'Failed to save reviewed scripts');
+      }
       const ar = await fetch(`${API_URL}/api/courses/${ctx.courseId}/approve-audio`, {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -212,14 +233,20 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         throw new Error(ad.error || 'Failed to start audio generation');
       }
       setApproveBlocked(null);
-      setStatus('Generating audio · recording professor narration…');
+      setStatus('Generating audio · translating scripts, then recording narration (all 6 languages)…');
       const outcome = await pollUntilGate(ctx.courseId);
       if (outcome === 'ready') {
         ctx.room.generatedLectureId = ctx.firstLecture || null;
         onCreated(ctx.room);
         return;
       }
-      // A stale gate reopened (text changed after approval) — stay on review.
+      // 'failed' already set a retryable error in the poller; any other
+      // gate (stale fingerprints, timeout) bounces back to script review.
+      if (outcome !== 'failed') {
+        await loadReviewDrafts(ctx.courseId);
+        setError((prev) => prev || 'Audio generation did not complete — review the scripts and press "Approve & Generate Audio" again.');
+        setStatus(null);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -228,27 +255,8 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
   };
 
 
-  // Load canonical + per-language drafts into the editor.
-  const loadLangDrafts = async (courseId) => {
-    const dr = await fetch(`${API_URL}/api/courses/${courseId}/drafts`, { credentials: 'include' })
-      .then((r) => r.json()).catch(() => null);
-    setDrafts((dr?.drafts || []).map((d) => ({
-      ...d,
-      fullText: (d.langs?.en?.segments || d.segments || []).map((s) => s.text).join('\n\n'),
-      langTexts: Object.fromEntries(
-        Object.entries(d.langs || {}).filter(([l]) => l !== 'en')
-          .map(([l, t]) => [l, (t.segments || []).map((s) => s.text).join('\n\n')])),
-      langMeta: d.langs || {},
-    })));
-  };
-
   const updateDraftText = (li, text) => {
     setDrafts((ds) => ds.map((d, i) => i !== li ? d : { ...d, fullText: text }));
-  };
-
-  const updateLangText = (li, lang, text) => {
-    setDrafts((ds) => ds.map((d, i) => i !== li ? d
-      : { ...d, langTexts: { ...(d.langTexts || {}), [lang]: text } }));
   };
 
   // POST build → scripts → review. `plan` may be null → server derives the
@@ -263,8 +271,8 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(planToSend?.length
-          ? { lectureCount: planToSend.length, lecturePlan: planToSend }
-          : { lectureCount: count }),
+          ? { lectureCount: planToSend.length, lecturePlan: planToSend, minutes: lectureMinutes }
+          : { lectureCount: count, minutes: lectureMinutes }),
       }).catch(() => null);
       if (!br) {
         throw new Error('Could not reach the server — it may be restarting. Try again in a few seconds.');
@@ -275,14 +283,9 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       }
       const outcome = await pollUntilGate(ctx.courseId);
       if (outcome === 'scripts' || outcome === 'awaiting_review') {
-        const dr = await fetch(`${API_URL}/api/courses/${ctx.courseId}/drafts`, { credentials: 'include' })
-          .then((r) => r.json()).catch(() => null);
-        setDrafts((dr?.drafts || []).map((d) => ({
-          ...d, fullText: d.segments.map((s) => s.text).join('\n\n'),
-        })));
+        await loadReviewDrafts(ctx.courseId);
         setStage('review');
         setStatus(null);
-        setReviewLang('en');
         return;
       }
       if (outcome === 'ready') {
@@ -492,7 +495,16 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
               ))}
             </div>
             {error && <p className="ccmodal__error">{error}</p>}
-            <div className="ccmodal__actions">
+            <div className="ccmodal__actions" style={{ alignItems: 'center' }}>
+              <label style={{ fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Minutes per lecture
+                <input
+                  type="number" min={5} max={15} value={lectureMinutes}
+                  onChange={(e) => setLectureMinutes(Math.min(15, Math.max(5, +e.target.value || 10)))}
+                  style={{ width: 52, background: '#0f172a', border: '1px solid #334155', borderRadius: 6,
+                    color: '#e2e8f0', padding: '3px 6px', fontSize: 12 }}
+                />
+              </label>
               <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
               <button type="button" className="btn btn-primary" disabled={submitting}
                 onClick={confirmPlan}>
@@ -505,8 +517,9 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           <div className="ccmodal__review">
             <p className="ccmodal__review-hint">
               Review each lecture's script — edit freely, or paste an improved
-              version (e.g. from ChatGPT). Click one button to approve and
-              generate English narration. Additional languages are optional below.
+              version (e.g. from ChatGPT). One click approves the scripts,
+              translates them into AR · FR · DE · ES · ZH, and generates
+              narrated audio in all six languages for every lecture.
             </p>
             <div className="ccmodal__review-list">
               {(drafts || []).map((d, li) => (
@@ -517,6 +530,12 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                       ~{d.segments.length} segments{d.audioOutdated ? ' · audio outdated' : ''}
                     </span>
                   </div>
+                  {d.coverage?.recommendedMinutes ? (
+                    <p className="ccmodal__error" style={{ textAlign: 'left', margin: '0 0 6px' }}>
+                      Full topic coverage needs ~{d.coverage.recommendedMinutes} min of narration —
+                      increase the lecture minutes or accept the omissions below.
+                    </p>
+                  ) : null}
                   {d.coverage?.missing?.length ? (
                     <p className="ccmodal__error" style={{ textAlign: 'left', margin: '0 0 6px' }}>
                       Possible missing topics: {d.coverage.missing.join('; ')} — expand the script or confirm the source lacks them.
@@ -532,108 +551,6 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                 </div>
               ))}
             </div>
-            {/* Optional multilingual narration — collapsed by default so the
-                common path is a single click. Extra languages keep the full
-                translation-review flow. */}
-            <div style={{ margin: '12px 0 0', fontSize: 13 }}>
-              <button type="button"
-                style={{ background: 'none', border: 'none', color: '#67e8f9', fontSize: 12, cursor: 'pointer', padding: 0 }}
-                onClick={() => setLangsOpen((o) => !o)}>
-                {langsOpen ? '▾' : '▸'} Additional languages (optional)
-              </button>
-              {langsOpen && (
-                <div className="ccmodal__langbar" style={{ marginTop: 8 }}>
-                  {['ar', 'fr', 'de', 'es', 'zh'].map((l) => (
-                    <label key={l} className={`ccmodal__langtab${extraLangs.includes(l) ? ' ccmodal__langtab--on' : ''}`}
-                      style={{ cursor: 'pointer' }}>
-                      <input type="checkbox" hidden
-                        checked={extraLangs.includes(l)}
-                        onChange={(e) => setExtraLangs((ls) =>
-                          e.target.checked ? [...ls, l] : ls.filter((x) => x !== l))} />
-                      {l.toUpperCase()}
-                    </label>
-                  ))}
-                  {extraLangs.length > 0 && (
-                    <button type="button" className="btn btn-ghost" disabled={approving}
-                      style={{ marginLeft: 'auto' }}
-                      onClick={() => { setAudioLangs(['en', ...extraLangs]); approveScripts(); }}>
-                      {approving ? (status || 'Preparing translations…') : `Prepare ${extraLangs.join(', ').toUpperCase()} for review`}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            {error && <p className="ccmodal__error">{error}</p>}
-            <div className="ccmodal__actions">
-              <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={approving}
-                onClick={() => { setAudioLangs(['en']); approveAudio(); }}
-              >
-                {approving ? (status || 'Generating audio…') : 'Approve & Generate Audio'}
-              </button>
-            </div>
-          </div>
-        ) : stage === 'review-langs' ? (
-          /* ---- Per-language review — every supported language editable ---- */
-          <div className="ccmodal__review">
-            <p className="ccmodal__review-hint">
-              Review each language version freely — re-split text is
-              re-aligned to narration segments and source pages; alignments
-              that can't be verified are flagged, never guessed. Choose which
-              languages get audio now — other scripts stay available and can
-              be prepared later on explicit request.
-            </p>
-            <div className="ccmodal__langbar">
-              <span style={{ fontSize: 12, color: '#94a3b8', alignSelf: 'center' }}>Audio for:</span>
-              {['en', 'ar', 'fr', 'de', 'es', 'zh'].map((l) => (
-                <label key={l} className={`ccmodal__langtab${audioLangs.includes(l) ? ' ccmodal__langtab--on' : ''}`}
-                  style={{ cursor: 'pointer' }}>
-                  <input type="checkbox" hidden
-                    checked={audioLangs.includes(l)}
-                    disabled={l === 'en'}
-                    onChange={(e) => setAudioLangs((ls) =>
-                      e.target.checked ? [...ls, l] : ls.filter((x) => x !== l))} />
-                  {l.toUpperCase()}
-                </label>
-              ))}
-            </div>
-            <div className="ccmodal__langbar">
-              {['en', 'ar', 'fr', 'de', 'es', 'zh'].map((l) => (
-                <button key={l} type="button"
-                  className={`ccmodal__langtab${reviewLang === l ? ' ccmodal__langtab--on' : ''}`}
-                  onClick={() => setReviewLang(l)}>
-                  {l.toUpperCase()}{(drafts || []).some((d) => d.langMeta?.[l]?.outdated) ? '!' : ''}
-                </button>
-              ))}
-            </div>
-            <div className="ccmodal__review-list">
-              {(drafts || []).map((d, li) => {
-                const isEn = reviewLang === 'en';
-                const text = isEn ? d.fullText : (d.langTexts || {})[reviewLang] ?? '';
-                const meta = d.langMeta?.[reviewLang];
-                return (
-                  <div key={d.lectureId} className="ccmodal__review-lec">
-                    <div className="ccmodal__review-lechead">
-                      <strong>{d.title || `Lecture ${li + 1}`}</strong>
-                      <span className="ccmodal__review-count">
-                        {meta?.edited ? 'edited' : ''}{meta?.outdated ? ' · outdated — re-review' : ''}
-                      </span>
-                    </div>
-                    <textarea
-                      className="ccmodal__review-full"
-                      rows={14}
-                      value={text}
-                      onChange={(e) => isEn ? updateDraftText(li, e.target.value)
-                        : updateLangText(li, reviewLang, e.target.value)}
-                      spellCheck={false}
-                    />
-                  </div>
-                );
-              })}
-            </div>
             {approveBlocked?.list?.length ? (
               <div className="ccmodal__error" style={{ textAlign: 'left' }}>
                 <p style={{ margin: '0 0 4px' }}>Approval blocked:</p>
@@ -645,16 +562,25 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
             {error && <p className="ccmodal__error">{error}</p>}
             <div className="ccmodal__actions">
               <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              {/* Disabled by BACKEND build state (not just local flags) —
+                  mid-flight builds can never receive a second submission,
+                  even after reopen/refresh. A post-failure retry reuses
+                  cached audio. */}
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={approving}
+                disabled={approving || processing}
                 onClick={approveAudio}
               >
-                {approving ? (status || 'Generating audio…')
-                  : approveBlocked?.uncertain
-                    ? 'Confirm flagged alignments and Generate Audio'
-                    : `Approve Scripts and Generate Audio (${audioLangs.join(', ').toUpperCase()})`}
+                {processing
+                  ? `Preparing Multilingual Audio…${buildState?.progress ? ` (${buildState.progress})` : ''}`
+                  : approving
+                    ? (status || 'Generating audio…')
+                    : buildState?.status === 'failed' && approveBlocked === null
+                      ? 'Retry Missing Audio'
+                      : approveBlocked?.uncertain
+                        ? 'Confirm flagged alignments and Generate Audio'
+                        : `Approve Scripts and Generate Audio (${audioLangs.join(', ').toUpperCase()})`}
               </button>
             </div>
           </div>

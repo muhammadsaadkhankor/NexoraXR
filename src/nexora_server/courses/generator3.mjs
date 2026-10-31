@@ -36,7 +36,7 @@ export const PROMPT_VERSION = 'v3-blocks-2026-10-26';
 
 // Duration: 5–10 min configurable; default 7. WPM calibrated on measured
 // VoxCPM output (65–80 wpm) — NOT a generic 130 wpm.
-export const TARGET_MINUTES = Math.min(10, Math.max(5, Number(process.env.COURSE_TARGET_MINUTES || 7)));
+export const TARGET_MINUTES = Math.min(15, Math.max(5, Number(process.env.COURSE_TARGET_MINUTES || 10)));
 export const EFFECTIVE_WPM = Math.min(130, Math.max(50, Number(process.env.COURSE_EFFECTIVE_WPM || 72)));
 const WORD_BUDGET = Math.round(TARGET_MINUTES * EFFECTIVE_WPM);
 // Upper bound = the configured 10-minute ceiling (TARGET*WPM at 10min), not a
@@ -648,7 +648,11 @@ export async function repairGaps(parsed, plan, corpus, gaps, deps, meta) {
 export function detectAdminLeak(segments) {
   const leaks = [];
   for (const s of segments) {
-    if (ADMIN_NARRATION.test(s.text) || COURSE_DESC_RE.test(s.text)) {
+    // Narration leaks = real logistics only (grading, deadlines, office
+    // hours…). Course-outcome phrasing like "this course explores…" is
+    // legitimate intro narration — COURSE_DESC_RE stays in the ingest-side
+    // slide classifier, not the narration gate.
+    if (ADMIN_NARRATION.test(s.text)) {
       leaks.push({ type: 'admin', segment: s.id, evidence: s.text.slice(0, 80) });
     }
   }
@@ -775,7 +779,7 @@ export function validateLectureV3(parsed, allowedDocs, plan) {
   const ids = parsed.segments.map((s) => s.id);
   if (new Set(ids).size !== ids.length) problems.push('duplicate segment ids');
   for (const [i, s] of parsed.segments.slice(0, 2).entries()) {
-    if (ADMIN_NARRATION.test(s.text) || COURSE_DESC_RE.test(s.text)) {
+    if (ADMIN_NARRATION.test(s.text)) {
       problems.push(`segment ${i + 1} opens on administrative content`);
     }
   }

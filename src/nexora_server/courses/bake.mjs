@@ -20,10 +20,13 @@ const PROFBRAIN_DIR = path.resolve(AI_DIR, '..', '..', 'profbrain', 'lectures');
 
 const CONCURRENCY = Number(process.env.COURSE_TTS_CONCURRENCY || 2);
 // Required narration-duration band in SECONDS — real audio is measured, not
-// estimated. Spec band is 5–10 min; the floor has slack for short primers.
+// estimated. Max is configurable up to 20 min (COURSE_AUDIO_MAX_S=1200) —
+// longer reviewed scripts are legitimate, never a reason to discard them.
 // A lecture outside it fails the build.
-const AUDIO_MIN_S = Number(process.env.COURSE_AUDIO_MIN_S || 240);
-const AUDIO_MAX_S = Number(process.env.COURSE_AUDIO_MAX_S || 600);
+export const AUDIO_MIN_S = Number(process.env.COURSE_AUDIO_MIN_S || 240);
+export const AUDIO_MAX_S = Math.min(1800, Number(process.env.COURSE_AUDIO_MAX_S || 1200));
+export const audioOnTarget = (durationMs) =>
+  durationMs >= AUDIO_MIN_S * 1000 && durationMs <= AUDIO_MAX_S * 1000;
 
 // Language-specific cache keys mirror runtime: 'en' → <id>, others → <id>__<lang>.
 const cacheKey = (lecId, lang) => (lang === 'en' ? lecId : `${lecId}__${lang}`);
@@ -149,7 +152,7 @@ const BAKE_LANGS = (process.env.COURSE_BAKE_LANGS || 'en,ar,fr,de,es,zh')
 
 // Verify a whole course: every lecture has complete audio in the selected
 // languages. Per-language timings are recorded in the returned report.
-export async function verifyCourseAudio(courseId, langs = null) {
+export async function verifyCourseAudio(courseId, langs = null, onProgress = null) {
   const langList = Array.isArray(langs) && langs.length ? langs : BAKE_LANGS;
   if (!(await ttsReachable())) {
     throw new Error(`TTS service unreachable at ${process.env.VOXCPM_BASE_URL || 'http://localhost:8010'} — start VoxCPM2 and rebuild`);
@@ -159,17 +162,20 @@ export async function verifyCourseAudio(courseId, langs = null) {
       WHERE course_id=$1 AND COALESCE(artifacts->'script','0'::jsonb)::text = '1' ORDER BY idx`, [courseId]);
   const report = [];
   const timings = {};
+  let lecIdx = 0;
   for (const l of rows) {
+    lecIdx += 1;
     const langsDone = [], errs = [];
     for (const lang of langList) {
       const t0 = Date.now();
+      onProgress?.(`lecture ${lecIdx}/${rows.length} · ${lang.toUpperCase()}`);
       try {
         const r = await bakeLecture(l.lecture_id, lang);
         await warmLectureUtterances(l.lecture_id, lang);
         langsDone.push(lang);
         timings[`${l.lecture_id}@${lang}`] = Date.now() - t0;
         if (lang === 'en') {
-          const onTarget = r.durationMs >= AUDIO_MIN_S * 1000 && r.durationMs <= AUDIO_MAX_S * 1000;
+          const onTarget = audioOnTarget(r.durationMs);
           const entry = { idx: l.idx, lectureId: l.lecture_id, title: l.title, ...r, onTarget, timings };
           // Out-of-band audio is a build-level failure — blocks publication.
           if (!onTarget) {
@@ -177,11 +183,25 @@ export async function verifyCourseAudio(courseId, langs = null) {
               `${(AUDIO_MIN_S / 60).toFixed(1)}–${(AUDIO_MAX_S / 60).toFixed(1)}m band`;
           }
           report.push(entry);
+          // Heal scripts whose validation was poisoned by an earlier bake
+          // (duration wrote ok:false into artifacts.validation). A bake-only
+          // failure signature gets cleared once audio passes; real script
+          // problems are never touched.
+          const { rows: [cur] } = await getPool().query(
+            `SELECT artifacts FROM course_lectures WHERE lecture_id=$1`, [l.lecture_id]);
+          const bakePoisoned = cur?.artifacts?.validation?.ok === false &&
+            (cur.artifacts.validation.problems || []).length > 0 &&
+            cur.artifacts.validation.problems.every((p) => /duration .* outside .*band|segments failed|TTS service/i.test(String(p)));
           await getPool().query(
             `UPDATE course_lectures SET artifacts = artifacts || $2 WHERE lecture_id=$1`,
             [l.lecture_id, JSON.stringify({
               audio: 1, duration_s: Math.round(r.durationMs / 1000), segments: r.segments,
-              ...(onTarget ? {} : { validation: { ok: false, problems: [entry.error] } }),
+              // Audio duration is NOT script validation — an off-target bake
+              // must never poison the reviewed script's approval gate. Track
+              // it separately so the retry path stays open.
+              ...(onTarget
+                ? { audio_offtarget: null, ...(bakePoisoned ? { validation: { ok: true } } : {}) }
+                : { audio_offtarget: entry.error }),
             })]);
         }
       } catch (e) {

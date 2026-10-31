@@ -174,7 +174,8 @@ test('validateFast passes a well-formed script', () => {
     { id: 2, section: 'Minor', document: 'lec.pdf', page: 3, text: prose(120, 'm1'), blockId: 'c2' },
     { id: 3, section: 'Recap', document: 'lec.pdf', page: 4, text: prose(60, 'r1'), blockId: '__recap' },
   ] };
-  const v = validateFast(good, { 'lec.pdf': { documentId: 'd1', pages: [[1, 10]] } }, plan);
+  const v = validateFast(good, { 'lec.pdf': { documentId: 'd1', pages: [[1, 10]] } }, plan,
+    { targetWords: 400, minutes: 5 });
   assert.equal(v.ok, true);
 });
 
@@ -208,4 +209,88 @@ test('in-range provenance produces no warnings', () => {
   const plan = { concepts: [{ title: 'A', blockId: 'c1', source: 'doc.pdf', pageStart: 1, pageEnd: 5 }] };
   const p = { segments: [{ id: 0, blockId: 'c1', document: 'doc.pdf', page: 3, text: 'x' }] };
   assert.deepEqual(normalizeSegmentPages(p, plan), []);
+});
+
+// ---------- coverage / undershoot / math / page-matching regressions ----------
+import { MATH_NARRATION_RE } from './generator4.mjs';
+
+const TEACHING = [
+  { title: 'What is ML', filename: 'lec.pdf', page_start: 10, page_end: 10, pageStart: 10, pageEnd: 10, chunks: [] },
+  { title: 'Supervised', filename: 'lec.pdf', page_start: 19, page_end: 19, pageStart: 19, pageEnd: 19, chunks: [] },
+  { title: 'Gradient', filename: 'lec.pdf', page_start: 25, page_end: 25, pageStart: 25, pageEnd: 25, chunks: [] },
+];
+
+test('coverage: essential instructional slides with no narration FAIL', () => {
+  const plan = { objective: 'x', blocks: [], concepts: [{ title: 'ML', importance: 'high', blockId: 'c1' }] };
+  const parsed = { title: 't', segments: [
+    { id: 0, section: 'Introduction', document: 'lec.pdf', page: 10, text: prose(200, 'i'), blockId: '__intro' },
+    { id: 1, section: 'ML', document: 'lec.pdf', page: 10, text: prose(250, 'm'), blockId: 'c1' },
+    { id: 2, section: 'Recap', document: 'lec.pdf', page: 10, text: prose(150, 'r'), blockId: '__recap' },
+  ] };
+  const v = validateFast(parsed, { 'lec.pdf': { documentId: 'd1', pages: [[1, 60]] } }, plan,
+    { targetWords: 500, minutes: 5, teaching: TEACHING });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => p.includes('instructional coverage')));
+});
+
+test('coverage: full-page coverage passes', () => {
+  const plan = { objective: 'x', blocks: [], concepts: [{ title: 'ML', importance: 'high', blockId: 'c1' }] };
+  const parsed = { title: 't', segments: [
+    { id: 0, section: 'Introduction', document: 'lec.pdf', page: 10, text: prose(200, 'i'), blockId: '__intro' },
+    { id: 1, section: 'ML', document: 'lec.pdf', page: 10, text: prose(250, 'm'), blockId: 'c1' },
+    { id: 2, section: 'Sup', document: 'lec.pdf', page: 19, text: prose(200, 's'), blockId: 'c1' },
+    { id: 3, section: 'Grad', document: 'lec.pdf', page: 25, text: prose(200, 'g'), blockId: 'c1' },
+    { id: 4, section: 'Recap', document: 'lec.pdf', page: 25, text: prose(150, 'r'), blockId: '__recap' },
+  ] };
+  const v = validateFast(parsed, { 'lec.pdf': { documentId: 'd1', pages: [[1, 60]] } }, plan,
+    { targetWords: 500, minutes: 5, teaching: TEACHING });
+  assert.equal(v.ok, true, JSON.stringify(v.problems));
+});
+
+test('undershoot: 55%-of-target script now fails', () => {
+  const plan = { objective: 'x', blocks: [], concepts: [{ title: 'A', importance: 'high', blockId: 'c1' }] };
+  const parsed = { title: 't', segments: [
+    { id: 0, section: 'Introduction', document: 'lec.pdf', page: 1, text: prose(200, 'i'), blockId: '__intro' },
+    { id: 1, section: 'A', document: 'lec.pdf', page: 2, text: prose(200, 'a'), blockId: 'c1' },
+    { id: 2, section: 'Recap', document: 'lec.pdf', page: 3, text: prose(100, 'r'), blockId: '__recap' },
+  ] }; // 500w vs 1000w target = 50%
+  const v = validateFast(parsed, { 'lec.pdf': { documentId: 'd1', pages: [[1, 60]] } }, plan,
+    { targetWords: 1000, minutes: 10 });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => p.includes('too short for target')));
+});
+
+test('math: equation-bearing block without math narration fails', () => {
+  const plan = { objective: 'x', blocks: [], concepts: [{ title: 'Cost', importance: 'high', blockId: 'c1' }] };
+  const parsed = { title: 't', segments: [
+    { id: 0, section: 'Introduction', document: 'lec.pdf', page: 1, text: prose(200, 'i'), blockId: '__intro' },
+    { id: 1, section: 'Cost', document: 'lec.pdf', page: 2, text: prose(200, 'qualitative vibes only words'), blockId: 'c1' },
+    { id: 2, section: 'Recap', document: 'lec.pdf', page: 3, text: prose(100, 'r'), blockId: '__recap' },
+  ] };
+  const v = validateFast(parsed, { 'lec.pdf': { documentId: 'd1', pages: [[1, 60]] } }, plan,
+    { targetWords: 400, minutes: 5, mathByBlock: { c1: 'Cost' } });
+  assert.equal(v.ok, false);
+  assert.ok(v.problems.some((p) => p.includes('never explains the math')));
+});
+
+test('math: verbalized notation counts as math narration', () => {
+  assert.ok(MATH_NARRATION_RE.test('the cost J of w equals one over N times the sum'));
+  assert.ok(MATH_NARRATION_RE.test('w zero is the intercept where the line crosses'));
+  assert.ok(!MATH_NARRATION_RE.test('it works very well in practice broadly'));
+});
+
+test('page matching: out-of-range page snaps to the best-matching slide', () => {
+  const corpus = corpusOf([[SEC('c', 1, 3, 'x'), [
+    CH('c', 1, 'apples oranges fruit sorting conveyor'),
+    CH('c', 2, 'linear regression cost function squared error'),
+    CH('c', 3, 'reinforcement learning agents cumulative reward'),
+  ]]]);
+  const plan = { concepts: [{ title: 'C', blockId: 'c1', source: 'lec.pdf', pageStart: 1, pageEnd: 3 }] };
+  const p = { segments: [
+    { id: 0, blockId: 'c1', document: 'lec.pdf', page: 9,
+      text: 'Reinforcement learning is about agents maximizing cumulative reward through feedback' },
+  ] };
+  const w = normalizeSegmentPages(p, plan, corpus);
+  assert.equal(p.segments[0].page, 3, 'content-matched to the RL slide');
+  assert.ok(w[0].includes('content-matched'));
 });

@@ -33,7 +33,7 @@ const recordEvalFor = {
   fast: (cid, e, l) => recordEvalV3(cid, e, l, { genMeta: l.genMeta, generatorVersion: l.genMeta?.generator || 'fast.1' }),
   v2: (cid, e, l) => recordEval(cid, e, l, { genMeta: l.genMeta }),
 }[GEN_VERSION];
-import { prepareTranslations, textFingerprintForBake } from './drafts.mjs';
+import { prepareTranslations, textFingerprintForBake, loadLectureLangDraft } from './drafts.mjs';
 import { verifyCourseAudio } from './bake.mjs';
 import { llmConfigured } from './llm.mjs';
 
@@ -46,12 +46,12 @@ async function setStep(buildId, status, patch = {}) {
     [buildId, status, patch.error || null, JSON.stringify(patch)]);
 }
 
-export async function startBuild(courseId, lectureCount, lang = 'en', lecturePlan = null) {
+export async function startBuild(courseId, lectureCount, lang = 'en', lecturePlan = null, minutes = null) {
   const pool = getPool();
   const buildId = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO course_builds (id, course_id, status, lecture_count, lang) VALUES ($1,$2,'ingesting',$3,$4)`,
-    [buildId, courseId, lectureCount, lang]);
+    `INSERT INTO course_builds (id, course_id, status, lecture_count, lang, stats) VALUES ($1,$2,'ingesting',$3,$4,$5::jsonb)`,
+    [buildId, courseId, lectureCount, lang, JSON.stringify(minutes ? { minutes } : {})]);
   // Reviewer-confirmed lecture list (one PDF = one lecture) rides on the
   // build — deterministic plan replaces the LLM planner for this flow.
   if (lecturePlan) {
@@ -139,6 +139,12 @@ export async function runBuild(buildId, courseId, lectureCount, lang = 'en', lec
 
     // --- scripts + slides (emitLecture writes both per lecture) ---
     await setStep(buildId, 'scripts');
+    // Instructor-chosen narration duration rides on build stats — flows into
+    // the fast generator's word budget; other generators ignore it.
+    const { rows: [bStats] } = await pool.query(
+      `SELECT stats FROM course_builds WHERE id=$1`, [buildId]);
+    const buildMinutes = Number(bStats?.stats?.minutes) || null;
+    const genDeps = buildMinutes ? { minutes: buildMinutes } : {};
     for (const entry of outline) {
       // Resume-safe: skip lectures already fully produced for THIS build.
       const { rows: [have] } = await pool.query(
@@ -146,7 +152,7 @@ export async function runBuild(buildId, courseId, lectureCount, lang = 'en', lec
         [courseId, entry.idx, buildId]);
       if (have?.artifacts?.script && have?.artifacts?.slides) continue;
       try {
-        const lecture = await generateLecture(courseId, entry);
+        const lecture = await generateLecture(courseId, entry, genDeps);
         await emitLecture(courseId, entry, lecture, { buildId });
         if (lecture.validation?.ok === false) {
           console.warn(`[course] lecture ${entry.idx} failed validation: ${lecture.validation.problems.join('; ')}`);
@@ -192,7 +198,7 @@ export async function runTranslationPhase(buildId, courseId) {
   running.set(courseId, buildId);
   const t0 = Date.now();
   try {
-    await setStep(buildId, 'translating');
+    await setStep(buildId, 'translating', { stage: 'translations' });
     const report = await prepareTranslations(courseId);
     const failed = report.filter((r) => r.status === 'failed');
     await setStep(buildId, 'awaiting_review', {
@@ -236,9 +242,36 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
         return;
       }
     }
+    // Auto-prepare any MISSING translation drafts for the requested
+    // languages — canonical scripts are never touched, edited drafts and
+    // up-to-date machine drafts are kept, so only genuinely missing work
+    // runs. This covers both the "all languages by default" approval and the
+    // backfill/retry path.
+    if (audioLangs.some((l) => l !== 'en')) {
+      const { rows: lecIds } = await pool.query(
+        `SELECT lecture_id FROM course_lectures WHERE course_id=$1
+           AND COALESCE(artifacts->'script','0'::jsonb)::text='1'`, [courseId]);
+      let missing = false;
+      for (const { lecture_id: lid } of lecIds) {
+        for (const lang of audioLangs) {
+          if (lang === 'en') continue;
+          const t = await loadLectureLangDraft(lid, lang);
+          if (!t) { missing = true; break; }
+        }
+        if (missing) break;
+      }
+      if (missing) {
+        await setStep(buildId, 'audio', { stage: 'audio', progress: 'preparing translations…' });
+        await prepareTranslations(courseId);
+      }
+    }
     const audioT0 = Date.now();
-    await setStep(buildId, 'audio');
-    const audioReport = await verifyCourseAudio(courseId, audioLangs);
+    // stage:'audio' marks the failure window for the approve-audio retry
+    // guard — a build that fails here stays retryable, not "failed before
+    // script approval".
+    await setStep(buildId, 'audio', { stage: 'audio' });
+    const audioReport = await verifyCourseAudio(courseId, audioLangs,
+      (p) => setStep(buildId, 'audio', { stage: 'audio', progress: p }).catch(() => {}));
     const failedAudio = audioReport.filter((r) => r.error);
     if (failedAudio.length) {
       await setStep(buildId, 'failed', {
@@ -247,13 +280,21 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
     }
 
     // --- validating ---
-    await setStep(buildId, 'validating');
+    await setStep(buildId, 'validating', { stage: 'validating' });
     const { rows: [missing] } = await pool.query(
       `SELECT count(*) AS n FROM course_lectures WHERE course_id=$1 AND status IN ('draft','ready')`, [courseId]);
     if (+missing.n !== lectureCount) {
       await setStep(buildId, 'failed', { error: `Expected ${lectureCount} lectures, have ${missing.n}` });
       return;
     }
+
+    // Publish every lecture whose script baked — the lecture pickers only
+    // list status='ready', so without this the classroom shows "no
+    // lectures" even though scripts and audio exist.
+    await pool.query(
+      `UPDATE course_lectures SET status='ready'
+        WHERE course_id=$1 AND status='draft'
+          AND COALESCE(artifacts->'script','0'::jsonb)::text='1'`, [courseId]);
 
     await setStep(buildId, 'ready', {
       lectures: audioReport,
