@@ -1,0 +1,122 @@
+{
+  "at": "2026-10-29T20:54:42.012Z",
+  "generatorVersion": "v3.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "6958a6fb-34a8-4ab4-9db2-a43190b51e73",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 488,
+  "estimatedMinutes": 6.777777777777778,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 3855,
+    "genTokens": 1294,
+    "loadDurationMs": 5173,
+    "promptEvalMs": 4646,
+    "evalMs": 175387,
+    "totalMs": 185575
+  },
+  "promptChars": 16223,
+  "approxPromptTokens": 4635,
+  "revisionCycles": null,
+  "elapsedMs": 185619,
+  "validation": {
+    "ok": true
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of machine learning and its relevance to real-world applications.",
+    "objective": "Understand the foundational concepts of machine learning and its relevance to real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundation",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Machine learning relies on mathematical tools to model and analyze data.",
+        "examples": [
+          "Probability theory for uncertainty",
+          "Linear algebra for data representation",
+          "Calculus for optimization"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Understanding the definition is essential to grasp the scope and purpose of ML.",
+        "examples": [
+          "A system that learns from data without explicit programming"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Big Picture of ML",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "This provides a framework to understand how ML systems operate and make decisions.",
+        "examples": [
+          "Taking picking fruits as an example to illustrate learning from data"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Why ML?",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "This concept motivates the study of ML by highlighting its practical impact and benefits.",
+        "examples": [
+          "Efficiency in decision-making, automation, and prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 14,
+            "pageEnd": 14
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "ML in Real Life: Smart Assistants",
+      "ML in Real Life: Advertising",
+      "Electrical Load Prediction",
+      "A Regression Example",
+      "A Classification Example",
+      "A Clustering Example",
+      "An RL Example",
+      "The Generalized ML: an Example"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 7,
+    "withDoc": 7,
+    "withPage": 7
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}

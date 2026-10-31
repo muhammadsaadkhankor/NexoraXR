@@ -1,0 +1,124 @@
+{
+  "at": "2026-10-29T21:11:50.953Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "602626d1-3115-4ad4-9fbb-ab8c8443b925",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 500,
+  "estimatedMinutes": 6.944444444444445,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 4806,
+    "genTokens": 1242,
+    "loadDurationMs": 483,
+    "promptEvalMs": 5467,
+    "evalMs": 177527,
+    "totalMs": 183912
+  },
+  "promptChars": 16201,
+  "approxPromptTokens": 4629,
+  "revisionCycles": null,
+  "elapsedMs": 183926,
+  "validation": {
+    "ok": true,
+    "warnings": [
+      "segment -1: page 2 → 1 (outside Lec2_Linear_Regression.pdf p.1–1)",
+      "segment -1: page 3 → 2 (outside Lec2_Linear_Regression.pdf p.2–2)",
+      "segment -1: page 16 → 15 (outside Lec2_Linear_Regression.pdf p.15–15)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the core principles and mechanics of linear regression, including its components, cost function, and optimization techniques.",
+    "objective": "Understand the core principles and mechanics of linear regression, including its components, cost function, and optimization techniques.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Linear Regression Model",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Linear regression is the foundation of predictive modeling, representing the relationship between a dependent variable and one or more independent variables.",
+        "examples": [
+          "Sales vs Advertising",
+          "Housing price prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function (Mean Squared Error)",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "The cost function quantifies the error between predicted and actual values, guiding the optimization process in linear regression.",
+        "examples": [
+          "MSE is a differentiable and convex function"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Gradient descent is an optimization algorithm used to minimize the cost function and find the best-fit line in linear regression.",
+        "examples": [
+          "Gradient descent is an iterative optimization technique",
+          "Gradient Descent Approach: Intuition"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 15,
+            "pageEnd": 15
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Regression Coefficients and Intercept",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "These parameters define the slope and starting point of the regression line, crucial for making predictions.",
+        "examples": [
+          "Intercept (where the line crosses y-axis)",
+          "Regression coefficient"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 8,
+            "pageEnd": 8
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Vectorization",
+      "Residual plots",
+      "Linear Algebra Multiplication",
+      "Code Demo"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 2
+}

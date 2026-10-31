@@ -1,0 +1,125 @@
+{
+  "at": "2026-10-29T21:08:47.007Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "602626d1-3115-4ad4-9fbb-ab8c8443b925",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 548,
+  "estimatedMinutes": 7.611111111111111,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 3870,
+    "genTokens": 1341,
+    "loadDurationMs": 588,
+    "promptEvalMs": 4243,
+    "evalMs": 168410,
+    "totalMs": 173731
+  },
+  "promptChars": 16475,
+  "approxPromptTokens": 4707,
+  "revisionCycles": null,
+  "elapsedMs": 173755,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "segment 2 opens on administrative content"
+    ],
+    "warnings": [
+      "segment -1: page 9 → 1 (outside Lec1_Introduction.pdf p.1–1)",
+      "segment -1: page 11 → 1 (outside Lec1_Introduction.pdf p.1–1)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "objective": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "This is the core definition that sets the foundation for understanding all subsequent concepts.",
+        "examples": [
+          "Machine Learning is the study of computer algorithms that improve automatically through experience."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Mathematical Foundations",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "These mathematical tools are essential for understanding how Machine Learning algorithms work.",
+        "examples": [
+          "Probability theory, linear algebra, and calculus are used to model and optimize ML algorithms."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of ML",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Understanding real-world applications helps students grasp the relevance and impact of ML.",
+        "examples": [
+          "Smart assistants and advertising are examples of how ML is applied in everyday life."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Big Picture of ML",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "This concept provides a high-level view of how ML works and what it aims to achieve.",
+        "examples": [
+          "Taking picking fruits as an example to illustrate the ML process."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Regression Example",
+      "Classification Example",
+      "Clustering Example",
+      "RL Example",
+      "Generalized ML Example"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 7,
+    "withDoc": 7,
+    "withPage": 7
+  },
+  "adminLeakSegments": 2,
+  "repetitionFindings": 1
+}

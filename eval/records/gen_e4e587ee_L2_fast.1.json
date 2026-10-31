@@ -1,0 +1,143 @@
+{
+  "at": "2026-10-29T22:49:16.907Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "e4e587ee-9de3-481e-b94f-4bf5e2a66d44",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 924,
+  "estimatedMinutes": 12.833333333333334,
+  "llmCalls": 6,
+  "llmUsage": {
+    "promptTokens": 10391,
+    "genTokens": 1872,
+    "loadDurationMs": 797,
+    "promptEvalMs": 11268,
+    "evalMs": 310959,
+    "totalMs": 323961
+  },
+  "promptChars": 32889,
+  "approxPromptTokens": 9397,
+  "revisionCycles": null,
+  "elapsedMs": 323985,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 3 segments",
+      "instructional coverage 13% — no narration on: \"Page 1\" p.1, \"3 Example 1: Sales vs Advertising\" p.3, \"4 Example  2 :  Power Plant Generation\" p.4, \"6 Linear Regression Modelling: an Example The housing price prediction: x (feature)?\" p.6, \"Page 7\" p.7 (+42 more)"
+    ],
+    "warnings": [
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental concepts of linear regression, including its formulation, cost function, optimization techniques, and applications.",
+    "objective": "Understand the fundamental concepts of linear regression, including its formulation, cost function, optimization techniques, and applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Linear Regression?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Linear regression is a foundational technique for predicting continuous outcomes based on a linear relationship between variables.",
+        "examples": [
+          "Sales vs Advertising",
+          "Power Plant Generation"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function and Error Measurement",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The cost function is essential for quantifying the error between predicted and actual values in linear regression.",
+        "examples": [
+          "MSE (Mean Squared Error) as a differentiable and convex function"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent for Optimization",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Gradient descent is a key optimization algorithm used to minimize the cost function in linear regression.",
+        "examples": [
+          "Gradient Descent Approach",
+          "Code Demo",
+          "Intuition"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 15,
+            "pageEnd": 21
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Linear Regression Modelling and Applications",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding how to model and apply linear regression is crucial for real-world data analysis.",
+        "examples": [
+          "Housing price prediction",
+          "Residual plots for model evaluation"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 6,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Closed-Form Solution and Vectorization",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The closed-form solution and vectorization are alternative approaches for solving linear regression efficiently.",
+        "examples": [
+          "Closed-Form Approach",
+          "Vectorization Benefits"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 36,
+            "pageEnd": 39
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 3
+}

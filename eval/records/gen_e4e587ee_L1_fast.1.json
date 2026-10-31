@@ -1,0 +1,165 @@
+{
+  "at": "2026-10-29T22:43:52.909Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "e4e587ee-9de3-481e-b94f-4bf5e2a66d44",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 1010,
+  "estimatedMinutes": 14.027777777777779,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 4900,
+    "genTokens": 2162,
+    "loadDurationMs": 620,
+    "promptEvalMs": 5384,
+    "evalMs": 301433,
+    "totalMs": 308065
+  },
+  "promptChars": 20696,
+  "approxPromptTokens": 5913,
+  "revisionCycles": null,
+  "elapsedMs": 308096,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "segment 2 opens on administrative content",
+      "instructional coverage 37% — no narration on: \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"13 ML in EE: Electrical Load Prediction  When and what load?\" p.13, \"Page 16\" p.16, \"Big Picture of ML\" p.18, \"21 A Classification Example\" p.21 (+7 more)"
+    ],
+    "warnings": [
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning and its applications in real-world scenarios.",
+    "objective": "Understand the foundational concepts of Machine Learning and its applications in real-world scenarios.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Machine Learning relies on mathematical concepts like probability, linear algebra, and calculus to model and analyze data.",
+        "examples": [
+          "Probability theory for uncertainty modeling",
+          "Linear algebra for data representation",
+          "Calculus for optimization"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Understanding the definition and scope of Machine Learning is essential for grasping its broader applications.",
+        "examples": [
+          "Definition of Machine Learning as a field",
+          "Key characteristics of ML systems"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Examining real-life examples helps students appreciate the practical impact of Machine Learning.",
+        "examples": [
+          "Smart Assistants",
+          "Advertising",
+          "Electrical Load Prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 12,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Why Machine Learning?",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Understanding the motivations behind Machine Learning helps students grasp its relevance and importance.",
+        "examples": [
+          "Efficiency in data processing",
+          "Automation of complex tasks"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 14,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "A holistic view of Machine Learning helps students understand its structure and different types of tasks.",
+        "examples": [
+          "Taking picking fruits as an example",
+          "Classification, regression, and clustering"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      },
+      {
+        "id": "c6",
+        "title": "Examples of Machine Learning Tasks",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Concrete examples of tasks like regression, classification, and clustering help students understand how ML operates in practice.",
+        "examples": [
+          "Regression Example",
+          "Classification Example",
+          "Clustering Example"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 20,
+            "pageEnd": 26
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 7
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 2,
+  "repetitionFindings": 2
+}

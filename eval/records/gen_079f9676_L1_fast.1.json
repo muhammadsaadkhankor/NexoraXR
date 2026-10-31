@@ -1,0 +1,141 @@
+{
+  "at": "2026-10-29T21:39:23.904Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "079f9676-f28d-4278-adbf-50e169536c0d",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 897,
+  "estimatedMinutes": 12.458333333333334,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 4002,
+    "genTokens": 1847,
+    "loadDurationMs": 514,
+    "promptEvalMs": 4706,
+    "evalMs": 266878,
+    "totalMs": 272685
+  },
+  "promptChars": 17180,
+  "approxPromptTokens": 4909,
+  "revisionCycles": null,
+  "elapsedMs": 272712,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 2 is a fragment, not narration",
+      "segment 3 is a fragment, not narration",
+      "segment 1 opens on administrative content",
+      "repetition across 3 segments"
+    ],
+    "warnings": [
+      "segment -1: page 14 → 15 (outside Lec1_Introduction.pdf p.15–15)",
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of machine learning and its real-world applications.",
+    "objective": "Understand the foundational concepts of machine learning and its real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundation of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Machine learning relies on mathematical concepts to model and analyze data.",
+        "examples": [
+          "Probability theory, linear algebra, and calculus are foundational for understanding machine learning algorithms."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the definition of machine learning is essential for grasping its scope and applications.",
+        "examples": [
+          "Machine learning is a field of study that gives computers the ability to learn without being explicitly programmed."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Seeing how machine learning is used in real-life scenarios helps students appreciate its practical value.",
+        "examples": [
+          "Smart assistants, advertising, and electrical load prediction are key examples of ML applications."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 12,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Why Machine Learning?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the motivations behind machine learning helps students grasp its significance in modern technology.",
+        "examples": [
+          "ML is used to solve complex problems that are difficult to address with traditional programming methods."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 15,
+            "pageEnd": 15
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The big picture of machine learning helps students understand its overall structure and purpose.",
+        "examples": [
+          "Taking picking fruits as an example, ML involves learning patterns from data to make predictions or decisions."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 1,
+  "repetitionFindings": 3
+}

@@ -1,0 +1,132 @@
+{
+  "at": "2026-10-29T23:18:13.189Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "d35af6b0-b6d9-43a5-91f8-4ab99bd9a3d4",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 1116,
+  "estimatedMinutes": 15.5,
+  "llmCalls": 9,
+  "llmUsage": {
+    "promptTokens": 6859,
+    "genTokens": 2187,
+    "loadDurationMs": 1123,
+    "promptEvalMs": 4751,
+    "evalMs": 209891,
+    "totalMs": 216510
+  },
+  "promptChars": 29192,
+  "approxPromptTokens": 8341,
+  "revisionCycles": null,
+  "elapsedMs": 216554,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "repetition across 6 segments",
+      "instructional coverage 32% — no narration on: \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"14 Why ML?\" p.14, \"Big Picture of ML\" p.18, \"Page 19\" p.19, \"20 A Regression Example\" p.20 (+8 more)"
+    ],
+    "warnings": [
+      "segment -1: page 11 → 1 (outside Lec1_Introduction.pdf p.1–1)",
+      "topics omitted from narration: Page 16; Page 23; Page 26; An RL Example; Page 28; Page 29; 30 The Generalized ML: an Example An example: How to play the super mario game?"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning, its real-world applications, and the mathematical tools required for the field.",
+    "objective": "Understand the foundational concepts of Machine Learning, its real-world applications, and the mathematical tools required for the field.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding the core definition of Machine Learning is essential for grasping its purpose and scope.",
+        "examples": [
+          "What is Machine Learning (ML)?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Mathematical Foundations of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Machine Learning relies on mathematical tools such as probability theory, linear algebra, and calculus to model and analyze data.",
+        "examples": [
+          "Mathematical foundation: probability theory, linear algebra, and calculus."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding real-world applications helps students see the practical relevance of Machine Learning.",
+        "examples": [
+          "ML in Real Life: Smart Assistants",
+          "ML in Real Life: Advertising",
+          "ML in EE: Electrical Load Prediction When and what load?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Big Picture of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "The big picture of ML provides a conceptual framework for understanding how different types of learning tasks are structured.",
+        "examples": [
+          "Big Picture of ML",
+          "Big Picture of ML (Cont.) Taking picking fruits as an example..."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 19
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Page 16",
+      "Page 23",
+      "Page 26",
+      "An RL Example",
+      "Page 28",
+      "Page 29",
+      "30 The Generalized ML: an Example An example: How to play the super mario game?"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 13,
+    "withDoc": 13,
+    "withPage": 13
+  },
+  "adminLeakSegments": 1,
+  "repetitionFindings": 6
+}

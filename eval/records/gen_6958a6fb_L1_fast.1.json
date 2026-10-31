@@ -1,0 +1,124 @@
+{
+  "at": "2026-10-29T19:06:00.084Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "a1cc8c5190722eaf7c9cb7c71638ce44863138120f03bfd672d2db9a535dd4d5",
+  "courseId": "6958a6fb-34a8-4ab4-9db2-a43190b51e73",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 403,
+  "estimatedMinutes": 5.597222222222222,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 1627,
+    "genTokens": 1055,
+    "loadDurationMs": 461,
+    "promptEvalMs": 1541,
+    "evalMs": 91422,
+    "totalMs": 93711
+  },
+  "promptChars": 6921,
+  "approxPromptTokens": 1977,
+  "revisionCycles": null,
+  "elapsedMs": 93737,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "segment 2 opens on administrative content"
+    ],
+    "warnings": [
+      "segment -1: page 2 → 6 (outside Lec1_Introduction.pdf p.6–10)",
+      "segment -1: page 3 → 11 (outside Lec1_Introduction.pdf p.11–15)",
+      "segment -1: page 4 → 16 (outside Lec1_Introduction.pdf p.16–20)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of the course and their relevance to real-world applications.",
+    "objective": "Understand the foundational concepts of the course and their relevance to real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Course Overview",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Provides a clear understanding of the course goals and structure.",
+        "examples": [
+          "Introduction to the course's scope and objectives"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 1,
+            "pageEnd": 5
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Key Themes",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Identifies the central ideas that will be explored throughout the course.",
+        "examples": [
+          "Themes such as theory, practice, and application"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 6,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Relevance to Real-World Problems",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Connects theoretical knowledge to practical applications in various fields.",
+        "examples": [
+          "Examples of how course concepts apply to industry, research, and society"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 15
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Learning Outcomes",
+        "role": "core",
+        "budget": 101,
+        "teachingObjective": "Clarifies what students will be able to do by the end of the course.",
+        "examples": [
+          "Skills and knowledge students will gain"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 16,
+            "pageEnd": 20
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative Details",
+      "Grading Policy",
+      "Schedule Overview"
+    ],
+    "degraded": false
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 6,
+  "repetitionFindings": 1
+}

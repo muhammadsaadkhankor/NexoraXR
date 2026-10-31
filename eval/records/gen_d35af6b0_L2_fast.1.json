@@ -1,0 +1,141 @@
+{
+  "at": "2026-10-29T23:22:25.071Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "d35af6b0-b6d9-43a5-91f8-4ab99bd9a3d4",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 863,
+  "estimatedMinutes": 11.98611111111111,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 6064,
+    "genTokens": 1997,
+    "loadDurationMs": 19152,
+    "promptEvalMs": 4761,
+    "evalMs": 227626,
+    "totalMs": 251843
+  },
+  "promptChars": 20602,
+  "approxPromptTokens": 5886,
+  "revisionCycles": null,
+  "elapsedMs": 251862,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 5 segments",
+      "too short for target (863w < 910w of ~1300w)",
+      "instructional coverage 11% — no narration on: \"Page 1\" p.1, \"5 What’s in common?\" p.5, \"Page 7\" p.7, \"퐰 ퟎ : Intercept (where the line crosses y - axis) 2.\" p.8, \"9 Cost Function Unknown parameters: (regression coefficient) 1.\" p.9 (+43 more)"
+    ],
+    "warnings": [
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental concepts and techniques of linear regression, including its formulation, cost function, optimization methods, and applications.",
+    "objective": "Understand the fundamental concepts and techniques of linear regression, including its formulation, cost function, optimization methods, and applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Linear Regression?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Linear regression is the foundation for understanding how to model continuous outputs using a linear relationship between input and output variables.",
+        "examples": [
+          "Simple linear regression models the relationship between one input variable and one output."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function and Mean Squared Error",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The cost function quantifies the difference between predicted and actual values, and MSE is a widely used differentiable and convex cost function for regression.",
+        "examples": [
+          "The cost function, such as mean squared error (MSE), quantifies the difference between predicted and actual values."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 3,
+            "pageEnd": 3
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent and Optimization",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Gradient descent is an iterative algorithm that minimizes the cost function by adjusting model parameters, which is essential for training linear regression models.",
+        "examples": [
+          "Gradient descent is an iterative algorithm that minimizes the cost function by adjusting model parameters."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 4,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Linear Regression Modelling and Applications",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Linear regression models can be applied to real-world problems like housing price prediction, where the relationship between features and output is modeled using a linear function.",
+        "examples": [
+          "The housing price prediction: x (feature) is used to predict the price."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 6,
+            "pageEnd": 6
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Closed-Form Solution and Linear Algebra",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The closed-form solution provides an analytical way to find optimal parameters, and understanding linear algebra is essential for efficiently implementing and interpreting linear regression models.",
+        "examples": [
+          "linalg.inv ( X_train .T.dot( X_train )).dot( X_train .T ).",
+          "푤 0 = ത 푦 − 푤 1 ҧ 푥",
+          "푤 1 = σ 푛 = 1 푁 푦 푛 − ത 푦 푥 푛 − ҧ 푥 σ 푛 = 1 푁 푥 푛 − ҧ 푥 2"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 36,
+            "pageEnd": 36
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 7,
+    "withDoc": 7,
+    "withPage": 7
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 5
+}

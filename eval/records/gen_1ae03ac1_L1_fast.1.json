@@ -1,0 +1,122 @@
+{
+  "at": "2026-10-30T03:03:59.874Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "9b7272b2613e8e4661fd3f7c7dd5a03d422d2e7ae4ceb2230920b2c1b22633ac",
+  "courseId": "1ae03ac1-a354-40c2-8dcb-f19143bb8e8d",
+  "lecture": "Lecture 3: Classification",
+  "wordCount": 1026,
+  "estimatedMinutes": 14.25,
+  "llmCalls": 4,
+  "llmUsage": {
+    "promptTokens": 7313,
+    "genTokens": 1873,
+    "loadDurationMs": 481,
+    "promptEvalMs": 6270,
+    "evalMs": 230761,
+    "totalMs": 238168
+  },
+  "promptChars": 24171,
+  "approxPromptTokens": 6906,
+  "revisionCycles": null,
+  "elapsedMs": 238199,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 2 opens on administrative content",
+      "instructional coverage 9% — no narration on: \"Page 1\" p.1, \"2 2 Outline • What is Classification?\" p.2, \"Page 5\" p.5, \"Page 6\" p.6, \"Page 7\" p.7 (+45 more)"
+    ],
+    "warnings": [
+      "segment -1: page 5 → 4 (outside Lec3_Classification.pdf p.3–4)",
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental concepts of classification, including its types, logistic regression, probabilistic interpretation, and optimization techniques.",
+    "objective": "Understand the fundamental concepts of classification, including its types, logistic regression, probabilistic interpretation, and optimization techniques.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Classification?",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Classification is a core supervised learning task that involves predicting discrete categories based on input data.",
+        "examples": [
+          "Binary, multi-class, multi-label, and imbalanced classification tasks"
+        ],
+        "sources": [
+          {
+            "filename": "Lec3_Classification.pdf",
+            "pageStart": 2,
+            "pageEnd": 3
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Logistic Regression for Binary Classification",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Logistic regression is a foundational method for binary classification that models the probability of a class using a linear combination of features.",
+        "examples": [
+          "Logistic regression models data by first creating a linear combination of features, then applying the logistic function"
+        ],
+        "sources": [
+          {
+            "filename": "Lec3_Classification.pdf",
+            "pageStart": 3,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Probabilistic Interpretation of Logistic Regression",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "The probabilistic interpretation provides a framework for understanding how logistic regression models class probabilities.",
+        "examples": [
+          "P(Y=1|X=x) ≥ P(Y=0|X=x) defines the decision boundary for classification"
+        ],
+        "sources": [
+          {
+            "filename": "Lec3_Classification.pdf",
+            "pageStart": 12,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Optimization and Convexity in Classification",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding convexity and optimization is crucial for training classification models efficiently and avoiding local minima.",
+        "examples": [
+          "The cost function for logistic regression is convex, ensuring that gradient descent converges to the global minimum"
+        ],
+        "sources": [
+          {
+            "filename": "Lec3_Classification.pdf",
+            "pageStart": 30,
+            "pageEnd": 42
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 6,
+    "withDoc": 6,
+    "withPage": 6
+  },
+  "adminLeakSegments": 2,
+  "repetitionFindings": 1
+}

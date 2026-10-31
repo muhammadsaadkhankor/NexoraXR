@@ -1,0 +1,123 @@
+{
+  "at": "2026-10-29T21:44:08.207Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "cd454d79c8da4174d66146f2b3929c7d492cbb4b83786fbc8e03e2a23c385593",
+  "courseId": "079f9676-f28d-4278-adbf-50e169536c0d",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 1010,
+  "estimatedMinutes": 14.027777777777779,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 5746,
+    "genTokens": 1946,
+    "loadDurationMs": 636,
+    "promptEvalMs": 6388,
+    "evalMs": 276679,
+    "totalMs": 284273
+  },
+  "promptChars": 19743,
+  "approxPromptTokens": 5641,
+  "revisionCycles": null,
+  "elapsedMs": 284292,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 3 segments"
+    ],
+    "warnings": [
+      "topics omitted from narration: Administrative logistics; Grading policies; Schedule; Syllabus"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental concepts of linear regression, including its formulation, cost function, and optimization techniques.",
+    "objective": "Understand the fundamental concepts of linear regression, including its formulation, cost function, and optimization techniques.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Linear Regression",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Linear regression is the foundation of predictive modeling in statistics and machine learning.",
+        "examples": [
+          "Linear regression is characterized by linearity and continuity, with the output predicted as a linear combination of input features."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function and Mean Squared Error",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "The cost function is essential for evaluating and improving the performance of a linear regression model.",
+        "examples": [
+          "The mean squared error (MSE) is used as the cost function to minimize the error between predicted and actual values."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 4,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent Optimization",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Gradient descent is a critical algorithm for minimizing the cost function in linear regression.",
+        "examples": [
+          "Using an iterative optimization algorithm, gradient descent minimizes the cost function by adjusting the model parameters."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 15,
+            "pageEnd": 15
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Model Formulation and Parameters",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding how to formulate a linear regression model is key to applying it in practice.",
+        "examples": [
+          "The regression coefficient represents the slope of the line, determining how much the output changes with a unit change in the input."
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 9,
+            "pageEnd": 9
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative logistics",
+      "Grading policies",
+      "Schedule",
+      "Syllabus"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 7,
+    "withDoc": 7,
+    "withPage": 7
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 3
+}

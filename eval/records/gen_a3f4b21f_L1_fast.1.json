@@ -1,0 +1,125 @@
+{
+  "at": "2026-10-30T15:17:55.628Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c369cee2c9dd693d84246ce5d2209d8bf4e850545cb96d4474a4dbce083ebb29",
+  "courseId": "a3f4b21f-2752-4ef7-abee-a1e3a6d86e3a",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 1053,
+  "estimatedMinutes": 14.625,
+  "llmCalls": 6,
+  "llmUsage": {
+    "promptTokens": 4835,
+    "genTokens": 1936,
+    "loadDurationMs": 765,
+    "promptEvalMs": 4198,
+    "evalMs": 231754,
+    "totalMs": 237307
+  },
+  "promptChars": 20638,
+  "approxPromptTokens": 5897,
+  "revisionCycles": null,
+  "elapsedMs": 237345,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "instructional coverage 30% — no narration on: \"Students are expected to work in groups  (two to four students).\" p.6, \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"14 Why ML?\" p.14, \"Big Picture of ML\" p.18, \"Page 19\" p.19 (+9 more)"
+    ],
+    "warnings": [
+      "segment -1: page 9 → 2 (outside Lec1_Introduction.pdf p.2–2)",
+      "topics omitted from narration: Students are expected to work in groups (two to four students)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning, its real-world applications, and the mathematical tools required to study it.",
+    "objective": "Understand the foundational concepts of Machine Learning, its real-world applications, and the mathematical tools required to study it.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Machine Learning relies on mathematical concepts to model and analyze data.",
+        "examples": [
+          "probability theory, linear algebra, and calculus"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding the core definition of Machine Learning is essential for grasping its applications and significance.",
+        "examples": [
+          "What is Machine Learning (ML)?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Seeing how Machine Learning is applied in real life helps students appreciate its relevance and utility.",
+        "examples": [
+          "Smart Assistants",
+          "Advertising",
+          "Electrical Load Prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "The Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding the big picture helps students organize and contextualize the various types of Machine Learning tasks.",
+        "examples": [
+          "Taking picking fruits as an example...",
+          "Big Picture of ML"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 19
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Students are expected to work in groups (two to four students)"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 10,
+    "withDoc": 10,
+    "withPage": 10
+  },
+  "adminLeakSegments": 1,
+  "repetitionFindings": 2
+}
