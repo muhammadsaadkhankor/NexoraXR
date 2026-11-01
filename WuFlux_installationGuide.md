@@ -47,25 +47,26 @@ Binary assets (~60 MB: scenes, avatars, animations) are **gitignored and not pus
 The asset bundle is hosted at:
 **https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu**
 
-The archive is **`WuFlux_assets.zip`** — inside it, `assets/` sits under a `WuFlux_assets/` wrapper folder (`WuFlux_assets/assets/…`). Only the inner `assets/` folder is needed, so extract and move it directly into `src/`:
+The archive is **`WuFlux_assets.zip`** — inside it, `assets/` sits under a `WuFlux_assets/` wrapper folder (`WuFlux_assets/assets/…`). Extract with `bsdtar --strip-components=1` to drop the wrapper and land `assets/` directly in `src/`:
 
 **Option A — browser:** open https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu, click **Download**, then:
 
 ```bash
-# from the repo root
-unzip ~/Downloads/WuFlux_assets.zip -d /tmp/wuflux
-mv /tmp/wuflux/WuFlux_assets/assets src/assets
-rm -rf /tmp/wuflux                      # wrapper + zip leftovers
+# from the repo root — extracts ONLY the inner assets/ folder into src/
+bsdtar -xf ~/Downloads/WuFlux_assets.zip --strip-components=1 -C src/
+# (bsdtar reads zips; on Ubuntu: sudo apt install libarchive-tools)
 ```
 
 **Option B — terminal (verified direct-download URL):**
 
 ```bash
 wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
-unzip WuFlux_assets.zip -d /tmp/wuflux
-mv /tmp/wuflux/WuFlux_assets/assets src/assets
-rm -rf /tmp/wuflux WuFlux_assets.zip
+bsdtar -xf WuFlux_assets.zip --strip-components=1 -C src/
+rm WuFlux_assets.zip
 ```
+
+> No bsdtar? The `unzip` equivalent needs one extra move:
+> `unzip WuFlux_assets.zip -d /tmp/w && mv /tmp/w/WuFlux_assets/assets src/assets && rm -rf /tmp/w`
 
 > Result: `src/assets/` contains `scene/`, `avatar/`, `useravatar/`, `animations/`, `animations-fbx/`, `models/`, etc. The `WuFlux_assets/` wrapper folder is discarded.
 
@@ -103,8 +104,7 @@ It's idempotent and order-independent — symlinks don't need the target to exis
 git clone <repo> && cd NexoraXR
 npm install                                    # packages + symlinks + db check
 wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
-unzip WuFlux_assets.zip -d /tmp/wuflux && mv /tmp/wuflux/WuFlux_assets/assets src/assets
-rm -rf /tmp/wuflux WuFlux_assets.zip
+bsdtar -xf WuFlux_assets.zip --strip-components=1 -C src/ && rm WuFlux_assets.zip
 # …set up .env, Ollama, TTS, Postgres…
 npm run dev
 ```
