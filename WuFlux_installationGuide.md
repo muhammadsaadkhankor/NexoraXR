@@ -39,26 +39,28 @@ cd NexoraXR
 
 Before installing, download the **WuFlux asset bundle** — it contains the 3D classroom model, professor & student avatars, and animations (~60 MB). These binaries are **gitignored and not on GitHub**.
 
-**Link:** https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu
+**Link:** https://app.box.com/s/5c4tikanql9xbiuquymmtpezhnywcdr4
 
-The zip (`WuFlux_assets.zip`) wraps everything in a `WuFlux_assets/` folder — inside it is a folder named **`assets`**. That folder is all you need: **it must end up at `src/assets/`**.
+The zip (`assets.zip`) contains a top-level **`assets/`** folder — extract it into `src/` and you get `src/assets/` directly.
 
-### Option A — Terminal (one command pair)
+### Option A — Terminal
+
+Run from inside the cloned `NexoraXR/` repo root:
 
 ```bash
-wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
-bsdtar -xf WuFlux_assets.zip --strip-components=1 -C src/ && rm WuFlux_assets.zip
+wget -O assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=5c4tikanql9xbiuquymmtpezhnywcdr4&file_id=f_2564617852657"
+unzip assets.zip -d src/
+rm assets.zip
 ```
 
-`bsdtar --strip-components=1` drops the `WuFlux_assets/` wrapper automatically, so only the `assets/` folder lands in `src/`.
-(On Ubuntu install it once with: `sudo apt install libarchive-tools`.)
+`unzip -d src/` extracts the zip's `assets/` folder straight into `src/assets/` — done.
 
 ### Option B — GUI
 
 1. Open the link in your browser → click **Download**.
-2. Double-click `WuFlux_assets.zip` to extract → you get a `WuFlux_assets/` folder.
-3. Open it, find the **`assets` folder inside**, and drag/copy it into the repo's **`src/`** folder (so you have `src/assets/`).
-4. Delete the extracted `WuFlux_assets/` folder and the zip.
+2. Extract `assets.zip` → you get an `assets` folder.
+3. Drag/copy that `assets` folder into the repo's **`src/`** folder (so you have `src/assets/`).
+4. Delete the zip.
 
 ### Verify
 
