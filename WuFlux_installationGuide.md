@@ -26,87 +26,53 @@
 
 ---
 
-## 2. Clone & Install
+## 2. Clone
 
 ```bash
 git clone https://github.com/muhammadsaadkhankor/NexoraXR.git
 cd NexoraXR
-npm install        # root postinstall installs server, AI and client packages
 ```
-
-`npm install` at the root automatically runs `install:all` (installs `src/nexora_server`, `src/nexora_ai`, `src/nexora_client`) and `db:setup --soft`.
 
 ---
 
-## 3. Restore the Asset Files (not in Git)
+## 3. Download the Asset Bundle (required, not in Git)
 
-Binary assets (~60 MB: scenes, avatars, animations) are **gitignored and not pushed to GitHub** — they are hosted on Box and must be downloaded after cloning. The app loads them from `src/assets/` via symlinks in `src/nexora_client/public/`.
+Before installing, download the **WuFlux asset bundle** — it contains the 3D classroom model, professor & student avatars, and animations (~60 MB). These binaries are **gitignored and not on GitHub**.
 
-### Download & extract
+**Link:** https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu
 
-The asset bundle is hosted at:
-**https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu**
+The zip (`WuFlux_assets.zip`) wraps everything in a `WuFlux_assets/` folder — inside it is a folder named **`assets`**. That folder is all you need: **it must end up at `src/assets/`**.
 
-The archive is **`WuFlux_assets.zip`** — inside it, `assets/` sits under a `WuFlux_assets/` wrapper folder (`WuFlux_assets/assets/…`). Extract with `bsdtar --strip-components=1` to drop the wrapper and land `assets/` directly in `src/`:
-
-**Option A — browser:** open https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu, click **Download**, then:
+### Option A — Terminal (one command pair)
 
 ```bash
-# from the repo root — extracts ONLY the inner assets/ folder into src/
-bsdtar -xf ~/Downloads/WuFlux_assets.zip --strip-components=1 -C src/
-# (bsdtar reads zips; on Ubuntu: sudo apt install libarchive-tools)
-```
-
-**Option B — terminal (verified direct-download URL):**
-
-```bash
-wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
-bsdtar -xf WuFlux_assets.zip --strip-components=1 -C src/
-rm WuFlux_assets.zip
-```
-
-> No bsdtar? The `unzip` equivalent needs one extra move:
-> `unzip WuFlux_assets.zip -d /tmp/w && mv /tmp/w/WuFlux_assets/assets src/assets && rm -rf /tmp/w`
-
-> Result: `src/assets/` contains `scene/`, `avatar/`, `useravatar/`, `animations/`, `animations-fbx/`, `models/`, etc. The `WuFlux_assets/` wrapper folder is discarded.
-
-### Expected contents
-
-```
-src/assets/
-├── scene/          # scene.glb, modified-classroom.glb (classroom)
-├── avatar/         # ProfAbed_*.glb (professor avatar)
-├── useravatar/     # UserAvatar.glb + avatars/anim_*.glb (students)
-├── animations/     # user locomotion .glb set
-├── animations-fbx/ # FBX talking/idle clips
-├── models/         # animations.glb (professor extra clips)
-├── animatio.glb
-├── heroposter.png
-└── images/
-```
-
-### Create the symlinks — automatic
-
-**Nothing to do here.** `npm install` runs `scripts/link-assets.mjs` (postinstall), which creates all four `public/` symlinks for you:
-
-```
-public/assets      -> ../../assets
-public/models      -> ../../assets/models
-public/animations  -> ../../assets/animations-fbx
-public/animatio.glb-> ../../assets/animatio.glb
-```
-
-It's idempotent and order-independent — symlinks don't need the target to exist, so `npm install` can run before or after extracting the zip. To re-run manually: `node scripts/link-assets.mjs`.
-
-### Fresh-clone quickstart (the whole asset step)
-
-```bash
-git clone <repo> && cd NexoraXR
-npm install                                    # packages + symlinks + db check
 wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
 bsdtar -xf WuFlux_assets.zip --strip-components=1 -C src/ && rm WuFlux_assets.zip
-# …set up .env, Ollama, TTS, Postgres…
-npm run dev
+```
+
+`bsdtar --strip-components=1` drops the `WuFlux_assets/` wrapper automatically, so only the `assets/` folder lands in `src/`.
+(On Ubuntu install it once with: `sudo apt install libarchive-tools`.)
+
+### Option B — GUI
+
+1. Open the link in your browser → click **Download**.
+2. Double-click `WuFlux_assets.zip` to extract → you get a `WuFlux_assets/` folder.
+3. Open it, find the **`assets` folder inside**, and drag/copy it into the repo's **`src/`** folder (so you have `src/assets/`).
+4. Delete the extracted `WuFlux_assets/` folder and the zip.
+
+### Verify
+
+`src/assets/` should contain: `scene/`, `avatar/`, `useravatar/`, `animations/`, `animations-fbx/`, `models/`, `animatio.glb`, `heroposter.png`, `images/`.
+
+> Behind the scenes: `public/` holds symlinks pointing into `src/assets/` — created automatically by `npm install` below, no action needed.
+
+---
+
+## 4. Install & Run
+
+```bash
+npm install     # all packages + public/ symlinks + db:setup --soft (automatic)
+npm run dev     # after .env, Ollama, TTS, Postgres are set up (next sections)
 ```
 
 ### Other files intentionally not in Git
@@ -121,7 +87,7 @@ npm run dev
 
 ---
 
-## 4. Environment Variables
+## 5. Environment Variables
 
 Create `src/nexora_server/.env`:
 
@@ -149,7 +115,7 @@ For production email delivery use `AUTH_DELIVERY_MODE=resend` plus `RESEND_API_K
 
 ---
 
-## 5. Set Up Ollama (LLM)
+## 6. Set Up Ollama (LLM)
 
 ```bash
 # Install Ollama (Linux)
@@ -166,7 +132,7 @@ curl http://localhost:11434/api/tags
 
 ---
 
-## 6. Set Up the TTS Service (VoxCPM / vLLM-Omni)
+## 7. Set Up the TTS Service (VoxCPM / vLLM-Omni)
 
 The project uses **VoxCPM2 served through vLLM-Omni** (OpenAI-compatible `/v1/audio/speech`) in a dedicated conda env:
 
@@ -185,7 +151,7 @@ Whisper (for post-synthesis language verification) is invoked by the backend aut
 
 ---
 
-## 7. Database
+## 8. Database
 
 The backend auto-runs migrations on startup. For the bundled local Postgres on `:5433`:
 
@@ -198,7 +164,7 @@ Or point `DATABASE_URL` at any existing PostgreSQL instance.
 
 ---
 
-## 8. Run the App
+## 9. Run the App
 
 ```bash
 npm run dev
@@ -220,7 +186,7 @@ Sign in on the landing page — in dev mode (`AUTH_DELIVERY_MODE=console`) the m
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
