@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "postinstall": "npm run install:all && npm --prefix src/nexora_server run db:setup -- --soft",
+    "postinstall": "npm run install:all && node scripts/link-assets.mjs && npm --prefix src/nexora_server run db:setup -- --soft",
     "install:all": "npm install --prefix src/nexora_server && npm install --prefix src/nexora_ai && npm install --prefix src/nexora_client",
     "db:setup": "npm --prefix src/nexora_server run db:setup",
     "db:status": "npm --prefix src/nexora_server run db:status",

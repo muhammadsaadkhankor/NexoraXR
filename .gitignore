@@ -52,3 +52,7 @@ node_modules/
 /SLIDE_SYNC_ANALYSIS.md
 src/nexora_server/.pgdata/
 src/nexora_server/uploads/
+
+# Asset archive downloads
+/src/WuFlux_assets.zip
+/src/assets*.zip
