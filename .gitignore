@@ -27,9 +27,12 @@ node_modules/
 
 # Client build output and large assets
 /src/nexora_client/dist/
-/src/nexora_client/public/assets/
-/src/nexora_client/public/models/
-/src/nexora_client/public/animations/
+# Binary assets now live in /src/assets/ (public/ holds only symlinks to
+# them — both the links and the real files stay untracked, hosted separately)
+/src/assets/
+/src/nexora_client/public/assets
+/src/nexora_client/public/models
+/src/nexora_client/public/animations
 /src/nexora_client/public/animatio.glb
 
 # Client UI build output
