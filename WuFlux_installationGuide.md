@@ -49,7 +49,7 @@ The asset bundle is hosted at:
 
 The archive is **`WuFlux_assets.zip`** — inside it, `assets/` sits under a `WuFlux_assets/` wrapper folder (`WuFlux_assets/assets/…`). Only the inner `assets/` folder is needed, so extract and move it directly into `src/`:
 
-**Option A — browser:** open the link, click **Download**, then:
+**Option A — browser:** open https://app.box.com/s/av7xttv46pgs99rafv0ttisj3f1p97tu, click **Download**, then:
 
 ```bash
 # from the repo root
@@ -58,14 +58,13 @@ mv /tmp/wuflux/WuFlux_assets/assets src/assets
 rm -rf /tmp/wuflux                      # wrapper + zip leftovers
 ```
 
-**Option B — CLI (direct link):**
+**Option B — terminal (verified direct-download URL):**
 
 ```bash
-curl -L "https://app.box.com/shared/static/av7xttv46pgs99rafv0ttisj3f1p97tu" \
-  -o /tmp/WuFlux_assets.zip
-unzip /tmp/WuFlux_assets.zip -d /tmp/wuflux
+wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
+unzip WuFlux_assets.zip -d /tmp/wuflux
 mv /tmp/wuflux/WuFlux_assets/assets src/assets
-rm -rf /tmp/wuflux
+rm -rf /tmp/wuflux WuFlux_assets.zip
 ```
 
 > Result: `src/assets/` contains `scene/`, `avatar/`, `useravatar/`, `animations/`, `animations-fbx/`, `models/`, etc. The `WuFlux_assets/` wrapper folder is discarded.
@@ -103,8 +102,9 @@ It's idempotent and order-independent — symlinks don't need the target to exis
 ```bash
 git clone <repo> && cd NexoraXR
 npm install                                    # packages + symlinks + db check
-curl -L "https://app.box.com/shared/static/av7xttv46pgs99rafv0ttisj3f1p97tu" -o /tmp/WuFlux_assets.zip
-unzip /tmp/WuFlux_assets.zip -d /tmp/wuflux && mv /tmp/wuflux/WuFlux_assets/assets src/assets
+wget -O WuFlux_assets.zip "https://app.box.com/index.php?rm=box_download_shared_file&shared_name=av7xttv46pgs99rafv0ttisj3f1p97tu&file_id=f_2564450188240"
+unzip WuFlux_assets.zip -d /tmp/wuflux && mv /tmp/wuflux/WuFlux_assets/assets src/assets
+rm -rf /tmp/wuflux WuFlux_assets.zip
 # …set up .env, Ollama, TTS, Postgres…
 npm run dev
 ```
