@@ -40,6 +40,7 @@ import brandingRouter from "./branding/routes.mjs";
 import { attachUser, socketAuth, requireAuth, requireRole } from "./auth/sessionMiddleware.mjs";
 import { resolveGuestToken, mintGuestToken } from "./auth/passwordless.mjs";
 import { RoomRegistry } from "./protocol/roomRegistry.mjs";
+import { isLanguageReady } from "./protocol/languageReady.mjs";
 
 dotenv.config();
 
@@ -850,6 +851,11 @@ app.get('/api/rooms/public', (_req, res) => {
 // course can be built from them later (RAG pipeline). Host-only.
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SERVER_DIR, '..', '..');
+
+// Display names for user-facing language readiness errors.
+const LECTURE_LANG_LABELS = {
+  en: 'English', ar: 'Arabic', fr: 'French', de: 'German', es: 'Spanish', zh: 'Chinese',
+};
 const MATERIALS_DIR = path.join(SERVER_DIR, 'uploads', 'materials');
 const PDF_MAX = 25 * 1024 * 1024;
 const FILES_MAX = 8;
@@ -2073,18 +2079,19 @@ io.on('connection', (socket) => {
     // keeps the current language instead of degrading to English or stalling.
     const activeLid = ncip.lectureRun?.lectureId;
     if (activeLid && language !== 'en') {
+      // Readiness gate: EVERY segment needs translated text AND baked audio —
+      // a few files present is not enough; a partial bucket would lazy
+      // translate+TTS mid-lecture on every segment.
       try {
-        const files = await fs.readdir(path.join(
-          REPO_ROOT, 'src', 'nexora_ai', 'lecture_cache', 'segments',
-          `${activeLid}__${language}`));
-        if (!files.some((f) => /^segment_\d+\.(wav|txt)$/.test(f))) {
+        const { ready, readyCount, total } = await isLanguageReady(activeLid, language);
+        if (!ready) {
           socket.emit('lecture-control', { action: 'language-error',
-            error: `${String(language).toUpperCase()} is not prepared for this lecture yet — it is still being translated or baked. English and prepared languages continue to work.` });
+            error: `${LECTURE_LANG_LABELS[language] || String(language).toUpperCase()} is not ready for this lecture yet (${readyCount}/${total} segments).` });
           return;
         }
       } catch {
         socket.emit('lecture-control', { action: 'language-error',
-          error: `${String(language).toUpperCase()} is not prepared for this lecture yet.` });
+          error: `${LECTURE_LANG_LABELS[language] || String(language).toUpperCase()} is not ready for this lecture yet.` });
         return;
       }
     }
