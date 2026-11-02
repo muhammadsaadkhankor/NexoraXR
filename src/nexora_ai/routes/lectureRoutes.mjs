@@ -196,6 +196,10 @@ export async function translateForLecture(text, lang, ctx = {}) {
     .catch(() => async () => ({ ok: true })); // module optional — degrade to no content check
   const prompt = `Translate the following lecture narration into ${LECTURE_LANGUAGES[lang]}. Keep the same warm, spoken-lecture style and roughly the same length. Output ONLY the translated narration — no notes, no headings, no commentary.\n\n${text}`;
   const srcLen = (text || '').trim().length;
+  // CJK packs more meaning per character — a valid Chinese translation is
+  // ~40-60% fewer chars than the English source, so the truncation floor is
+  // lower there (0.15) than for script-similar languages (0.30).
+  const MIN_RATIO = lang === 'zh' ? 0.15 : 0.30;
   let lastReason = 'unknown';
   for (let attempt = 1; attempt <= TRANSLATE_ATTEMPTS; attempt++) {
     let out;
@@ -210,8 +214,8 @@ export async function translateForLecture(text, lang, ctx = {}) {
       lastReason = 'empty-output';
     } else if (translated === text.trim()) {
       lastReason = 'identical-to-source';
-    } else if (translated.length < srcLen * 0.3) {
-      lastReason = `too-short(${translated.length}<${Math.ceil(srcLen * 0.3)}chars)`;
+    } else if (translated.length < srcLen * MIN_RATIO) {
+      lastReason = `too-short(${translated.length}<${Math.ceil(srcLen * MIN_RATIO)}chars)`;
     } else {
       const check = await validate(translated, lang);
       if (check.ok !== false) return translated;
