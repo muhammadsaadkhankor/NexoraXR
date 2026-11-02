@@ -262,7 +262,14 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
       }
       if (missing) {
         await setStep(buildId, 'audio', { stage: 'audio', progress: 'preparing translations…' });
-        await prepareTranslations(courseId);
+        // Translation failures are reported on the build — a rejected
+        // translation never silently ships English text/audio.
+        const report = await prepareTranslations(courseId);
+        const tFailed = report.filter((r) => r.status === 'failed');
+        if (tFailed.length) {
+          await setStep(buildId, 'audio', { stage: 'audio',
+            translation_failures: tFailed.map((f) => `${f.lectureId}/${f.lang}: ${f.error}`) });
+        }
       }
     }
     const audioT0 = Date.now();

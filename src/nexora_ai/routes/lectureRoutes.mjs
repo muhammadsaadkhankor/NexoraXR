@@ -180,12 +180,46 @@ function normalizeLang(lang) {
 
 // Translate a lecture narration segment via Ollama. VoxCPM2 then detects the
 // output language automatically at synthesis time (no tag needed).
-export async function translateForLecture(text, lang) {
+// Never returns the English source as a "translation": empty output, output
+// identical to the input, output far shorter than expected, or text failing
+// the injected language check all count as failed attempts. After 3 total
+// attempts a descriptive error is thrown — callers must mark the language
+// failed rather than bake English into a non-English bucket.
+// ctx: { lectureId, segmentId } for error/log context; ctx.validate(text, lang)
+// may return { ok, reason } to add a content check (see textLangCheck.mjs).
+const TRANSLATE_ATTEMPTS = 3;
+export async function translateForLecture(text, lang, ctx = {}) {
   if (lang === 'en') return text;
+  const { lectureId = 'unknown', segmentId = 'unknown' } = ctx;
+  const validate = ctx.validate || await import('../modules/textLangCheck.mjs')
+    .then((m) => m.validateTranslation)
+    .catch(() => async () => ({ ok: true })); // module optional — degrade to no content check
   const prompt = `Translate the following lecture narration into ${LECTURE_LANGUAGES[lang]}. Keep the same warm, spoken-lecture style and roughly the same length. Output ONLY the translated narration — no notes, no headings, no commentary.\n\n${text}`;
-  const out = await generateOllama(prompt, { numPredict: 800 });
-  const translated = (out || '').trim();
-  return translated || text;
+  const srcLen = (text || '').trim().length;
+  let lastReason = 'unknown';
+  for (let attempt = 1; attempt <= TRANSLATE_ATTEMPTS; attempt++) {
+    let out;
+    try {
+      out = await generateOllama(prompt, { numPredict: 800, translate: true });
+    } catch (e) {
+      lastReason = `ollama-error:${e.message.slice(0, 80)}`;
+      out = null;
+    }
+    const translated = (out || '').trim();
+    if (!translated) {
+      lastReason = 'empty-output';
+    } else if (translated === text.trim()) {
+      lastReason = 'identical-to-source';
+    } else if (translated.length < srcLen * 0.3) {
+      lastReason = `too-short(${translated.length}<${Math.ceil(srcLen * 0.3)}chars)`;
+    } else {
+      const check = await validate(translated, lang);
+      if (check.ok !== false) return translated;
+      lastReason = `invalid-language:${check.reason || 'mismatch'}`;
+    }
+    console.warn(`[translate] rejected lecture=${lectureId} segment=${segmentId} lang=${lang} attempt=${attempt}/${TRANSLATE_ATTEMPTS} reason=${lastReason}`);
+  }
+  throw new Error(`Translation failed: lecture=${lectureId} segment=${segmentId} lang=${lang} reason=${lastReason}`);
 }
 
 function cleanTextForTts(text) {
@@ -344,13 +378,13 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
         lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
       } catch {}
       const srcText = texts[i];
-      translateForLecture(srcText, lang)
+      translateForLecture(srcText, lang, { lectureId, segmentId: i })
         .then((t) => fs.writeFile(textPath, t))
         .catch(() => {});
     }
 
     if (segText === null) {
-      segText = await translateForLecture(texts[i], lang);
+      segText = await translateForLecture(texts[i], lang, { lectureId, segmentId: i });
       // Persist the segment text so the audio endpoint can synthesize lazily.
       const dir = segmentCacheDir(cacheKey);
       if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });

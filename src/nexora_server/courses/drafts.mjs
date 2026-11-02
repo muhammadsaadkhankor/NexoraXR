@@ -399,7 +399,7 @@ export async function prepareTranslations(courseId) {
       let failed = false;
       for (const s of parsed.segments) {
         try {
-          const t = await translateForLecture(s.text, lang);
+          const t = await translateForLecture(s.text, lang, { lectureId: lid, segmentId: s.id });
           segments.push({ id: s.id, text: t });
         } catch (e) {
           failed = true;
