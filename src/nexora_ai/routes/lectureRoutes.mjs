@@ -200,7 +200,7 @@ export async function translateForLecture(text, lang, ctx = {}) {
   for (let attempt = 1; attempt <= TRANSLATE_ATTEMPTS; attempt++) {
     let out;
     try {
-      out = await generateOllama(prompt, { numPredict: 800, translate: true });
+      out = await generateOllama(prompt, { numPredict: 800, translate: true, keepAlive: '30m' });
     } catch (e) {
       lastReason = `ollama-error:${e.message.slice(0, 80)}`;
       out = null;

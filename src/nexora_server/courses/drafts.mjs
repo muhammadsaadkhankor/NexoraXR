@@ -367,9 +367,22 @@ export async function loadLectureLangDraft(lectureId, lang) {
   } catch { return null; }
 }
 
+// Bounded worker pool over (lang × segment) translation tasks — preserves
+// per-language segment order/ids; TRANSLATE_CONCURRENCY caps in-flight
+// Ollama calls (match OLLAMA_NUM_PARALLEL on the Ollama server side).
+const TRANSLATE_CONCURRENCY = Math.max(1, Number(process.env.TRANSLATE_CONCURRENCY) || 2);
+
+async function pool(tasks, worker, concurrency = TRANSLATE_CONCURRENCY) {
+  const it = tasks[Symbol.iterator]();
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, async () => {
+    for (const t of it) await worker(t);
+  }));
+}
+
 // Translate the canonical script into every supported language.
 // Skips languages that have human edits (edited:true) — never overwrites a
-// reviewer's text. Returns per-lang status.
+// reviewer's text. Returns per-lang status (with ms per language for
+// stage_timings breakdown).
 export async function prepareTranslations(courseId) {
   const { rows } = await getPool().query(
     `SELECT lecture_id FROM course_lectures WHERE course_id=$1
@@ -383,6 +396,7 @@ export async function prepareTranslations(courseId) {
     const version = parsed.version || 0;
     await fsp.mkdir(path.dirname(transPath(lid, 'ar')), { recursive: true });
     for (const lang of TRANSLATION_LANGS) {
+      const langT0 = Date.now();
       const existing = await loadLectureLangDraft(lid, lang);
       if (existing?.edited) {
         report.push({ lectureId: lid, lang, status: 'kept-reviewed' });
@@ -395,19 +409,26 @@ export async function prepareTranslations(courseId) {
         report.push({ lectureId: lid, lang, status: 'kept-current' });
         continue;
       }
-      const segments = [];
-      let failed = false;
-      for (const s of parsed.segments) {
+      const segments = new Array(parsed.segments.length);
+      let failed = null;
+      // Bounded concurrency over this language's segments — order is kept by
+      // writing into fixed slots, never by append order.
+      await pool(parsed.segments.map((s, i) => ({ s, i })), async ({ s, i }) => {
+        if (failed) return;
+        const st = Date.now();
         try {
           const t = await translateForLecture(s.text, lang, { lectureId: lid, segmentId: s.id });
-          segments.push({ id: s.id, text: t });
+          segments[i] = { id: s.id, text: t };
+          console.log(`[translate] lecture=${lid} seg=${s.id} lang=${lang} ${Date.now() - st}ms`);
         } catch (e) {
-          failed = true;
-          report.push({ lectureId: lid, lang, status: 'failed', error: e.message });
-          break;
+          failed = e;
         }
+      });
+      if (failed) {
+        report.push({ lectureId: lid, lang, status: 'failed', error: failed.message,
+          ms: Date.now() - langT0 });
+        continue;
       }
-      if (failed) continue;
       const fingerprint = scriptFingerprint(segments);
       const payload = { lang, lectureId: lid, version, basedOnVersion: version,
         fingerprint, edited: false, segments };
@@ -419,7 +440,8 @@ export async function prepareTranslations(courseId) {
         await fsp.writeFile(path.join(cacheDir,
           `segment_${String(s.id).padStart(3, '0')}.txt`), s.text).catch(() => {});
       }
-      report.push({ lectureId: lid, lang, status: 'ready', version });
+      report.push({ lectureId: lid, lang, status: 'ready', version,
+        ms: Date.now() - langT0 });
     }
   }
   return report;

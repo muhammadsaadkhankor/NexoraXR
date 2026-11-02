@@ -223,6 +223,7 @@ export async function runTranslationPhase(buildId, courseId) {
 export async function runAudioPhase(buildId, courseId, lectureCount) {
   const pool = getPool();
   running.set(courseId, buildId);
+  let translateTiming = null;
   try {
     // Approved fingerprints + instructor-selected audio languages.
     const { rows: [b] } = await pool.query(
@@ -262,15 +263,25 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
       }
       if (missing) {
         await setStep(buildId, 'audio', { stage: 'audio', progress: 'preparing translations…' });
+        const translateT0 = Date.now();
         // Translation failures are reported on the build — a rejected
         // translation never silently ships English text/audio.
         const report = await prepareTranslations(courseId);
+        translateTiming = {
+          translating_ms: Date.now() - translateT0,
+          translate_per_lang_ms: Object.fromEntries(
+            report.filter((r) => r.ms != null).map((r) => [`${r.lectureId}@${r.lang}`, r.ms])),
+        };
         const tFailed = report.filter((r) => r.status === 'failed');
         if (tFailed.length) {
           await setStep(buildId, 'audio', { stage: 'audio',
             translation_failures: tFailed.map((f) => `${f.lectureId}/${f.lang}: ${f.error}`) });
         }
       }
+      // GPU handoff: translation and VoxCPM TTS must not share the GPU.
+      // All translations are done — evict the Ollama model before baking.
+      const { unloadModel } = await import('../../nexora_ai/modules/ollamaClient.mjs');
+      await unloadModel();
     }
     const audioT0 = Date.now();
     // stage:'audio' marks the failure window for the approve-audio retry
@@ -306,7 +317,8 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
     await setStep(buildId, 'ready', {
       lectures: audioReport,
       stage_timings: { audio_ms: Date.now() - audioT0,
-        per_lang: audioReport[0]?.timings || {} },
+        per_lang: audioReport[0]?.timings || {},
+        ...(translateTiming || {}) },
     });
     console.log(`[course] build ${buildId} ready: ${lectureCount} lectures, audio baked in ${((Date.now() - audioT0) / 60000).toFixed(1)}m`);
   } catch (err) {
