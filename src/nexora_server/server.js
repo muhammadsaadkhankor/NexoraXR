@@ -2054,6 +2054,18 @@ io.on('connection', (socket) => {
   socket.on('language.change', async ({ language } = {}) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    // Permission: room-wide language is a moderation action — only the room
+    // host, an INSTRUCTOR, or a SUPER_ADMIN may change it. hostId is the
+    // server-derived participant id from the registry (never client state).
+    const langRoomMeta = roomRegistry.get(ctx.roomId);
+    const langRole = socket.data?.user?.role;
+    const canChangeLang = langRoomMeta?.hostId === ctx.participantId
+      || langRole === 'INSTRUCTOR' || langRole === 'SUPER_ADMIN';
+    if (!canChangeLang) {
+      socket.emit('lecture-control', { action: 'language-error',
+        error: 'Only the host can change the classroom language.' });
+      return;
+    }
     const ncip = getNcipRoom(ctx.roomId);
     // Availability gate: a prepared language has translated text and/or baked
     // audio in its language-keyed cache bucket. Rejecting unprepared langs

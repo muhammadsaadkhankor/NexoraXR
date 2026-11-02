@@ -19,6 +19,7 @@ import { syncLectureClock } from './lectureClock';
 import { API_URL, getParticipantId } from '../shared/config';
 import { classroomSlug } from '../shared/classroomUrl';
 import { getGuestToken, setGuestToken, getMe } from '../shared/auth';
+import { getBranding } from '../shared/branding';
 
 const runtimeConfigModules = import.meta.glob('./scenes/configs/*.json', { eager: true });
 
@@ -101,6 +102,7 @@ function ClassroomPanel({
   onMicRevoke,
   language = 'en',
   onLanguage,
+  canChangeLanguage = false,
   canCatchUp = false,
   onCatchUp,
   isPrivateRoom = false,
@@ -394,16 +396,20 @@ function ClassroomPanel({
 
           <div className='relative'>
             <button
-              onClick={() => setLangMenuOpen((v) => !v)}
-              title='Lecture language (applies on next Start Class)'
-              className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
+              onClick={() => canChangeLanguage && setLangMenuOpen((v) => !v)}
+              title={canChangeLanguage
+                ? 'Lecture language — changes immediately for everyone in the room'
+                : `Lecture language — ${currentLangLabel} (only the host can change)`}
+              className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''} ${canChangeLanguage ? '' : 'cursor-default'}`}
             >
               <Languages size={20} className='text-slate-300' />
               <div className='leading-tight'>
                 <p className='text-xs font-semibold'>Language</p>
                 <p className='text-[11px] text-slate-400'>{currentLangLabel}</p>
               </div>
-              <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
+              {canChangeLanguage && (
+                <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
+              )}
             </button>
 
             {langMenuOpen && (
@@ -537,6 +543,21 @@ export default function Scene() {
       .catch(() => { if (!cancelled) setMeta(null); });
     return () => { cancelled = true; };
   }, [direct, roomId]);
+
+  // Tab title: "WuFlux | <classroom name>" inside a classroom; restored on exit.
+  const classTitle = meta?.className || meta?.courseName
+    || (direct ? (SCENE_CONFIG[sceneName]?.title || sceneName) : null);
+  useEffect(() => {
+    if (!classTitle) return;
+    let cancelled = false;
+    getBranding().then((b) => {
+      if (!cancelled) document.title = `${b?.appName || 'WuFlux'} | ${classTitle}`;
+    });
+    return () => {
+      cancelled = true;
+      getBranding().then((b) => { if (b?.appName) document.title = b.appName; });
+    };
+  }, [classTitle]);
 
   const sceneKey = direct ? sceneName : meta?.scene;
   if (!sceneKey) {
@@ -700,6 +721,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   // Lecture End works in both room types: owner, or SUPER_ADMIN anywhere.
   const isRoomOwner = roomMeta?.hostId === myId;
   const canEndLecture = isRoomOwner || selfInfo?.user?.role === 'SUPER_ADMIN';
+  // Room language is host/instructor-only — mirrors the server check in the
+  // language.change handler (students/guests see a read-only pill).
+  const canChangeLanguage = isRoomOwner
+    || selfInfo?.user?.role === 'INSTRUCTOR' || selfInfo?.user?.role === 'SUPER_ADMIN';
 
   // Room joins without a lecture yet go through the course picker — the
   // lecture is chosen on entry, then the room/invite params are carried back.
@@ -1804,6 +1829,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onMicRevoke={(userId) => socketRef.current?.emit('mic.revoke', { userId })}
             language={lectureLang}
             onLanguage={requestLanguageChange}
+            canChangeLanguage={canChangeLanguage}
             canCatchUp={canCatchUp}
             onCatchUp={requestCatchUp}
             isPrivateRoom={isPrivateRoom}
