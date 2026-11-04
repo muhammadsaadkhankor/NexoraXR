@@ -1856,6 +1856,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onMinimize={() => setChatOpen(false)}
             lectureId={lectureId}
             lectureScript={lectureScript}
+            showLectureScript={canChangeLanguage}
             scriptSeed={scriptSeed}
             transcriptEpoch={transcriptEpoch}
             floorHolder={activeSpeaker}

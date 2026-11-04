@@ -3,7 +3,7 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, showLectureScript = false, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
@@ -304,7 +304,9 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, fl
               highlighted, upcoming = dimmed. Dynamic professor speech
               (answers, recaps) still appears as chat bubbles above/below in
               chronological order; this list never replaces them. */}
-          {lectureScript?.length > 0 && (
+          {/* Host/instructor only — students see just the Live transcript
+              below (same room-language text, word-synced to the audio). */}
+          {showLectureScript && lectureScript?.length > 0 && (
             <div className="flex items-end gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
                 <Bot size={14} />
