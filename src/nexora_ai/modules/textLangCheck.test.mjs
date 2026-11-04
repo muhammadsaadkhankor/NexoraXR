@@ -90,7 +90,7 @@ test('ar with CJK tail rejected', () => {
   const t = 'التعلم الآلي هو مجال دراسة يتيح للمستعرضات الحوسبة أن تتعلم دون الحاجة إلى البرمجة الصريحة، كما تعريف أرثر سامويل عام 1959.将在下面继续您的翻译。';
   const r = validateTranslation(t, 'ar');
   assert.equal(r.ok, false);
-  assert.match(r.reason, /foreign-script:cjk/);
+  assert.match(r.reason, /script:cjk/);
 });
 
 test('fr with CJK meta rejected', () => {
@@ -101,7 +101,67 @@ test('fr with CJK meta rejected', () => {
 test('zh with Arabic script rejected', () => {
   const r = validateTranslation('机器学习是一个研究领域。هذا نص عربي', 'zh');
   assert.equal(r.ok, false);
-  assert.match(r.reason, /foreign-script:arabic/);
+  assert.match(r.reason, /script:arabic/);
+});
+
+// ---- per-language script audit (observed: Cyrillic/Thai inside Arabic) ----
+
+test('ar with Cyrillic letters rejected', () => {
+  const r = validateTranslation('في مجال الهندسة الكهربائية يتم استخدام التعلم الآلي للتنبؤ ب нагрузات الطاقة بشكل دقيق وفعال', 'ar');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /unexpected-script:cyrillic/);
+});
+
+test('ar with Thai letters rejected', () => {
+  const r = validateTranslation('فهم هذه الاستخدامات سيساعدك فيเข้า الفهم لأهمية تعلم الآلات', 'ar');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /unexpected-script:thai/);
+});
+
+test('replacement char rejected', () => {
+  const r = validateTranslation('التعلم الآلي هو مجال دراسة يتيح للحواسيب التعل�م بسهولة', 'ar');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /invalid-glyph/);
+});
+
+// ---- foreign-word check ----
+
+const AR_SRC = 'Machine Learning is a field of study that enables computers to learn without being explicitly programmed, as defined by Arthur Samuel.';
+
+test('ar with Latin word absent from source rejected', () => {
+  const r = validateTranslation('التعلم الآلي هو مجال دراسة و fundamentos الرياضيات القائمة عليه', 'ar', { source: AR_SRC });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /foreign-word:fundamentos/);
+});
+
+test('ar with Latin technical term present in source passes script/word checks', () => {
+  // enough Arabic to clear the fraction, latin only from the source
+  const t = 'التعلم الآلي هو مجال دراسة يتيح للحواسيب التعلم دون البرمجة الصريحة كما عرفه Arthur Samuel وهو مفهوم أساسي في الحوسبة الحديثة';
+  const r = validateTranslation(t, 'ar', { source: AR_SRC });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('zh with Latin word absent from source rejected', () => {
+  const r = validateTranslation('机器学习是推动marketing效果的关键应用，它帮助公司理解用户行为', 'zh', { source: 'Machine learning models analyze user behavior to deliver targeted ads.' });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /foreign-word/);
+});
+
+test('zh keeps ALL-CAPS acronyms and source terms', () => {
+  const r = validateTranslation('机器学习让计算机能够在不被明确编程的情况下进行学习，ML算法从数据中学习模式，这使它们能够不断改进并适应新的任务和数据集', 'zh', { source: 'Machine learning enables computers to learn. ML algorithms learn patterns.' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('de with Spanish function word rejected', () => {
+  const t = 'Maschinelles Lernen basiert auf drei mathematischen Bereichen. Esto permite para Vorhersagen basierend auf Daten zu treffen und Modelle zu verbessern.';
+  const r = validateTranslation(t, 'de', { source: 'Machine learning relies on three mathematical areas.' });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /foreign-word/);
+});
+
+test('fr with ñ (Spanish diacritic) rejected', () => {
+  const r = validateTranslation("L'apprentissage automatique es una técnica que permite a los niños aprender formas y mejorar leurs performances au fil du temps", 'fr', { source: 'Machine learning is a technique.' });
+  assert.equal(r.ok, false);
 });
 
 // ---- leaked instruction/meta text ----
@@ -110,7 +170,7 @@ test('fr with English meta phrase rejected when source lacks it', () => {
   const t = 'La régression est une technique supervisée. Below is the translation of the text into French for this lecture segment.';
   const r = validateTranslation(t, 'fr', { source: 'Regression is a supervised technique.' });
   assert.equal(r.ok, false);
-  assert.match(r.reason, /leaked-meta/);
+  assert.match(r.reason, /leaked-meta|foreign-word/);
 });
 
 test('word "translation" allowed when the source discusses translation', () => {

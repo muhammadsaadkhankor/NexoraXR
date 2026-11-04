@@ -86,6 +86,84 @@ function scriptFraction(text, re) {
   return hits / letters.length;
 }
 
+// Per-character script audit. The translator model emits stray Cyrillic,
+// Thai, and replacement/box glyphs inside otherwise-valid Arabic — majority
+// script fractions don't catch a 2-character leak, so every script other
+// than the target's (plus Latin, which is governed separately) is a reject.
+const SCRIPT_TESTS = [
+  ['latin', /\p{Script=Latin}/u],
+  ['cjk', /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}/u],
+  ['arabic', /\p{Script=Arabic}/u],
+  ['cyrillic', /\p{Script=Cyrillic}/u],
+  ['thai', /\p{Script=Thai}/u],
+  ['hangul', /\p{Script=Hangul}/u],
+  ['devanagari', /\p{Script=Devanagari}/u],
+  ['greek', /\p{Script=Greek}/u],
+  ['hebrew', /\p{Script=Hebrew}/u],
+];
+const BAD_GLYPH = /[�-]/u;
+const LATIN_WORD_RE = /[\p{Script=Latin}]{2,}/gu;
+// Expected scripts per target. Latin words are handled by the foreign-word
+// check (must appear in the source or be an ALL-CAPS technical acronym).
+const ALLOWED_SCRIPTS = {
+  ar: new Set(['arabic', 'latin']),
+  zh: new Set(['cjk', 'latin']),
+  fr: new Set(['latin']),
+  de: new Set(['latin']),
+  es: new Set(['latin']),
+};
+
+function scriptAuditReason(text, lang) {
+  if (BAD_GLYPH.test(text)) return 'invalid-glyph';
+  const letters = text.match(LETTER_RE) || [];
+  for (const ch of letters) {
+    const script = SCRIPT_TESTS.find(([, re]) => re.test(ch))?.[0] || 'other';
+    if (!ALLOWED_SCRIPTS[lang].has(script)) return `unexpected-script:${script}`;
+  }
+  return null;
+}
+
+// Word-level source vocabulary: lowercase latin words of the source. Output
+// Latin words must appear in it (technical terms are kept in brackets) or be
+// ALL-CAPS acronyms like ML, AI, GPU.
+function sourceWordSet(source) {
+  return new Set(((source || '').toLowerCase().match(LATIN_WORD_RE) || []));
+}
+const isAllowedLatin = (w, srcWords) =>
+  srcWords.has(w.toLowerCase()) || (/^[A-Z0-9]{2,5}$/.test(w) && w.length <= 5);
+
+// Signature diacritics per latin-script language — chars that NEVER belong
+// to the target (e.g. ñ inside German, ß inside Spanish). Plain ASCII
+// foreign words are caught by the stopword-of-other-language test below.
+const FOREIGN_SIG = {
+  fr: /[ñ¿¡áíóúßäöü]/i,
+  de: /[ñ¿¡áíóúàèêîûœç]/i,   // é kept — 'Café' is a legitimate German loanword
+  es: /[ßäöàèêîûœç]/i,       // ü kept — 'vergüenza' is legitimate Spanish
+};
+function foreignWordReason(text, lang, srcWords) {
+  const words = text.match(LATIN_WORD_RE) || [];
+  if (lang === 'ar' || lang === 'zh') {
+    const w = words.find((w) => !isAllowedLatin(w, srcWords));
+    return w ? `foreign-word:${w}` : null;
+  }
+  const sig = FOREIGN_SIG[lang];
+  for (const w of words) {
+    if (sig.test(w) && !isAllowedLatin(w, srcWords)) return `foreign-word:${w}`;
+    // A function word of a DIFFERENT supported language inside latin output
+    // (not present in source, not a stopword of the target) is language
+    // bleed, e.g. Spanish 'para' inside German.
+    if (w.length >= 4 && !isAllowedLatin(w, srcWords)) {
+      const lw = w.toLowerCase();
+      for (const [other, sw] of Object.entries(STOPWORDS)) {
+        if (other !== lang && sw.has(lw) && !STOPWORDS[lang].has(lw)) {
+          return `foreign-word:${w}`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // Returns { ok: true } or { ok: false, reason } — never throws.
 // ctx.source is the English source text: meta words are only rejected when
 // they are absent from it (a lecture about translation can say "translation").
@@ -94,12 +172,17 @@ export function validateTranslation(text, lang, ctx = {}) {
   if (!t) return { ok: false, reason: 'empty' };
   if (lang === 'en') return { ok: true };
 
-  // Foreign-script zero tolerance: CJK inside a non-zh translation is leaked
-  // instruction/meta text (observed in production); Arabic inside zh is the
-  // symmetric case. Legitimate zh text has no Arabic; legitimate non-zh has
-  // no CJK.
-  if (lang !== 'zh' && CJK_RE.test(t)) return { ok: false, reason: 'foreign-script:cjk' };
-  if (lang === 'zh' && ARABIC_RE.test(t)) return { ok: false, reason: 'foreign-script:arabic' };
+  // Full script audit: every character's script must belong to the target —
+  // a single Cyrillic/Thai/CJK letter inside Arabic is a reject, plus
+  // replacement/box glyphs (U+FFFD, private use). Latin words are allowed
+  // only when they appear in the English source (kept technical terms) or
+  // are short ALL-CAPS acronyms.
+  const scriptBad = scriptAuditReason(t, lang);
+  if (scriptBad) return { ok: false, reason: scriptBad };
+
+  const srcWords = sourceWordSet(ctx.source);
+  const wordBad = foreignWordReason(t, lang, srcWords);
+  if (wordBad) return { ok: false, reason: wordBad };
 
   const meta = leakedMetaReason(t, ctx.source);
   if (meta) return { ok: false, reason: `leaked-meta:${meta}` };
