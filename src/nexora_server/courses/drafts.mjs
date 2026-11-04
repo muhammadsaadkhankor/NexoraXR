@@ -398,50 +398,86 @@ export async function prepareTranslations(courseId) {
     for (const lang of TRANSLATION_LANGS) {
       const langT0 = Date.now();
       const existing = await loadLectureLangDraft(lid, lang);
+      const srcById = new Map(parsed.segments.map((s) => [s.id, s.text]));
+      const { validateTranslation } = await import('../../nexora_ai/modules/textLangCheck.mjs');
+      const cacheDir = path.join(SEGMENT_CACHE_ROOT, `${lid}__${lang}`);
+      // Remove a segment's cached text/audio/lipsync so it is re-baked.
+      const dropCache = async (segId) => {
+        const base = path.join(cacheDir, `segment_${String(segId).padStart(3, '0')}`);
+        await fsp.rm(`${base}.txt`, { force: true }).catch(() => {});
+        await fsp.rm(`${base}.wav`, { force: true }).catch(() => {});
+        await fsp.rm(`${base}_lipsync.json`, { force: true }).catch(() => {});
+      };
+      const isValid = (text, segId) =>
+        text && validateTranslation(text, lang, { source: srcById.get(segId) }).ok !== false;
       if (existing?.edited) {
-        report.push({ lectureId: lid, lang, status: 'kept-reviewed' });
+        // Reviewer text is never regenerated — but invalid content (foreign
+        // script, leaked meta, wrong language) is flagged for re-review.
+        const bad = (existing.segments || []).filter((s) => !isValid(s.text, s.id)).map((s) => s.id);
+        report.push({ lectureId: lid, lang,
+          status: bad.length ? 'needs-review' : 'kept-reviewed',
+          ...(bad.length ? { failedSegments: bad } : {}) });
         continue;
       }
-      // Up-to-date machine draft → keep it. Retries only regenerate what is
-      // missing, stale (script version moved on), or previously failed.
-      if (existing && existing.basedOnVersion === version &&
-          (existing.segments || []).length === parsed.segments.length) {
+      // Reuse per-segment: a segment is kept only when its draft is based on
+      // the current script AND passes validateTranslation against the current
+      // source. Stale/invalid/missing segments are (re)translated — so a
+      // rerun after a partial failure only redoes the holes.
+      const reusable = existing && existing.basedOnVersion === version
+        ? (existing.segments || []) : [];
+      const segments = new Array(parsed.segments.length);
+      const todo = [];
+      for (const [i, s] of parsed.segments.entries()) {
+        const ex = reusable.find((r) => r.id === s.id);
+        if (ex && isValid(ex.text, s.id)) segments[i] = { id: s.id, text: ex.text };
+        else todo.push({ s, i });
+      }
+      if (!todo.length && existing) {
         report.push({ lectureId: lid, lang, status: 'kept-current' });
         continue;
       }
-      const segments = new Array(parsed.segments.length);
-      let failed = null;
+      const failedSegments = [];
       // Bounded concurrency over this language's segments — order is kept by
-      // writing into fixed slots, never by append order.
-      await pool(parsed.segments.map((s, i) => ({ s, i })), async ({ s, i }) => {
-        if (failed) return;
+      // writing into fixed slots, never by append order. One bad segment does
+      // not kill the whole language: failures are recorded and the rest of
+      // the language continues.
+      await pool(todo, async ({ s, i }) => {
         const st = Date.now();
         try {
           const t = await translateForLecture(s.text, lang, { lectureId: lid, segmentId: s.id });
           segments[i] = { id: s.id, text: t };
           console.log(`[translate] lecture=${lid} seg=${s.id} lang=${lang} ${Date.now() - st}ms`);
         } catch (e) {
-          failed = e;
+          failedSegments.push({ id: s.id, error: String(e.message || e) });
         }
       });
-      if (failed) {
-        report.push({ lectureId: lid, lang, status: 'failed', error: failed.message,
-          ms: Date.now() - langT0 });
+      // Regenerated or failed segments: drop cached .txt/.wav so stale audio
+      // is never served and the next bake reproduces them.
+      await fsp.mkdir(cacheDir, { recursive: true });
+      for (const { s } of todo) await dropCache(s.id);
+      const done = segments.filter(Boolean);
+      if (done.length) {
+        const fingerprint = scriptFingerprint(done);
+        const payload = { lang, lectureId: lid, version, basedOnVersion: version,
+          fingerprint, edited: false, segments: done };
+        await fsp.writeFile(transPath(lid, lang), JSON.stringify(payload, null, 2));
+        // Mirror into the runtime text cache so audio bakes this exact text.
+        for (const s of done) {
+          await fsp.writeFile(path.join(cacheDir,
+            `segment_${String(s.id).padStart(3, '0')}.txt`), s.text).catch(() => {});
+        }
+      }
+      if (failedSegments.length) {
+        report.push({ lectureId: lid, lang,
+          status: done.length ? 'partial' : 'failed',
+          failedSegments: failedSegments.map((f) => f.id),
+          error: failedSegments[0].error, ms: Date.now() - langT0 });
         continue;
       }
-      const fingerprint = scriptFingerprint(segments);
-      const payload = { lang, lectureId: lid, version, basedOnVersion: version,
-        fingerprint, edited: false, segments };
-      await fsp.writeFile(transPath(lid, lang), JSON.stringify(payload, null, 2));
-      // Mirror into the runtime text cache so audio bakes this exact text.
-      const cacheDir = path.join(SEGMENT_CACHE_ROOT, `${lid}__${lang}`);
-      await fsp.mkdir(cacheDir, { recursive: true });
-      for (const s of segments) {
-        await fsp.writeFile(path.join(cacheDir,
-          `segment_${String(s.id).padStart(3, '0')}.txt`), s.text).catch(() => {});
-      }
-      report.push({ lectureId: lid, lang, status: 'ready', version,
-        ms: Date.now() - langT0 });
+      report.push({ lectureId: lid, lang,
+        status: existing ? 'repaired' : 'ready',
+        ...(reusable.length ? { repairedSegments: todo.map((t) => t.s.id) } : {}),
+        version, ms: Date.now() - langT0 });
     }
   }
   return report;
