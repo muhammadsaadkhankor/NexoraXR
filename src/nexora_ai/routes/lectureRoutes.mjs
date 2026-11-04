@@ -221,11 +221,12 @@ export async function translateForLecture(text, lang, ctx = {}) {
     try {
       out = await generateOllama(null, {
         messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        // Retries escalate temperature — a deterministic bad completion
-        // (e.g. a language-switch the validator rejects) needs a different
-        // sampling path, not the same one again.
+        // Retries nudge the temperature slightly but never exceed 0.3 —
+        // high-temperature draws produced broken multilingual output
+        // (Cyrillic/Thai inside Arabic, invented vocabulary) that was worse
+        // than retrying near-deterministically.
         numPredict: 800, translate: true, keepAlive: '30m',
-        temperature: [0.2, 0.5, 0.7][attempt - 1] ?? 0.7,
+        temperature: Math.min(0.2 + 0.05 * (attempt - 1), 0.3),
       });
     } catch (e) {
       lastReason = `ollama-error:${e.message.slice(0, 80)}`;
