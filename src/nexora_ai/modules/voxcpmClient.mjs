@@ -105,13 +105,19 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
   for (let i = 0; i < attempts; i++) {
     const wav = await synth(text, voiceId, lang);
     const detected = await detect(wav);
-    // Majority match: VoxCPM2 tags occasional stray tokens (one window of 'he'
-    // inside an 'es' clip, an 'en' word in 'fr') — reject only when the clip
-    // is actually dominated by a different language.
-    const ok = Array.isArray(detected)
-      ? detected.filter((l) => l === lang).length >= Math.ceil(detected.length * 0.6)
-      : detected === lang;
+    const windows = Array.isArray(detected) ? detected : [detected];
+    // Windowed rejection: 80% of windows must match the target, AND — for
+    // non-zh targets — a single 'zh' window fails the clip outright. VoxCPM2
+    // can faithfully read leaked Chinese meta-text in non-zh translations;
+    // a lone Whisper mislabel is rare but a real zh window must never pass.
+    const zhWindows = windows.filter((l) => l === 'zh').length;
+    const matches = windows.filter((l) => l === lang).length;
+    const ok = (lang === 'zh' || zhWindows === 0) &&
+      matches >= Math.ceil(windows.length * 0.8);
     if (ok) return wav;
+    console.warn(
+      `[tts-verify] rejected lecture=${opts.lectureId ?? '?'} segment=${opts.segmentId ?? '?'} ` +
+      `lang=${lang} attempt=${i + 1}/${attempts} windows=[${windows.join(',')}]`);
     lastError = new Error(`TTS language mismatch: expected '${lang}', detected '${JSON.stringify(detected)}'`);
   }
   throw lastError;

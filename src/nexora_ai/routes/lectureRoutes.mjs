@@ -301,7 +301,7 @@ export async function generateSegmentAudio(lectureId, index, text, lang = null) 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       audioBuffer = await synthesizeVerified(ttsText, voiceId,
-        lang || langFromCacheKey(lectureId), { attempts: 1 });
+        lang || langFromCacheKey(lectureId), { attempts: 1, lectureId, segmentId: index });
       break;
     } catch (err) {
       lastError = err;
@@ -841,7 +841,7 @@ router.post('/ask', async (req, res) => {
       if (!voiceId) {
         throw new Error('No professor voice configured');
       }
-      const audioBuffer = await synthesizeVerified(cleanTextForTts(answerText), voiceId, lang);
+      const audioBuffer = await synthesizeVerified(cleanTextForTts(answerText), voiceId, lang, { lectureId });
       await fs.writeFile(audioPath, audioBuffer);
     }
 
@@ -964,7 +964,7 @@ ${material}`;
       if (!voiceId) {
         throw new Error('No professor voice configured');
       }
-      const audioBuffer = await synthesizeVerified(cleanTextForTts(recapText), voiceId, lang);
+      const audioBuffer = await synthesizeVerified(cleanTextForTts(recapText), voiceId, lang, { lectureId });
       await fs.writeFile(audioPath, audioBuffer);
     }
 
@@ -1145,7 +1145,7 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
   if (!existsSync(audioPath)) {
     const voiceId = await getDefaultVoice();
     if (!voiceId) throw new Error('No professor voice configured');
-    const audioBuffer = await synthesizeVerified(cleanTextForTts(utterText), voiceId, lang);
+    const audioBuffer = await synthesizeVerified(cleanTextForTts(utterText), voiceId, lang, { lectureId });
     if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
     await fs.writeFile(audioPath, audioBuffer);
   }
