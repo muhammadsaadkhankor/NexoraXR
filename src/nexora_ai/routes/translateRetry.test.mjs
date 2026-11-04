@@ -15,10 +15,13 @@ before(async () => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
+      const answer = mode === 'empty' ? '  '
+        : mode === 'english' ? 'Regression is a supervised learning technique used to predict continuous values from labeled training data.'
+        : 'La régression est une technique supervisée qui prédit des valeurs continues à partir de données étiquetées.';
       res.setHeader('Content-Type', 'application/json');
-      if (mode === 'empty') res.end(JSON.stringify({ response: '  ' }));
-      else if (mode === 'english') res.end(JSON.stringify({ response: 'Regression is a supervised learning technique used to predict continuous values from labeled training data.' }));
-      else res.end(JSON.stringify({ response: 'La régression est une technique supervisée qui prédit des valeurs continues à partir de données étiquetées.' }));
+      // /api/chat responds {message:{content}}, /api/generate {response} —
+      // send both so the test works whichever endpoint is used.
+      res.end(JSON.stringify({ response: answer, message: { content: answer } }));
     });
   });
   await new Promise((r) => server.listen(0, r));

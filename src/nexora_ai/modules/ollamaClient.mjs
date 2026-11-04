@@ -25,7 +25,12 @@ export async function generate(prompt, opts = {}) {
   // Translation keeps the model warm between segments (keep_alive "30m" is
   // the default for translation callers; anything else passes its own).
   if (opts.keepAlive != null) body.keep_alive = opts.keepAlive;
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+  const isChat = Array.isArray(opts.messages);
+  if (isChat) {
+    body.messages = opts.messages;
+    delete body.prompt;
+  }
+  const response = await fetch(`${OLLAMA_BASE_URL}${isChat ? '/api/chat' : '/api/generate'}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -37,7 +42,7 @@ export async function generate(prompt, opts = {}) {
   }
 
   const data = await response.json();
-  return data.response?.trim() || '';
+  return (isChat ? data.message?.content : data.response)?.trim() || '';
 }
 
 // Evict a model from memory (GPU/CPU) so a different service — VoxCPM2 TTS —
