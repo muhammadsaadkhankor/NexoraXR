@@ -217,7 +217,7 @@ export async function translateForLecture(text, lang, ctx = {}) {
     } else if (translated.length < srcLen * MIN_RATIO) {
       lastReason = `too-short(${translated.length}<${Math.ceil(srcLen * MIN_RATIO)}chars)`;
     } else {
-      const check = await validate(translated, lang);
+      const check = await validate(translated, lang, { source: text });
       if (check.ok !== false) return translated;
       lastReason = `invalid-language:${check.reason || 'mismatch'}`;
     }

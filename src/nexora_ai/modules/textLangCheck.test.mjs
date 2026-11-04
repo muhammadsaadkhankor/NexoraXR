@@ -83,3 +83,44 @@ for (const lang of ['fr', 'de', 'es']) {
     assert.equal(r.ok, false, `expected rejection, got ${JSON.stringify(r)}`);
   });
 }
+
+// ---- foreign-script zero tolerance (observed CJK leak in ar output) ----
+
+test('ar with CJK tail rejected', () => {
+  const t = 'التعلم الآلي هو مجال دراسة يتيح للمستعرضات الحوسبة أن تتعلم دون الحاجة إلى البرمجة الصريحة، كما تعريف أرثر سامويل عام 1959.将在下面继续您的翻译。';
+  const r = validateTranslation(t, 'ar');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /foreign-script:cjk/);
+});
+
+test('fr with CJK meta rejected', () => {
+  const r = validateTranslation('Voici un exemple. 示例结束，这是阿拉伯语翻译的部分', 'fr');
+  assert.equal(r.ok, false);
+});
+
+test('zh with Arabic script rejected', () => {
+  const r = validateTranslation('机器学习是一个研究领域。هذا نص عربي', 'zh');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /foreign-script:arabic/);
+});
+
+// ---- leaked instruction/meta text ----
+
+test('fr with English meta phrase rejected when source lacks it', () => {
+  const t = 'La régression est une technique supervisée. Below is the translation of the text into French for this lecture segment.';
+  const r = validateTranslation(t, 'fr', { source: 'Regression is a supervised technique.' });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /leaked-meta/);
+});
+
+test('word "translation" allowed when the source discusses translation', () => {
+  const t = "Cela inclut des tâches comme la reconnaissance d'images et la traduction (language translation), très utilisées en pratique.";
+  const r = validateTranslation(t, 'fr', { source: 'This includes tasks like image recognition and language translation.' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('zh with Chinese meta phrase rejected when source lacks it', () => {
+  const t = '机器学习是一个研究领域。让我继续翻译这段话';
+  const r = validateTranslation(t, 'zh', { source: 'Machine learning is a field of study.' });
+  assert.equal(r.ok, false);
+});

@@ -41,6 +41,43 @@ function langSignal(text, lang) {
   return n + (diac ? diac.length * 2 : 0);
 }
 
+// Leaked instruction/meta text — the translator model sometimes narrates its
+// own task ("below is the translation", "继续您的翻译"). Strong CJK phrases are
+// never legitimate narration. Weak markers are legitimized when the English
+// source itself talks about translating/continuing/examples.
+const META_STRONG = [
+  '以下是', '翻译内容', '继续翻译', '您的翻译', '示例结束', '这是阿拉伯语', '这段话',
+  'below is the translation', 'here is the translation', 'the translation:',
+];
+// [marker-in-output, substring-that-legitimizes-it-in-source]
+const META_WEAK = [
+  ['翻译', 'translat'],
+  ['以下', 'below'], ['以下', 'following'],
+  ['继续', 'continu'],
+  ['示例', 'example'],
+  ['here is', 'here'],
+  ['below is', 'below'],
+  ['the following', 'following'],
+  ['output only', 'output'],
+  ['translation', 'translat'],
+  ['translated', 'translat'],
+];
+
+function leakedMetaReason(text, source) {
+  const lower = text.toLowerCase();
+  const src = (source || '').toLowerCase();
+  for (const m of META_STRONG) {
+    if (lower.includes(m.toLowerCase())) return m;
+  }
+  for (const [marker, legit] of META_WEAK) {
+    const needle = marker.toLowerCase();
+    if (!lower.includes(needle)) continue;
+    if (src.includes(legit)) continue; // source mentions it — fair vocabulary
+    return marker;
+  }
+  return null;
+}
+
 function scriptFraction(text, re) {
   const letters = text.match(LETTER_RE) || [];
   if (!letters.length) return 0;
@@ -50,10 +87,22 @@ function scriptFraction(text, re) {
 }
 
 // Returns { ok: true } or { ok: false, reason } — never throws.
-export function validateTranslation(text, lang) {
+// ctx.source is the English source text: meta words are only rejected when
+// they are absent from it (a lecture about translation can say "translation").
+export function validateTranslation(text, lang, ctx = {}) {
   const t = (text || '').trim();
   if (!t) return { ok: false, reason: 'empty' };
   if (lang === 'en') return { ok: true };
+
+  // Foreign-script zero tolerance: CJK inside a non-zh translation is leaked
+  // instruction/meta text (observed in production); Arabic inside zh is the
+  // symmetric case. Legitimate zh text has no Arabic; legitimate non-zh has
+  // no CJK.
+  if (lang !== 'zh' && CJK_RE.test(t)) return { ok: false, reason: 'foreign-script:cjk' };
+  if (lang === 'zh' && ARABIC_RE.test(t)) return { ok: false, reason: 'foreign-script:arabic' };
+
+  const meta = leakedMetaReason(t, ctx.source);
+  if (meta) return { ok: false, reason: `leaked-meta:${meta}` };
 
   if (lang === 'zh') {
     const f = scriptFraction(t, CJK_RE);
