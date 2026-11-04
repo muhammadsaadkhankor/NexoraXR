@@ -200,12 +200,15 @@ export async function runTranslationPhase(buildId, courseId) {
   try {
     await setStep(buildId, 'translating', { stage: 'translations' });
     const report = await prepareTranslations(courseId);
-    const failed = report.filter((r) => r.status === 'failed');
+    const failed = report.filter((r) => r.status === 'failed' || r.status === 'partial');
     await setStep(buildId, 'awaiting_review', {
       stage: 'translations',
       stage_timings: { translating_ms: Date.now() - t0 },
       translations: report,
-      ...(failed.length ? { translation_errors: failed.map((f) => `${f.lectureId}/${f.lang}: ${f.error}`) } : {}),
+      ...(failed.length ? { translation_errors: failed.map((f) =>
+        `${f.lectureId}/${f.lang}: ${f.status}` +
+        (f.failedSegments?.length ? ` (segments ${f.failedSegments.join(',')})` : '') +
+        (f.error ? ` ${f.error}` : '')) } : {}),
     });
     console.log(`[course] build ${buildId} translations ready for review (${report.length} lang-drafts)`);
   } catch (err) {
@@ -272,10 +275,13 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
           translate_per_lang_ms: Object.fromEntries(
             report.filter((r) => r.ms != null).map((r) => [`${r.lectureId}@${r.lang}`, r.ms])),
         };
-        const tFailed = report.filter((r) => r.status === 'failed');
+        const tFailed = report.filter((r) => r.status === 'failed' || r.status === 'partial');
         if (tFailed.length) {
           await setStep(buildId, 'audio', { stage: 'audio',
-            translation_failures: tFailed.map((f) => `${f.lectureId}/${f.lang}: ${f.error}`) });
+            translation_failures: tFailed.map((f) =>
+              `${f.lectureId}/${f.lang}: ${f.status}` +
+              (f.failedSegments?.length ? ` (segments ${f.failedSegments.join(',')})` : '') +
+              (f.error ? ` ${f.error}` : '')) });
         }
       }
       // GPU handoff: translation and VoxCPM TTS must not share the GPU.
