@@ -426,31 +426,64 @@ export async function prepareTranslations(courseId) {
       const reusable = existing && existing.basedOnVersion === version
         ? (existing.segments || []) : [];
       const segments = new Array(parsed.segments.length);
-      const todo = [];
+      let todo = [];
       for (const [i, s] of parsed.segments.entries()) {
         const ex = reusable.find((r) => r.id === s.id);
         if (ex && isValid(ex.text, s.id)) segments[i] = { id: s.id, text: ex.text };
         else todo.push({ s, i });
       }
+      const failedMap = new Map(); // segmentId -> last error
+      // Semantic sweep: score (source, translation) cosine similarity with
+      // multilingual-e5-small. A segment below the floor is unpinned and
+      // rejoins the retry pool — meaning drift is a failure even when the
+      // text looks syntactically fine. Checker unavailable → don't gate.
+      const semanticSweep = async () => {
+        const done = segments.filter(Boolean);
+        if (!done.length) return;
+        const { scorePairs, SEMANTIC_MIN } = await import('../../nexora_ai/modules/semanticSim.mjs');
+        const scores = await scorePairs(done.map((sg) => [srcById.get(sg.id), sg.text]));
+        if (!scores) return;
+        done.forEach((sg, k) => {
+          const score = scores[k];
+          if (score < SEMANTIC_MIN) {
+            const i = parsed.segments.findIndex((cs) => cs.id === sg.id);
+            segments[i] = null;
+            failedMap.set(sg.id, `low-similarity:${score.toFixed(3)}<${SEMANTIC_MIN}`);
+            console.warn(`[translate] semantic reject lecture=${lid} seg=${sg.id} lang=${lang} score=${score.toFixed(3)}`);
+          }
+        });
+      };
+      // Kept drafts get the sweep too — a previously accepted translation can
+      // be semantically wrong (observed: ar seg "physics" for machine learning).
+      await semanticSweep();
+      todo = parsed.segments.map((s, i) => ({ s, i })).filter((t) => !segments[t.i]);
       if (!todo.length && existing) {
         report.push({ lectureId: lid, lang, status: 'kept-current' });
         continue;
       }
-      const failedSegments = [];
       // Bounded concurrency over this language's segments — order is kept by
       // writing into fixed slots, never by append order. One bad segment does
       // not kill the whole language: failures are recorded and the rest of
-      // the language continues.
-      await pool(todo, async ({ s, i }) => {
-        const st = Date.now();
-        try {
-          const t = await translateForLecture(s.text, lang, { lectureId: lid, segmentId: s.id });
-          segments[i] = { id: s.id, text: t };
-          console.log(`[translate] lecture=${lid} seg=${s.id} lang=${lang} ${Date.now() - st}ms`);
-        } catch (e) {
-          failedSegments.push({ id: s.id, error: String(e.message || e) });
-        }
-      });
+      // the language continues. Two rounds: syntactic failures retry once,
+      // semantic failures get exactly one regeneration.
+      for (let round = 0; round < 2; round++) {
+        const toDoNow = todo.filter((t) => !segments[t.i]);
+        if (!toDoNow.length) break;
+        await pool(toDoNow, async ({ s, i }) => {
+          const st = Date.now();
+          try {
+            const t = await translateForLecture(s.text, lang, { lectureId: lid, segmentId: s.id });
+            segments[i] = { id: s.id, text: t };
+            failedMap.delete(s.id);
+            console.log(`[translate] lecture=${lid} seg=${s.id} lang=${lang} ${Date.now() - st}ms`);
+          } catch (e) {
+            failedMap.set(s.id, String(e.message || e));
+          }
+        });
+        await semanticSweep();
+      }
+      const failedSegments = todo.filter((t) => !segments[t.i])
+        .map((t) => ({ id: t.s.id, error: failedMap.get(t.s.id) || 'failed' }));
       // Regenerated or failed segments: drop cached .txt/.wav so stale audio
       // is never served and the next bake reproduces them.
       await fsp.mkdir(cacheDir, { recursive: true });
