@@ -206,6 +206,8 @@ export async function translateForLecture(text, lang, ctx = {}) {
     `When a technical term is first used, give the translation followed by the ` +
     `English term in brackets, e.g. "apprentissage automatique (machine learning)". ` +
     `Reply with ONLY the translation wrapped in <translation>...</translation> tags. ` +
+    `The entire reply must be in ${LECTURE_LANGUAGES[lang]} — never switch to ` +
+    `another language or script for any reason. ` +
     `No notes, no headings, no commentary outside the tags.`;
   const user = `<source>\n${text}\n</source>`;
   const srcLen = (text || '').trim().length;
@@ -219,7 +221,11 @@ export async function translateForLecture(text, lang, ctx = {}) {
     try {
       out = await generateOllama(null, {
         messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        numPredict: 800, translate: true, keepAlive: '30m', temperature: 0.2,
+        // Retries escalate temperature — a deterministic bad completion
+        // (e.g. a language-switch the validator rejects) needs a different
+        // sampling path, not the same one again.
+        numPredict: 800, translate: true, keepAlive: '30m',
+        temperature: [0.2, 0.5, 0.7][attempt - 1] ?? 0.7,
       });
     } catch (e) {
       lastReason = `ollama-error:${e.message.slice(0, 80)}`;

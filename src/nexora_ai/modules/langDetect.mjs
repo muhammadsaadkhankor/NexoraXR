@@ -26,7 +26,13 @@ for i in range(0, len(audio), win):
     chunk = audio[i:i + win]
     if len(chunk) < sr:  # skip <1s tail — too short to judge reliably
         break
-    langs.append(m.transcribe(chunk)['language'])
+    # Encoder-only language classification: detect_language on the mel of the
+    # 30s-padded window. ~10x cheaper than transcribe() (no text decode), so a
+    # larger model fits the detection timeout — and the classifier score is a
+    # direct language probability rather than a transcription side effect.
+    mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(chunk))
+    _, probs = m.detect_language(mel)
+    langs.append(max(probs, key=probs.get))
 print('\\n'.join(langs) if langs else 'unknown')
 `;
 
