@@ -1,20 +1,28 @@
 // Whisper-based language verification for synthesized TTS audio. Runs the
 // openai-whisper install in the `voxcpm` conda env; detection result is used
 // ONLY to accept/reject the WAV — it never feeds back into room language.
+//
+// The model is loaded ONCE by a persistent helper process
+// (whisper_service.py) — previously every clip spawned a fresh Python
+// interpreter and paid the full model-load cost. Requests are serialized
+// over stdin/stdout JSON lines; if the service cannot start or dies, calls
+// fall back to the legacy per-clip spawn so detection keeps working.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const WHISPER_PYTHON =
   process.env.WHISPER_PYTHON || `${process.env.HOME}/anaconda3/envs/voxcpm/bin/python`;
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base';
 const DETECT_TIMEOUT_MS = Number(process.env.WHISPER_DETECT_TIMEOUT_MS) || 90_000;
+const SERVICE_SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)), 'whisper_service.py');
+// Set WHISPER_NO_SERVICE=1 to force the legacy per-clip spawn path.
+const USE_SERVICE = process.env.WHISPER_NO_SERVICE !== '1';
 
-// Windowed detection: slice the waveform into fixed windows INSIDE Python
-// (one model load, numpy slicing at 16kHz) and transcribe each window. A
-// mostly-Arabic clip with a Chinese blip still fails verification — the
-// dominant-language check alone let mid-segment drift slip through.
+// Legacy per-clip fallback snippets (model loaded inside Python each call).
 const PY_SNIPPET_WINDOWED = `import sys, whisper, warnings
 warnings.filterwarnings('ignore')
 m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
@@ -30,7 +38,7 @@ for i in range(0, len(audio), win):
     # 30s-padded window. ~10x cheaper than transcribe() (no text decode), so a
     # larger model fits the detection timeout — and the classifier score is a
     # direct language probability rather than a transcription side effect.
-    mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(chunk))
+    mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(chunk)).to(m.device)
     _, probs = m.detect_language(mel)
     langs.append(max(probs, key=probs.get))
 print('\\n'.join(langs) if langs else 'unknown')
@@ -42,7 +50,7 @@ m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
 print(whisper.load_audio and m.transcribe(sys.argv[1])["language"])
 `;
 
-function runWhisper(pythonArgs, tmp) {
+function runWhisper(pythonArgs) {
   return new Promise((resolve, reject) => {
     const child = spawn(WHISPER_PYTHON, pythonArgs);
     let out = '';
@@ -65,6 +73,96 @@ function runWhisper(pythonArgs, tmp) {
   });
 }
 
+// ---- persistent service ---------------------------------------------------
+// One child process, one model load. Requests are queued and answered in
+// order — Whisper GPU work is not concurrency-safe so only one request is
+// in flight at a time anyway.
+const svc = {
+  child: null,
+  ready: false,
+  broken: false,
+  buffer: '',
+  pending: null,       // {id, resolve, reject, timer}
+  queue: [],           // waiting requests {req, resolve, reject}
+  nextId: 0,
+};
+
+function svcSpawn() {
+  if (svc.child || svc.broken) return;
+  const child = spawn(WHISPER_PYTHON, [SERVICE_SCRIPT, WHISPER_MODEL], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  svc.child = child;
+  svc.buffer = '';
+  child.stdout.on('data', (d) => {
+    svc.buffer += d;
+    let idx;
+    while ((idx = svc.buffer.indexOf('\n')) >= 0) {
+      const line = svc.buffer.slice(0, idx).trim();
+      svc.buffer = svc.buffer.slice(idx + 1);
+      if (line === 'ready') { svc.ready = true; svcFlush(); continue; }
+      if (!line) continue;
+      let msg = null;
+      try { msg = JSON.parse(line); } catch { continue; }
+      const p = svc.pending;
+      if (p && p.id === msg.id) {
+        svc.pending = null;
+        clearTimeout(p.timer);
+        if (msg.error) p.reject(new Error(`whisper service: ${msg.error}`));
+        else p.resolve(msg.langs);
+        svcFlush();
+      }
+    }
+  });
+  child.on('error', () => svcKill());
+  child.on('close', () => {
+    // Died mid-request or during startup — fail fast; callers fall back.
+    svc.broken = true;
+    svcKill();
+  });
+  process.on('exit', () => { try { svc.child?.kill('SIGKILL'); } catch {} });
+}
+
+function svcKill() {
+  const p = svc.pending;
+  svc.pending = null;
+  if (p) { clearTimeout(p.timer); p.reject(new Error('whisper service died')); }
+  const waiting = svc.queue.splice(0);
+  for (const w of waiting) w.reject(new Error('whisper service died'));
+  try { svc.child?.kill('SIGKILL'); } catch {}
+  svc.child = null;
+  svc.ready = false;
+}
+
+// Dispatch queued requests while the service is ready and idle.
+function svcFlush() {
+  if (!svc.ready || svc.pending || !svc.queue.length) return;
+  const { req, resolve, reject } = svc.queue.shift();
+  const timer = setTimeout(() => {
+    svc.pending = null;
+    reject(new Error('whisper service request timed out'));
+    svcFlush();
+  }, DETECT_TIMEOUT_MS);
+  svc.pending = { id: req.id, resolve, reject, timer };
+  try {
+    svc.child.stdin.write(JSON.stringify(req) + '\n');
+  } catch (e) {
+    clearTimeout(timer);
+    svc.pending = null;
+    reject(e);
+    svcFlush();
+  }
+}
+
+function svcDetect(request) {
+  return new Promise((resolve, reject) => {
+    svcSpawn();
+    if (!svc.child) return reject(new Error('whisper service unavailable'));
+    svc.queue.push({ req: { id: ++svc.nextId, ...request }, resolve, reject });
+    svcFlush();
+  });
+}
+
 async function withTmpWav(wavBuffer, fn) {
   const tmp = path.join(
     os.tmpdir(),
@@ -81,7 +179,13 @@ async function withTmpWav(wavBuffer, fn) {
 // Returns the detected ISO language code ('en', 'ar', ...) or throws.
 export async function detectLanguageFromWav(wavBuffer) {
   return withTmpWav(wavBuffer, async (tmp) => {
-    const out = await runWhisper(['-c', PY_SNIPPET, tmp], tmp);
+    if (USE_SERVICE && !svc.broken) {
+      try {
+        const langs = await svcDetect({ path: tmp, mode: 'transcribe' });
+        return langs[langs.length - 1];
+      } catch { /* fall through to legacy spawn */ }
+    }
+    const out = await runWhisper(['-c', PY_SNIPPET, tmp]);
     return out.split('\n').pop();
   });
 }
@@ -91,7 +195,12 @@ export async function detectLanguageFromWav(wavBuffer) {
 // and a 5s window hides a sub-window blip inside the dominant language.
 export async function detectLanguagesWindowed(wavBuffer, windowSec = 3) {
   return withTmpWav(wavBuffer, async (tmp) => {
-    const out = await runWhisper(['-c', PY_SNIPPET_WINDOWED, tmp, String(windowSec)], tmp);
+    if (USE_SERVICE && !svc.broken) {
+      try {
+        return await svcDetect({ path: tmp, window: windowSec });
+      } catch { /* fall through to legacy spawn */ }
+    }
+    const out = await runWhisper(['-c', PY_SNIPPET_WINDOWED, tmp, String(windowSec)]);
     return out.split('\n').map((l) => l.trim()).filter(Boolean);
   });
 }
