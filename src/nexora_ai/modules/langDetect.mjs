@@ -25,7 +25,10 @@ const USE_SERVICE = process.env.WHISPER_NO_SERVICE !== '1';
 // Legacy per-clip fallback snippets (model loaded inside Python each call).
 const PY_SNIPPET_WINDOWED = `import sys, whisper, warnings
 warnings.filterwarnings('ignore')
-m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
+try:
+    m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
+except Exception:
+    m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)}, device='cpu')
 audio = whisper.load_audio(sys.argv[1])
 sr = 16000
 win = int(float(sys.argv[2]) * sr)
@@ -100,7 +103,12 @@ function svcSpawn() {
     while ((idx = svc.buffer.indexOf('\n')) >= 0) {
       const line = svc.buffer.slice(0, idx).trim();
       svc.buffer = svc.buffer.slice(idx + 1);
-      if (line === 'ready') { svc.ready = true; svcFlush(); continue; }
+      if (line.startsWith('ready')) {
+        svc.ready = true;
+        console.log(`[lang-detect] whisper service ready (${line.slice(6) || 'cuda'})`);
+        svcFlush();
+        continue;
+      }
       if (!line) continue;
       let msg = null;
       try { msg = JSON.parse(line); } catch { continue; }

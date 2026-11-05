@@ -8,6 +8,7 @@
 #   -> {"id": 3, "error": "..."}
 # Prints "ready" on stdout once the model is loaded.
 import sys
+import os
 import json
 import warnings
 
@@ -38,10 +39,28 @@ def transcribe_lang(path):
     return [m.transcribe(path)['language']]
 
 
+def pick_device():
+    # GPU only when there is real headroom — the CUDA context alone costs
+    # ~4-5 GiB, and a failed allocation by ANOTHER process (VoxCPM, Ollama)
+    # kills that process. Override with WHISPER_DEVICE=cuda|cpu.
+    forced = os.environ.get('WHISPER_DEVICE')
+    if forced:
+        return forced
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return 'cpu'
+        free, _total = torch.cuda.mem_get_info()
+        return 'cuda' if free > 7 * (1024**3) else 'cpu'
+    except Exception:
+        return 'cpu'
+
+
 def main():
     global m
-    m = whisper.load_model(MODEL)
-    print('ready', flush=True)
+    m = whisper.load_model(MODEL, device=pick_device())
+    device = next(m.parameters()).device.type
+    print(f'ready {device}', flush=True)
     for line in sys.stdin:
         line = line.strip()
         if not line:

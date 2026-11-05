@@ -26,7 +26,9 @@ export const LANGUAGES = [
   { code: 'es', name: 'Spanish', label: 'Español', speechLang: 'es-ES',
     voiceSuffix: 'es', durationRatio: { min: 0.6, max: 1.7 }, textCheck: 'franc:spa' },
   { code: 'zh', name: 'Chinese', label: '中文', speechLang: 'zh-CN',
-    voiceSuffix: 'zh', durationRatio: { min: 0.3, max: 1.2 }, textCheck: 'script' },
+    // Chinese narration is denser — observed 0.82–1.07 on the reference
+    // lecture, so the band sits lower than the Latin-script languages.
+    voiceSuffix: 'zh', durationRatio: { min: 0.5, max: 1.3 }, textCheck: 'script' },
 ];
 
 export const LANGUAGE_CODES = Object.freeze(LANGUAGES.map((l) => l.code));
