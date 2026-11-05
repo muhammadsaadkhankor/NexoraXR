@@ -29,7 +29,7 @@ import {
 import { dbAvailable, persist, queries } from "./persistence/userMemoryDb.mjs";
 import { initDb, getPool } from "./db/pool.mjs";
 import authRouter from "./auth/routes.mjs";
-import { registerDocument, ingestDocument } from "./courses/pipeline.mjs";
+import { registerDocument, ingestDocument, resumeInterruptedDocs } from "./courses/pipeline.mjs";
 import { startBuild, runBuild, runAudioPhase, runTranslationPhase, buildRunning, buildStatus, resumeInterrupted } from "./courses/builds.mjs";
 import { loadLectureDraft, saveLectureDraft, saveLectureFullDraft, saveLectureLangDraft,
          loadLectureLangDraft, invalidateSegmentAudio, textFingerprintForBake,
@@ -2574,6 +2574,7 @@ initDb().then(async () => {
   roomRegistry.setPool(getPool());
   await roomRegistry.hydrate(getPool());
   resumeInterrupted();
+  resumeInterruptedDocs();
 }).catch((e) => console.error('[db] init failed:', e.message));
 
 httpServer.listen(port, '0.0.0.0', () => {

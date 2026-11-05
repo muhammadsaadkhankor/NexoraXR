@@ -163,20 +163,22 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
   // proposed per-document lecture plan. Failed docs abort immediately with
   // their real error — no 4-minute wait for a dead document.
   const pollPlanPreview = async (courseId, expectedDocs) => {
+    let lastP = null;
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, 2000));
       const p = await fetch(`${API_URL}/api/courses/${courseId}/plan-preview`, { credentials: 'include' })
         .then((r) => r.json()).catch(() => null);
+      if (p) lastP = p;
       if (p?.failed?.length) {
         const names = p.failed.map((f) => `${f.filename}: ${f.error}`).join('; ');
-        throw new Error(`Document extraction failed: ${names}`);
+        throw new Error(`Document extraction failed — ${names}`);
       }
       if (p?.lectures?.length >= expectedDocs) return p;
       if (p?.ready != null && p.ready < expectedDocs && i % 5 === 0) {
         setStatus(`Reading your documents · ${p.ready}/${expectedDocs} ready…`);
       }
     }
-    return null;
+    return lastP; // may have no lectures — callers surface its failed list
   };
 
   const fileToDataUrl = (file) => new Promise((res, rej) => {
@@ -386,7 +388,12 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         const preview = await pollPlanPreview(course.id, files.length);
         if (!preview?.lectures?.length) {
           // Stay in the modal — navigating now would land on an empty course.
-          setError('Documents were uploaded but none produced usable text (image-only or corrupt PDF). Retry extraction or replace the file.');
+          // Show the real per-document error when the server recorded one;
+          // "still processing" means ingest was interrupted — offer retry.
+          const detail = preview?.failed?.length
+            ? ` ${preview.failed.map((f) => `${f.filename}: ${f.error}`).join('; ')}`
+            : ' (ingestion may have been interrupted — use Retry).';
+          setError(`No lectures could be built from the uploaded documents.${detail}`);
           setStatus(null);
           setSubmitting(false);
           setCanRetryIngest(true);
@@ -430,7 +437,10 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       setStatus('Retrying document extraction…');
       const preview = await pollPlanPreview(ctx.courseId, files.length || ctx.count);
       if (!preview?.lectures?.length) {
-        setError('Extraction produced no usable text. Try a PDF with a text layer or clearer scans.');
+        const detail = preview?.failed?.length
+          ? ` ${preview.failed.map((f) => `${f.filename}: ${f.error}`).join('; ')}`
+          : ' Try a PDF with a text layer or clearer scans.';
+        setError(`Extraction produced no usable lectures.${detail}`);
         setCanRetryIngest(true);
         setStatus(null);
         return;

@@ -209,11 +209,16 @@ export async function ingestDocument(docId) {
   const doc = rows[0];
   if (!doc) return;
   await pool.query(`UPDATE course_documents SET status='processing', error=NULL WHERE id=$1`, [docId]);
+  // Track the failing stage so course_documents.error tells the instructor
+  // WHERE it broke ("Embedding service unavailable: ..."), not just what.
+  let stage = 'Reading file';
   try {
     const file = path.join(MATERIALS_DIR, doc.room_id, doc.filename);
     const buf = await fsp.readFile(file);
+    stage = 'PDF text extraction';
     const { pages, pageTexts, infoTitle } = await parsePdfPages(buf);
     // Sparse/image-only pages get OCR; normal PDFs skip it entirely.
+    stage = 'OCR';
     const { texts: filledTexts, ocrPages, ocrFailed } = await fillMissingText(file, pageTexts);
     const effectiveTexts = filledTexts.length ? filledTexts : [buf.toString('utf8')];
     const sections = parseSections(effectiveTexts);
@@ -244,6 +249,7 @@ export async function ingestDocument(docId) {
 
     for (let i = 0; i < allChunks.length; i += EMBED_BATCH) {
       const slice = allChunks.slice(i, i + EMBED_BATCH);
+      stage = `Embedding (batch ${Math.floor(i / EMBED_BATCH) + 1})`;
       const vectors = await embed(slice.map((c) => `${c.heading}\n${c.text}`));
       for (let j = 0; j < slice.length; j++) {
         const c = slice[j];
@@ -274,9 +280,26 @@ export async function ingestDocument(docId) {
     console.log(`[course] ingested ${doc.filename}: ${sections.length} sections, ${allChunks.length} chunks`);
   } catch (err) {
     await pool.query(`UPDATE course_documents SET status='failed', error=$2 WHERE id=$1`,
-      [docId, String(err.message || err).slice(0, 400)]);
+      [docId, `${stage} failed: ${String(err.message || err)}`.slice(0, 400)]);
     console.error(`[course] ingest failed for ${doc.filename}:`, err.message);
   }
+}
+
+// Boot-time recovery: a doc left 'processing' means the server died
+// mid-ingest — the catch in ingestDocument never ran, so it would sit
+// forever and the client just sees "no usable text". Re-run it exactly
+// like resumeInterrupted() does for course_builds.
+export async function resumeInterruptedDocs() {
+  try {
+    const pool = getPool();
+    if (!pool) return;
+    const { rows } = await pool.query(
+      `SELECT id, filename FROM course_documents WHERE status='processing' ORDER BY created_at`);
+    for (const d of rows) {
+      console.log(`[course] resuming interrupted ingest for ${d.filename}`);
+      setImmediate(() => ingestDocument(d.id).catch(() => {}));
+    }
+  } catch (e) { console.error('[course] ingest resume scan failed:', e.message); }
 }
 
 // Register an uploaded file as a course document; dedup by content hash.
