@@ -153,16 +153,19 @@ export function snapshotLanguage(snapshot) {
 }
 
 // Language-switch rebuild plan. Returns the segment to rebuild from and
-// whether the queue head is the playing lecture segment. Prefers the local
-// queue position; falls back to the server's authoritative segmentIndex
-// hint when the local queue is empty/stale. Returns null when no position
-// is known — callers must NOT rebuild (rebuilding would restart from 0).
+// whether the queue head is the playing lecture segment. The segmentIndex
+// carried by the server's 'language-change' broadcast is AUTHORITATIVE —
+// a client's local queue head may already have advanced (the queue drains
+// while the broadcast is in flight), which left peers one segment apart
+// after a switch. The local position is used only when the broadcast
+// carries no hint (e.g. nothing playing yet server-side). Returns null
+// when no position is known — callers must NOT rebuild from 0.
 export function planLanguageSwitch(messages, hintSegmentIndex) {
   const msgs = messages || [];
   const pos = msgs.findIndex((m) => m.type === 'lecture' && /_seg_(\d+)$/.test(m.id || ''));
   const localIdx = pos >= 0 ? Number(msgs[pos].id.match(/_seg_(\d+)$/)[1]) : -1;
   const hint = Number.isInteger(hintSegmentIndex) && hintSegmentIndex >= 0 ? hintSegmentIndex : -1;
-  const curIdx = localIdx >= 0 ? localIdx : hint;
+  const curIdx = hint >= 0 ? hint : localIdx;
   if (curIdx < 0) return null;
   return { segmentIndex: curIdx, headIsLecture: pos === 0 };
 }

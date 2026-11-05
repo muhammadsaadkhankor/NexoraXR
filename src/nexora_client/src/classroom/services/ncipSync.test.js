@@ -267,14 +267,19 @@ test('S3-3. checkpoint language flows into lecture recovery plan', () => {
 
 const seg = (id, n) => ({ id: `${id}_seg_${n}`, type: 'lecture' });
 
-test('L1. local queue position wins; head lecture flagged', () => {
+test('L1. server hint is authoritative; head lecture flagged', () => {
   const msgs = [seg('Lecture_1', 3), seg('Lecture_1', 4)];
-  assert.deepEqual(planLanguageSwitch(msgs, 0), { segmentIndex: 3, headIsLecture: true });
+  assert.deepEqual(planLanguageSwitch(msgs, 3), { segmentIndex: 3, headIsLecture: true });
+  // Local head already advanced past the broadcast — the server position
+  // still wins so every client rebuilds from the SAME segment.
+  assert.deepEqual(planLanguageSwitch(msgs, 2), { segmentIndex: 2, headIsLecture: true });
 });
 
 test('L2. answer head => rebuild goes behind it', () => {
   const msgs = [{ id: 'ans1', type: 'answer' }, seg('Lecture_1', 5)];
   assert.deepEqual(planLanguageSwitch(msgs, null), { segmentIndex: 5, headIsLecture: false });
+  // Hint still wins for position; the rebuild lands behind the answer.
+  assert.deepEqual(planLanguageSwitch(msgs, 4), { segmentIndex: 4, headIsLecture: false });
 });
 
 test('L3. empty queue uses server hint — never falls back to 0', () => {
