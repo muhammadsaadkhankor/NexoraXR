@@ -27,8 +27,10 @@ else
 fi
 
 echo "[*] Starting vLLM-Omni VoxCPM2 on port 8010..."
+# VoxCPM's share of the GPU — lower it to leave room for Ollama/Whisper
+# during multilingual bakes (export VOXCPM_GPU_MEM_UTIL, default 0.35).
 nohup vllm serve openbmb/VoxCPM2 --omni --host 0.0.0.0 --port 8010 \
-  --gpu-memory-utilization 0.35 \
+  --gpu-memory-utilization "${VOXCPM_GPU_MEM_UTIL:-0.35}" \
   --allowed-local-media-path "$(pwd)" > logs/voxcpm.log 2>&1 &
 VOXPID=$!
 

@@ -218,6 +218,9 @@ export async function translateForLecture(text, lang, ctx = {}) {
         // (Cyrillic/Thai inside Arabic, invented vocabulary) that was worse
         // than retrying near-deterministically.
         numPredict: 800, translate: true, keepAlive: '30m',
+        // Small context is plenty for one narration segment — it keeps the
+        // KV cache compact so the model coexists with TTS on the GPU.
+        ollamaOptions: { num_ctx: 2048 },
         temperature: Math.min(0.2 + 0.05 * (attempt - 1), 0.3),
       });
     } catch (e) {

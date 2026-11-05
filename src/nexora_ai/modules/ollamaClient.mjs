@@ -47,12 +47,19 @@ export async function generate(prompt, opts = {}) {
 
 // Evict a model from memory (GPU/CPU) so a different service — VoxCPM2 TTS —
 // can claim the VRAM. Call after the translation phase, before audio bake.
-export async function unloadModel(model = OLLAMA_TRANSLATE_MODEL) {
-  try {
-    await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: '', keep_alive: 0, stream: false }),
-    });
-  } catch { /* best-effort — an unreachable Ollama is fine here */ }
+// Default evicts BOTH the translation model and the main model — the
+// translate keep_alive (30m) otherwise keeps weights resident through the
+// whole bake even after an explicit unload of the other model.
+export async function unloadModel(model = null) {
+  const models = model ? [model]
+    : [...new Set([OLLAMA_TRANSLATE_MODEL, OLLAMA_MODEL])];
+  for (const m of models) {
+    try {
+      await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: m, prompt: '', keep_alive: 0, stream: false }),
+      });
+    } catch { /* best-effort — an unreachable Ollama is fine here */ }
+  }
 }
