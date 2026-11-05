@@ -853,9 +853,8 @@ const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SERVER_DIR, '..', '..');
 
 // Display names for user-facing language readiness errors.
-const LECTURE_LANG_LABELS = {
-  en: 'English', ar: 'Arabic', fr: 'French', de: 'German', es: 'Spanish', zh: 'Chinese',
-};
+import { LANGUAGE_NAMES } from '../shared/languages.mjs';
+const LECTURE_LANG_LABELS = LANGUAGE_NAMES;
 const MATERIALS_DIR = path.join(SERVER_DIR, 'uploads', 'materials');
 const PDF_MAX = 25 * 1024 * 1024;
 const FILES_MAX = 8;

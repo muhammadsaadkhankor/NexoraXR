@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { API_URL } from '../shared/config';
+import { API_URL, CLASSROOM_LANGUAGE_CODES } from '../shared/config';
 import { getMe } from '../shared/auth';
 
-const LANGS = ['en', 'ar', 'fr', 'de', 'es', 'zh'];
+const LANGS = CLASSROOM_LANGUAGE_CODES;
 // Per-language readiness → chip styling. 'preparing' overlays whatever the
 // disk state is while a translation/audio build runs.
 const LANG_STYLE = {

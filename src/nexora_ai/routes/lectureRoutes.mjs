@@ -163,16 +163,8 @@ function splitSummaryText(text, maxWords = 140) {
   return finalSegments;
 }
 
-const LECTURE_LANGUAGES = {
-  en: 'English',
-  ar: 'Arabic',
-  fr: 'French',
-  de: 'German',
-  es: 'Spanish',
-  zh: 'Chinese',
-  // 'hi' intentionally absent — VoxCPM2 produces garbled Hindi (verified);
-  // re-enable only with a verified Hindi-capable voice/model.
-};
+import { LANGUAGE_NAMES, LANGUAGE_CODES } from '../../shared/languages.mjs';
+const LECTURE_LANGUAGES = LANGUAGE_NAMES;
 
 function normalizeLang(lang) {
   return lang && LECTURE_LANGUAGES[lang] ? lang : 'en';
@@ -263,8 +255,9 @@ function cleanTextForTts(text) {
 
 // Derive the language from a segment cacheKey ('Lecture_1' => 'en',
 // 'Lecture_1__ar' => 'ar') so verified synthesis can check the output.
+const LANG_SUFFIX_RE = new RegExp(`__(${LANGUAGE_CODES.join('|')})$`);
 function langFromCacheKey(lectureId) {
-  const m = /__(en|ar|fr|de|es|zh)$/.exec(lectureId || '');
+  const m = LANG_SUFFIX_RE.exec(lectureId || '');
   return m ? m[1] : 'en';
 }
 

@@ -16,27 +16,22 @@ export function getParticipantId() {
   return id;
 }
 
-// Web Speech API BCP-47 recognition locales per room language.
-// 'hi' intentionally absent — Hindi is unsupported end-to-end (TTS unverified).
-export const SPEECH_RECOGNITION_LANGS = {
-  en: 'en-US',
-  ar: 'ar-SA',
-  fr: 'fr-FR',
-  de: 'de-DE',
-  es: 'es-ES',
-  zh: 'zh-CN',
-};
+// Language support is defined ONCE for the whole app in
+// src/shared/languages.mjs — imported here and re-exported in the shapes
+// the client components already consume.
+import {
+  LANGUAGES,
+  LANGUAGE_CODES,
+  SPEECH_RECOGNITION_LANGS as _SPEECH,
+} from '../../../shared/languages.mjs';
 
-// Room languages offered by the classroom creation UI — mirrors the server's
-// SUPPORTED_LANGUAGES (single client-side source for dropdowns).
-export const CLASSROOM_LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'ar', label: 'العربية' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'es', label: 'Español' },
-  { code: 'zh', label: '中文' },
-];
+// Web Speech API BCP-47 recognition locales per room language.
+export const SPEECH_RECOGNITION_LANGS = _SPEECH;
+
+// Room languages offered by the classroom creation UI — same list the
+// server's SUPPORTED_LANGUAGES is derived from.
+export const CLASSROOM_LANGUAGES = LANGUAGES.map(({ code, label }) => ({ code, label }));
+export const CLASSROOM_LANGUAGE_CODES = LANGUAGE_CODES;
 
 // Create-classroom form validation (mirrors server-side registry checks).
 export function validateClassroomDraft({ className, lectureId, language } = {}) {

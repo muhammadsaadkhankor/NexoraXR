@@ -16,7 +16,7 @@ import { useSpeech } from './hooks/useSpeech';
 import { useVoiceChat } from './hooks/useVoiceChat';
 import { classifyEvent, snapshotIsStale, snapshotFloor, planLectureRecovery, planAnswerRecovery, planLanguageSwitch, resolveSlidePage, resolveSlideDoc, shouldAcceptLectureUnit } from './services/ncipSync';
 import { syncLectureClock } from './lectureClock';
-import { API_URL, getParticipantId } from '../shared/config';
+import { API_URL, getParticipantId, CLASSROOM_LANGUAGES } from '../shared/config';
 import { classroomSlug } from '../shared/classroomUrl';
 import { getGuestToken, setGuestToken, getMe } from '../shared/auth';
 import { getBranding } from '../shared/branding';
@@ -123,15 +123,7 @@ function ClassroomPanel({
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
 
-  const LANGUAGES = [
-    { code: 'en', label: 'English' },
-    { code: 'ar', label: 'العربية' },
-    { code: 'fr', label: 'Français' },
-    { code: 'de', label: 'Deutsch' },
-    { code: 'es', label: 'Español' },
-    { code: 'zh', label: '中文' },
-    // 'hi' intentionally not offered — VoxCPM2 Hindi output is unverified/garbled.
-  ];
+  const LANGUAGES = CLASSROOM_LANGUAGES;
   const currentLangLabel = LANGUAGES.find((l) => l.code === language)?.label || 'English';
 
   let buttonLabel = 'Start Class';

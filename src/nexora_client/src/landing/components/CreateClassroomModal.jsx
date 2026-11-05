@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, FileText, Upload, Plus } from 'lucide-react';
-import { API_URL } from '../../shared/config';
+import { API_URL, CLASSROOM_LANGUAGE_CODES } from '../../shared/config';
 
 const MAX_PDFS = 8;
 const MAX_PDF_MB = 25;
@@ -34,7 +34,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
   const [lectureMinutes, setLectureMinutes] = useState(10); // narration duration target
   const [planAmbiguous, setPlanAmbiguous] = useState(false);
   const [drafts, setDrafts] = useState(null);
-  const [audioLangs] = useState(['en', 'ar', 'fr', 'de', 'es', 'zh']);
+  const [audioLangs] = useState([...CLASSROOM_LANGUAGE_CODES]);
   const [approveBlocked, setApproveBlocked] = useState(null);
   const [approving, setApproving] = useState(false);
   const [canRetryIngest, setCanRetryIngest] = useState(false);

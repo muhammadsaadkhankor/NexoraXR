@@ -18,8 +18,9 @@ const PROFBRAIN_DIR = path.resolve(SERVER_DIR, '../../../profbrain/lectures');
 const SEGMENT_CACHE_ROOT = path.resolve(SERVER_DIR, '../../nexora_ai/lecture_cache/segments');
 
 // Languages the app supports for narration — canonical 'en' is the master
-// script; the rest are reviewable translations.
-export const TRANSLATION_LANGS = ['ar', 'fr', 'de', 'es', 'zh'];
+// script; the rest are reviewable translations (src/shared/languages.mjs).
+import { TRANSLATION_LANGUAGE_CODES } from '../../shared/languages.mjs';
+export const TRANSLATION_LANGS = [...TRANSLATION_LANGUAGE_CODES];
 
 // ---------------------------------------------------------------------------
 // Whole-script re-draft — the reviewer can paste a COMPLETE revised script

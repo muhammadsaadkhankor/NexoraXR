@@ -15,11 +15,9 @@ export const ProfessorStatus = Object.freeze({
   RESUMING: 'RESUMING',
 });
 
-// Room-wide languages — must stay in sync with LECTURE_LANGUAGES in
-// nexora_ai/routes/lectureRoutes.mjs and the client LANGUAGES list.
-export const SUPPORTED_LANGUAGES = Object.freeze(['en', 'ar', 'fr', 'de', 'es', 'zh']);
-// 'hi' intentionally excluded — VoxCPM2 Hindi output verified garbled; re-add
-// only with a verified Hindi-capable TTS backend/voice.
+// Room-wide languages — single source: src/shared/languages.mjs.
+import { LANGUAGE_CODES } from '../../shared/languages.mjs';
+export const SUPPORTED_LANGUAGES = LANGUAGE_CODES;
 
 const ev = (event, data, to = 'room') => ({ to, event, data });
 const FLOOR_STATE = { to: 'room', event: 'floor-state' };

@@ -65,6 +65,7 @@ export const DUR_RATIO_MAX = Number(process.env.COURSE_DUR_RATIO_MAX || 1.7);
 // Returns { ratios: {idx: ratio}, flagged: [{idx, ratio}] } — flagged
 // segments failed even after the single re-bake.
 export async function checkDurationRatios(lectureId, lang, segIds) {
+  const band = durationRatioBand(lang, { min: DUR_RATIO_MIN, max: DUR_RATIO_MAX });
   const ratios = {};
   const flagged = [];
   for (const i of segIds) {
@@ -72,7 +73,7 @@ export async function checkDurationRatios(lectureId, lang, segIds) {
     let ms = await segDurationMs(lectureId, i, lang);
     if (!enMs || !ms) continue;
     let ratio = ms / enMs;
-    if (ratio < DUR_RATIO_MIN || ratio > DUR_RATIO_MAX) {
+    if (ratio < band.min || ratio > band.max) {
       console.warn(`[bake] duration off-ratio ${lectureId}/${lang} seg=${i} ` +
         `ratio=${ratio.toFixed(2)} (en ${(enMs / 1000).toFixed(1)}s vs ${(ms / 1000).toFixed(1)}s) — re-baking once`);
       await fsp.rm(audioPath(lectureId, i, lang), { force: true }).catch(() => {});
@@ -86,7 +87,7 @@ export async function checkDurationRatios(lectureId, lang, segIds) {
       ratio = ms && enMs ? ms / enMs : 0;
     }
     ratios[i] = Number(ratio.toFixed(2));
-    if (ratio < DUR_RATIO_MIN || ratio > DUR_RATIO_MAX) {
+    if (ratio < band.min || ratio > band.max) {
       flagged.push({ idx: i, ratio: Number(ratio.toFixed(2)) });
       // A failed segment must not play — remove the wav so the readiness
       // gate reports the language incomplete instead of airing bad audio.
@@ -209,7 +210,8 @@ async function warmLectureUtterances(lectureId, lang) {
 // Languages baked ahead of time — instructor selects which; the default is
 // only the teaching language (fast path). Legacy callers with no selection
 // fall back to COURSE_BAKE_LANGS (env, default all) so older flows work.
-const BAKE_LANGS = (process.env.COURSE_BAKE_LANGS || 'en,ar,fr,de,es,zh')
+import { LANGUAGE_CODES, durationRatioBand } from '../../shared/languages.mjs';
+const BAKE_LANGS = (process.env.COURSE_BAKE_LANGS || LANGUAGE_CODES.join(','))
   .split(',').map((s) => s.trim()).filter(Boolean);
 
 // Verify a whole course: every lecture has complete audio in the selected
@@ -243,8 +245,9 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
             l.lecture_id, lang, Object.keys(r.segmentMs).map(Number));
           timings[`ratios:${l.lecture_id}@${lang}`] = ratios;
           if (flagged.length) {
+            const band = durationRatioBand(lang, { min: DUR_RATIO_MIN, max: DUR_RATIO_MAX });
             errs.push(`${lang}: ${flagged.length} segment(s) outside ` +
-              `${DUR_RATIO_MIN}–${DUR_RATIO_MAX} duration band ` +
+              `${band.min}–${band.max} duration band ` +
               `(${flagged.map((f) => `seg${f.idx}@${f.ratio}`).join(',')})`);
             await getPool().query(
               `UPDATE course_lectures SET artifacts = artifacts ||
