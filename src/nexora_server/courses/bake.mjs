@@ -113,6 +113,13 @@ export async function bakeLecture(lectureId, lang = 'en') {
     await Promise.all(batch.map(async (seg, j) => {
       const idx = seg.id ?? i + j;
       try {
+        // Never bake English source text into a non-English bucket — the
+        // manifest marks untranslated segments pendingTranslation; the
+        // language fails instead of silently airing English.
+        if (seg.pendingTranslation) {
+          missing.push({ idx, error: 'no translated text (translation stage incomplete)' });
+          return;
+        }
         const p = audioPath(lectureId, idx, lang);
         // generateSegmentAudio derives dir + lang FROM the id — pass the
         // lang-keyed cacheKey (gen_L1__ar), not the base lectureId, or

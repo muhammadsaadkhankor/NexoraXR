@@ -397,26 +397,24 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
       }
     }
 
-    // Audio exists but the translated text wasn't persisted (older bake):
-    // serve the audio now and fill the text cache in the background so the
-    // NEXT request shows the translated transcript.
-    if (segText === null && lang !== 'en' && existsSync(audioPath)) {
-      segText = texts[i];
-      try {
-        lipsync = JSON.parse(await fs.readFile(lipsyncPath, 'utf-8'));
-      } catch {}
-      const srcText = texts[i];
-      translateForLecture(srcText, lang, { lectureId, segmentId: i })
-        .then((t) => fs.writeFile(textPath, t))
-        .catch(() => {});
-    }
-
+    // Requests NEVER trigger translation — translated text is produced only
+    // by the build/translation pipeline (prepareTranslations mirrors it into
+    // this cache). A non-English segment without persisted text serves the
+    // English source flagged `pendingTranslation` so the UI can show what
+    // is ready; the readiness gate (isLanguageReady) keeps rooms off
+    // incomplete languages anyway. English still persists its canonical
+    // text for the legacy lazy-TTS path.
+    let pendingTranslation = false;
     if (segText === null) {
-      segText = await translateForLecture(texts[i], lang, { lectureId, segmentId: i });
-      // Persist the segment text so the audio endpoint can synthesize lazily.
-      const dir = segmentCacheDir(cacheKey);
-      if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(textPath, segText).catch(() => {});
+      if (lang === 'en') {
+        segText = texts[i];
+        const dir = segmentCacheDir(cacheKey);
+        if (!existsSync(dir)) await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(textPath, segText).catch(() => {});
+      } else {
+        segText = texts[i];
+        pendingTranslation = true;
+      }
     }
     // Audio/lipsync are generated lazily by /lecture/segment_audio on first
     // play — building all segments' TTS inside the manifest request blocks
@@ -438,6 +436,7 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
         : (() => { const m = slideMap?.segments?.[String(i)];
             return typeof m === 'object' && m !== null ? m.page : (Number(m) || null); })(),
       slideDoc: segList ? (segList[i]?.document ?? null) : null,
+      ...(pendingTranslation ? { pendingTranslation: true } : {}),
     });
   }
 
@@ -672,9 +671,11 @@ router.get('/lecture/segment_audio/:lectureId/:segmentId', async (req, res) => {
   const { lectureId, segmentId } = req.params;
   const index = Number(segmentId);
   const audioPath = segmentAudioPath(lectureId, index);
-  // Lazy generation: manifests no longer pre-bake audio, so a first-play miss
-  // synthesizes (and caches) the segment on demand from its persisted text.
-  if (!existsSync(audioPath)) {
+  // Lazy generation is an ENGLISH-ONLY legacy path — non-English audio is
+  // produced exclusively by the course build/bake pipeline, so a request
+  // for a missing translated clip gets a clean 404 instead of a mid-lecture
+  // TTS storm. (First-play English lectures still synthesize on demand.)
+  if (!existsSync(audioPath) && !/__/.test(lectureId)) {
     const textPath = path.join(segmentCacheDir(lectureId), `segment_${String(index).padStart(3, '0')}.txt`);
     if (!existsSync(textPath)) {
       return res.status(404).json({ error: 'Segment audio not found' });
