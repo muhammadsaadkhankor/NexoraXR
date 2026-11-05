@@ -1,0 +1,131 @@
+{
+  "at": "2026-11-04T17:44:48.781Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c369cee2c9dd693d84246ce5d2209d8bf4e850545cb96d4474a4dbce083ebb29",
+  "courseId": "18b7cc52-97d5-4994-b91e-d2fcd3ac15b1",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 1089,
+  "estimatedMinutes": 15.125,
+  "llmCalls": 9,
+  "llmUsage": {
+    "promptTokens": 6804,
+    "genTokens": 2140,
+    "loadDurationMs": 1075,
+    "promptEvalMs": 1512,
+    "evalMs": 41005,
+    "totalMs": 44286
+  },
+  "promptChars": 28625,
+  "approxPromptTokens": 8179,
+  "revisionCycles": null,
+  "elapsedMs": 44336,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 6 segments",
+      "instructional coverage 32% — no narration on: \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"14 Why ML?\" p.14, \"Big Picture of ML\" p.18, \"Page 19\" p.19, \"20 A Regression Example\" p.20 (+8 more)"
+    ],
+    "warnings": [
+      "segment -1: page 11 → 1 (outside Lec1_Introduction.pdf p.1–1)",
+      "topics omitted from narration: Page 16; Page 23; Page 26; An RL Example; Page 28; Page 29; 30 The Generalized ML: an Example An example: How to play the super mario game?"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning, its real-world applications, and its mathematical underpinnings.",
+    "objective": "Understand the foundational concepts of Machine Learning, its real-world applications, and its mathematical underpinnings.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding the core definition of ML is essential to grasp its purpose and scope.",
+        "examples": [
+          "What is Machine Learning (ML)?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Mathematical Foundations of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "ML relies on probability, linear algebra, and calculus to model and analyze data.",
+        "examples": [
+          "Mathematical foundation: probability theory, linear algebra, and calculus."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 1,
+            "pageEnd": 1
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Understanding practical applications helps contextualize ML in everyday life and industry.",
+        "examples": [
+          "ML in Real Life: Smart Assistants",
+          "ML in Real Life: Advertising",
+          "ML in EE: Electrical Load Prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Big Picture of ML",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "The big picture helps students visualize how ML works across different tasks and domains.",
+        "examples": [
+          "Big Picture of ML",
+          "Big Picture of ML (Cont.) Taking picking fruits as an example..."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 19
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Page 16",
+      "Page 23",
+      "Page 26",
+      "An RL Example",
+      "Page 28",
+      "Page 29",
+      "30 The Generalized ML: an Example An example: How to play the super mario game?"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 13,
+    "withDoc": 13,
+    "withPage": 13
+  },
+  "adminLeakSegments": 1,
+  "repetitionFindings": 6
+}
