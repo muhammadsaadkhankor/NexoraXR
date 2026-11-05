@@ -295,6 +295,10 @@ img {
   gap: 32px;
 }
 
+.navbar__nav-actions {
+  display: none;
+}
+
 .navbar__nav a {
   color: var(--text-secondary);
   font-size: 0.95rem;
@@ -824,6 +828,22 @@ img {
 
   .navbar__nav--open {
     display: flex;
+  }
+
+  .navbar__nav-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .navbar__nav-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
   }
 
   .navbar__toggle {

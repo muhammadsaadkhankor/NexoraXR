@@ -56,3 +56,6 @@ src/nexora_server/uploads/
 # Asset archive downloads
 /src/WuFlux_assets.zip
 /src/assets*.zip
+/CLASSROOM_CREATION_PIPELINE.md
+/NEXORA_TECHNICAL_ANSWERS.md
+/docs/database_roles_report.md

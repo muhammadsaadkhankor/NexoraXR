@@ -19,7 +19,7 @@ export function getBranding() {
 
 export function applyBranding(b) {
   if (!b) return;
-  if (b.appName) document.title = `${b.appName} — Learning Without Limits`;
+  if (b.appName) document.title = b.appName;
   const icon = b.faviconUrl ? `${API_URL}${b.faviconUrl}` : b.logoUrl ? `${API_URL}${b.logoUrl}` : null;
   if (icon) {
     let link = document.querySelector("link[rel~='icon']");

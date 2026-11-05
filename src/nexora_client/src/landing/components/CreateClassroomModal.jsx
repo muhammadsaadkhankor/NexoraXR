@@ -95,7 +95,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       setStatus((STEP_LABEL[step]
         ? `${STEP_LABEL[step]}${progress ? ` (${progress})` : ''}`
         : BUILD_MSGS[(Math.random() * BUILD_MSGS.length) | 0])
-        + (long ? ' — still working, progress is preserved even if you close this window' : ''));
+        + (long ? '. Still working, progress is preserved even if you close this window' : ''));
       if (step === 'awaiting_review') return st.build?.stats?.stage || 'scripts';
       if (step === 'ready') {
         if (reviewRef.current) reviewRef.current.firstLecture = st.lectures?.[0]?.lectureId || null;
@@ -107,7 +107,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         // approving again. Pre-script failures still need a rebuild.
         const retryable = ['translations', 'audio', 'validating'].includes(st.build?.stats?.stage);
         setError(retryable
-          ? `Audio generation failed: ${st.build.error || 'server error'}. Your scripts are saved — fix the issue and press "Retry Missing Audio" to continue (already-baked segments are reused).`
+          ? `Audio generation failed: ${st.build.error || 'server error'}. Your scripts are saved. Fix the issue and press "Retry Missing Audio" to continue (already-baked segments are reused).`
           : `Course build failed: ${st.build.error || 'server error'}. The classroom is created; you can rebuild later.`);
         return 'failed';
       }
@@ -147,7 +147,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         .then((r) => r.json()).catch(() => ({}));
       const room = (rooms.rooms || []).find((r) => r.courseId === cid);
       if (room) { onCreated({ ...room, generatedLectureId: reviewRef.current?.firstLecture }); return true; }
-      setStatus('All languages ready — open the classroom from your list.');
+      setStatus('All languages ready. Open the classroom from your list.');
     }
     return true; // handled (either still processing-failed or ready)
   };
@@ -169,7 +169,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         .then((r) => r.json()).catch(() => null);
       if (p?.failed?.length) {
         const names = p.failed.map((f) => `${f.filename}: ${f.error}`).join('; ');
-        throw new Error(`Document extraction failed — ${names}`);
+        throw new Error(`Document extraction failed: ${names}`);
       }
       if (p?.lectures?.length >= expectedDocs) return p;
       if (p?.ready != null && p.ready < expectedDocs && i % 5 === 0) {
@@ -228,7 +228,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
             list: ad.blocked,
             uncertain: ad.blocked.some((b) => /uncertain/i.test(b)),
           });
-          throw new Error('Approval blocked — see the list below.');
+          throw new Error('Approval blocked: see the list below.');
         }
         throw new Error(ad.error || 'Failed to start audio generation');
       }
@@ -244,7 +244,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       // gate (stale fingerprints, timeout) bounces back to script review.
       if (outcome !== 'failed') {
         await loadReviewDrafts(ctx.courseId);
-        setError((prev) => prev || 'Audio generation did not complete — review the scripts and press "Approve & Generate Audio" again.');
+        setError((prev) => prev || 'Audio generation did not complete. Review the scripts and press "Approve & Generate Audio" again.');
         setStatus(null);
       }
     } catch (err) {
@@ -275,7 +275,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           : { lectureCount: count, minutes: lectureMinutes }),
       }).catch(() => null);
       if (!br) {
-        throw new Error('Could not reach the server — it may be restarting. Try again in a few seconds.');
+        throw new Error('Could not reach the server. It may be restarting. Try again in a few seconds.');
       }
       if (!br.ok) {
         const bd = await br.json().catch(() => ({}));
@@ -430,7 +430,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       setStatus('Retrying document extraction…');
       const preview = await pollPlanPreview(ctx.courseId, files.length || ctx.count);
       if (!preview?.lectures?.length) {
-        setError('Extraction produced no usable text — try a PDF with a text layer or clearer scans.');
+        setError('Extraction produced no usable text. Try a PDF with a text layer or clearer scans.');
         setCanRetryIngest(true);
         setStatus(null);
         return;
@@ -464,11 +464,11 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           <div className="ccmodal__review">
             <p className="ccmodal__review-hint">
               Each uploaded PDF becomes one lecture. Confirm the order and
-              titles below — generation uses exactly this list.
+              titles below. Generation uses exactly this list.
             </p>
             {planAmbiguous && (
               <p className="ccmodal__error" style={{ textAlign: 'left' }}>
-                Could not determine lecture order from the filenames — the
+                Could not determine lecture order from the filenames. The
                 list below follows upload order. Reorder it if needed.
               </p>
             )}
@@ -516,7 +516,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           /* ---- Canonical script review (English) → one-click approve+bake ---- */
           <div className="ccmodal__review">
             <p className="ccmodal__review-hint">
-              Review each lecture's script — edit freely, or paste an improved
+              Review each lecture's script: edit freely, or paste an improved
               version (e.g. from ChatGPT). One click approves the scripts,
               translates them into AR · FR · DE · ES · ZH, and generates
               narrated audio in all six languages for every lecture.
@@ -532,13 +532,13 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                   </div>
                   {d.coverage?.recommendedMinutes ? (
                     <p className="ccmodal__error" style={{ textAlign: 'left', margin: '0 0 6px' }}>
-                      Full topic coverage needs ~{d.coverage.recommendedMinutes} min of narration —
+                      Full topic coverage needs ~{d.coverage.recommendedMinutes} min of narration.
                       increase the lecture minutes or accept the omissions below.
                     </p>
                   ) : null}
                   {d.coverage?.missing?.length ? (
                     <p className="ccmodal__error" style={{ textAlign: 'left', margin: '0 0 6px' }}>
-                      Possible missing topics: {d.coverage.missing.join('; ')} — expand the script or confirm the source lacks them.
+                      Possible missing topics: {d.coverage.missing.join('; ')}. Expand the script or confirm the source lacks them.
                     </p>
                   ) : null}
                   <textarea
@@ -656,7 +656,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
             </p>
             <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>
               {creatingNew
-                ? `Each PDF becomes one lecture — you'll confirm the order next.`
+                ? `Each PDF becomes one lecture. You'll confirm the order next.`
                 : `Materials for this course's lectures.`}
             </p>
             <input id='ccmodal-files' type='file' accept='application/pdf,.pdf' multiple hidden

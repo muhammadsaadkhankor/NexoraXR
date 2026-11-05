@@ -127,19 +127,19 @@ export default function SignInPage() {
           <div className='mt-2'>
             <p className='text-sm leading-relaxed text-emerald-300'>
               A confirmation link was generated for <strong>{email}</strong>.
-              In development it's printed to the backend terminal — open it to
+              In development it's printed to the backend terminal. Open it to
               finish creating your account.
             </p>
             <button onClick={() => setMode('register')}
               className='mt-6 w-full rounded-lg border border-slate-600 py-2.5 text-sm hover:bg-slate-800'>
-              ← Back — change my details
+              ← Back: change my details
             </button>
           </div>
         )}
 
         <div className='mt-6 border-t border-slate-800 pt-4 text-center'>
           <Link to='/' className='text-xs text-slate-400 hover:text-slate-200'>
-            ← Continue as guest — no account needed
+            ← Continue as guest, no account needed
           </Link>
         </div>
       </div>

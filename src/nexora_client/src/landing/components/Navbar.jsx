@@ -38,13 +38,32 @@ export default function Navbar() {
           <a href="#home" onClick={() => setOpen(false)}>Home</a>
           <a href="#philosophy" onClick={() => setOpen(false)}>About us</a>
           <a href="#contact" onClick={() => setOpen(false)}>Contact</a>
+          <div className="navbar__nav-actions">
+            {me?.role === 'SUPER_ADMIN' && (
+              <a href="/admin" className="btn btn-secondary btn-sm">Admin</a>
+            )}
+            {me?.role === 'INSTRUCTOR' && (
+              <a href="/panel" className="btn btn-secondary btn-sm" title="Instructor Portal">
+                <Settings2 size={14} /> Instructor Portal
+              </a>
+            )}
+            {me ? (
+              <button className="btn btn-primary btn-sm" onClick={() => { setOpen(false); doLogout() }}>
+                <LogOut size={14} /> Sign out
+              </button>
+            ) : (
+              <button className="btn btn-primary btn-sm" onClick={() => { setOpen(false); navigate('/signin') }}>
+                Sign in
+              </button>
+            )}
+          </div>
         </nav>
         <div className="navbar__actions">
           {me?.role === 'SUPER_ADMIN' && (
             <a href="/admin" className="btn btn-secondary btn-sm">Admin</a>
           )}
           {me?.role === 'INSTRUCTOR' && (
-            <a href="/panel" className="btn btn-secondary btn-sm" title="Instructor panel">
+            <a href="/panel" className="btn btn-secondary btn-sm" title="Instructor Portal">
               <Settings2 size={14} />
             </a>
           )}

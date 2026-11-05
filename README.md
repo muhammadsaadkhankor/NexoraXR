@@ -1,5 +1,16 @@
 # Dtalk
 
+## How to start
+
+```bash
+npm run db:start   # start the local database (first run downloads embedded PostgreSQL)
+npm run dev        # start frontend + backend
+```
+
+The backend refuses to start without a reachable database — if you see
+`Database is not running. Start it first with: npm run db:start`, run that command first.
+Stop the database with `npm run db:stop`. Data persists in `src/nexora_server/.pgdata` across restarts.
+
 ## Overview
 Dtalk is an interactive avatar system that combines 3D animation, speech synthesis, and natural language processing to create a responsive digital character.
 
