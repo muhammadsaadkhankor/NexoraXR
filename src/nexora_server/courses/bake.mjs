@@ -44,14 +44,68 @@ async function ttsReachable() {
   } catch { return false; }
 }
 
+const segTextPath = (lecId, i, lang = 'en') =>
+  path.join(SEG_CACHE, cacheKey(lecId, lang), `segment_${String(i).padStart(3, '0')}.txt`);
+
+const segDurationMs = async (lecId, i, lang) => {
+  try { return wavDurationMs(await fsp.readFile(audioPath(lecId, i, lang))); }
+  catch { return null; }
+};
+
+// Per-language narration pace differs — a translated clip that is far
+// shorter than the English segment is usually truncated synthesis, far
+// longer is usually a repetition loop. Ratios outside the band get ONE
+// re-bake; still bad → the segment is failed (wav removed) so the
+// instructor sees it and the readiness gate keeps the room off that
+// language. Band is env-tunable; calibrate from COURSE_DUR_RATIO_*.
+export const DUR_RATIO_MIN = Number(process.env.COURSE_DUR_RATIO_MIN || 0.6);
+export const DUR_RATIO_MAX = Number(process.env.COURSE_DUR_RATIO_MAX || 1.7);
+
+// Compare every segment's duration in `lang` against its English twin.
+// Returns { ratios: {idx: ratio}, flagged: [{idx, ratio}] } — flagged
+// segments failed even after the single re-bake.
+export async function checkDurationRatios(lectureId, lang, segIds) {
+  const ratios = {};
+  const flagged = [];
+  for (const i of segIds) {
+    const enMs = await segDurationMs(lectureId, i, 'en');
+    let ms = await segDurationMs(lectureId, i, lang);
+    if (!enMs || !ms) continue;
+    let ratio = ms / enMs;
+    if (ratio < DUR_RATIO_MIN || ratio > DUR_RATIO_MAX) {
+      console.warn(`[bake] duration off-ratio ${lectureId}/${lang} seg=${i} ` +
+        `ratio=${ratio.toFixed(2)} (en ${(enMs / 1000).toFixed(1)}s vs ${(ms / 1000).toFixed(1)}s) — re-baking once`);
+      await fsp.rm(audioPath(lectureId, i, lang), { force: true }).catch(() => {});
+      await fsp.rm(lipsyncPath(lectureId, i, lang), { force: true }).catch(() => {});
+      const txt = await fsp.readFile(segTextPath(lectureId, i, lang), 'utf-8').catch(() => null);
+      if (txt) {
+        try { await generateSegmentAudio(cacheKey(lectureId, lang), i, txt, lang); }
+        catch (e) { console.warn(`[bake] re-bake failed ${lectureId}/${lang} seg=${i}:`, e.message.slice(0, 120)); }
+      }
+      ms = await segDurationMs(lectureId, i, lang);
+      ratio = ms && enMs ? ms / enMs : 0;
+    }
+    ratios[i] = Number(ratio.toFixed(2));
+    if (ratio < DUR_RATIO_MIN || ratio > DUR_RATIO_MAX) {
+      flagged.push({ idx: i, ratio: Number(ratio.toFixed(2)) });
+      // A failed segment must not play — remove the wav so the readiness
+      // gate reports the language incomplete instead of airing bad audio.
+      await fsp.rm(audioPath(lectureId, i, lang), { force: true }).catch(() => {});
+    }
+  }
+  return { ratios, flagged };
+}
+
 // Bake one lecture: manifest → per-segment audio + lipsync marker + duration.
-// Returns {segments, durationMs, durationMin} or throws on unbakeable lecture.
+// Returns {segments, durationMs, durationMin, segmentMs} or throws on
+// unbakeable lecture.
 export async function bakeLecture(lectureId, lang = 'en') {
   const manifest = await loadLectureManifest(lectureId, lang);
   const segments = manifest.segments || [];
   if (!segments.length) throw new Error(`No segments for ${lectureId}`);
 
   let totalMs = 0;
+  const segmentMs = {};
   const missing = [];
   // Bounded concurrency — local TTS shouldn't be hammered.
   for (let i = 0; i < segments.length; i += CONCURRENCY) {
@@ -66,6 +120,7 @@ export async function bakeLecture(lectureId, lang = 'en') {
         if (!existsSync(p)) await generateSegmentAudio(cacheKey(lectureId, lang), idx, seg.text, lang);
         const wav = await fsp.readFile(p);
         totalMs += wavDurationMs(wav);
+        segmentMs[idx] = wavDurationMs(wav);
         // Marker artifact — provenance + duration metadata.
         await fsp.writeFile(lipsyncPath(lectureId, idx, lang), JSON.stringify({
           baked: true, segment: idx, lang, durationMs: wavDurationMs(wav),
@@ -79,7 +134,7 @@ export async function bakeLecture(lectureId, lang = 'en') {
   if (missing.length) {
     throw new Error(`${missing.length}/${segments.length} segments failed: ${missing[0].error}`);
   }
-  return { segments: segments.length, durationMs: totalMs, durationMin: totalMs / 60000 };
+  return { segments: segments.length, durationMs: totalMs, durationMin: totalMs / 60000, segmentMs };
 }
 
 // Pre-render every (doc,page) the lecture will show into the pdf_image render
@@ -174,6 +229,24 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
         await warmLectureUtterances(l.lecture_id, lang);
         langsDone.push(lang);
         timings[`${l.lecture_id}@${lang}`] = Date.now() - t0;
+        if (lang !== 'en') {
+          // Duration check for EVERY language — the English duration check
+          // alone let truncated/degenerate non-English clips through.
+          const { ratios, flagged } = await checkDurationRatios(
+            l.lecture_id, lang, Object.keys(r.segmentMs).map(Number));
+          timings[`ratios:${l.lecture_id}@${lang}`] = ratios;
+          if (flagged.length) {
+            errs.push(`${lang}: ${flagged.length} segment(s) outside ` +
+              `${DUR_RATIO_MIN}–${DUR_RATIO_MAX} duration band ` +
+              `(${flagged.map((f) => `seg${f.idx}@${f.ratio}`).join(',')})`);
+            await getPool().query(
+              `UPDATE course_lectures SET artifacts = artifacts ||
+                 jsonb_build_object('duration_flags',
+                   COALESCE(artifacts->'duration_flags','{}'::jsonb) || $2::jsonb)
+               WHERE lecture_id=$1`,
+              [l.lecture_id, JSON.stringify({ [lang]: flagged })]);
+          }
+        }
         if (lang === 'en') {
           const onTarget = audioOnTarget(r.durationMs);
           const entry = { idx: l.idx, lectureId: l.lecture_id, title: l.title, ...r, onTarget, timings };
