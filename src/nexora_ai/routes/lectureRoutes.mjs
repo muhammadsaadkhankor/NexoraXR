@@ -1030,6 +1030,115 @@ const UTTERANCE_INSTRUCTIONS = {
   group_recap: 'Several students have just joined, so before continuing, give a quick shared recap. Summarize the material they missed in 2-3 short sentences. Then give ONE key point from the LAST source material block (the segment they joined partway through). Do not introduce new material. End by naturally moving forward to continue the lecture. At most 5 short spoken sentences.',
 };
 
+// Pre-translated safety net — spoken when LLM generation fails language
+// validation after every retry. A non-English room must NEVER hear English;
+// a generic line is always preferable to a wrong-language utterance.
+export const UTTERANCE_FALLBACK_TEXT = {
+  opening: {
+    en: "Welcome. Let's get started with today's lecture.",
+    ar: 'مرحباً بكم. لنبدأ محاضرة اليوم.',
+    fr: "Bienvenue. Commençons le cours d'aujourd'hui.",
+    de: 'Willkommen. Beginnen wir mit der heutigen Vorlesung.',
+    es: 'Bienvenidos. Comencemos la clase de hoy.',
+    zh: '欢迎大家。我们开始今天的讲座。',
+  },
+  transition: {
+    en: "Let's continue.",
+    ar: 'لنكمل.',
+    fr: 'Continuons.',
+    de: "Weiter geht's.",
+    es: 'Continuemos.',
+    zh: '我们继续。',
+  },
+  reexplain: {
+    en: 'Let me explain that another way.',
+    ar: 'دعوني أشرح ذلك بطريقة أخرى.',
+    fr: "Laissez-moi l'expliquer autrement.",
+    de: 'Lassen Sie mich das anders erklären.',
+    es: 'Permítanme explicarlo de otra manera.',
+    zh: '让我换一种方式解释。',
+  },
+  closing_recap: {
+    en: "That covers today's lecture. Thank you for your attention.",
+    ar: 'بهذا تنتهي محاضرة اليوم. شكراً لحسن انتباهكم.',
+    fr: "Ceci conclut le cours d'aujourd'hui. Merci de votre attention.",
+    de: 'Damit ist die heutige Vorlesung abgeschlossen. Vielen Dank für Ihre Aufmerksamkeit.',
+    es: 'Con esto termina la clase de hoy. Gracias por su atención.',
+    zh: '今天的讲座就到这里。谢谢大家的聆听。',
+  },
+  group_recap: {
+    en: "Welcome to those who just joined — let's continue.",
+    ar: 'مرحباً بمن انضم إلينا للتو، لنكمل.',
+    fr: 'Bienvenue à ceux qui viennent de nous rejoindre — continuons.',
+    de: 'Willkommen den neu Hinzugekommenen — machen wir weiter.',
+    es: 'Bienvenidos a quienes acaban de unirse — continuemos.',
+    zh: '欢迎刚加入的同学——我们继续。',
+  },
+};
+
+function utteranceFallback(purpose, lang) {
+  return UTTERANCE_FALLBACK_TEXT[purpose]?.[lang]
+    || UTTERANCE_FALLBACK_TEXT.transition[lang]
+    || UTTERANCE_FALLBACK_TEXT.transition.en;
+}
+
+// Non-English utterance text generation: same discipline as segment
+// translation — the language instruction lives in the SYSTEM message, the
+// reply must sit inside <utterance> tags, and the result passes
+// validateTranslation (script audit + franc + foreign-word checks). Returns
+// null when every attempt is rejected; callers use utteranceFallback so a
+// non-English room never hears English.
+const UTTERANCE_ATTEMPTS = 3;
+export async function generateUtteranceText(prompt, lang, { material = '', translateOpts = {} } = {}) {
+  const { validateTranslation } = await import('../modules/textLangCheck.mjs');
+  const system = `You are Professor Abed speaking live to your class. ` +
+    `Speak ONLY in ${LECTURE_LANGUAGES[lang]} — never switch to another ` +
+    `language or script for any reason. ` +
+    `Reply with ONLY the spoken lines wrapped in <utterance>...</utterance> ` +
+    `tags. Plain text only — no markdown, no lists, no commentary outside ` +
+    `the tags.`;
+  let lastReason = 'unknown';
+  for (let attempt = 1; attempt <= UTTERANCE_ATTEMPTS; attempt++) {
+    let out;
+    try {
+      out = await generateOllama(null, {
+        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+        numPredict: 200, translate: true,
+        temperature: Math.min(0.2 + 0.05 * (attempt - 1), 0.3),
+        ...translateOpts,
+      });
+    } catch (e) {
+      lastReason = `ollama-error:${e.message.slice(0, 80)}`;
+      out = null;
+    }
+    const tagged = /<utterance>([\s\S]*?)<\/utterance>/i.exec(out || '');
+    const text = (tagged ? tagged[1] : (out || '')).trim();
+    if (!text) {
+      lastReason = 'empty-output';
+    } else {
+      const check = await validateTranslation(text, lang, { source: material });
+      if (check.ok !== false) return text;
+      lastReason = `invalid-language:${check.reason || 'mismatch'}`;
+    }
+    console.warn(`[utterance] rejected lang=${lang} attempt=${attempt}/${UTTERANCE_ATTEMPTS} reason=${lastReason}`);
+  }
+  return null;
+}
+
+// A cached utterance is served only when it still passes the language check —
+// text written before validation existed (or after a room-language mixup) is
+// regenerated instead of replayed.
+async function validCachedUtterance(textPath, lang, material) {
+  try {
+    const t = await fs.readFile(textPath, 'utf-8');
+    if (!t.trim()) return null;
+    if (lang === 'en') return t;
+    const { validateTranslation } = await import('../modules/textLangCheck.mjs');
+    const check = await validateTranslation(t, lang, { source: material });
+    return check.ok === false ? null : t;
+  } catch { return null; }
+}
+
 // Cache key binds (lecture, language, purpose, topic, refs, instruction) AND a
 // hash of the actual source text — edited material produces a different key.
 export function utteranceCacheKey({ lectureId, lang, purpose, topicId, sourceSegmentIds, instruction, material }) {
@@ -1123,18 +1232,22 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
 
   let utterText = null;
   if (existsSync(textPath)) {
-    try { utterText = await fs.readFile(textPath, 'utf-8'); } catch { utterText = null; }
+    utterText = await validCachedUtterance(textPath, lang, material);
   }
-  // The welcome is deterministic — actual course title, no LLM call, so the
+  // The welcome is deterministic — actual course title, no LLM call for
+  // English, a validated localized translation otherwise — so the
   // classroom's first utterance is always correct AND can be pre-baked.
   if (!utterText && purpose === 'opening') {
     const courseName = manifest.course || manifest.title;
-    utterText = lang === 'en'
-      ? `Welcome to ${courseName}. Let's get started with today's lecture.`
-      : (await generateOllama(
-          `Translate this welcome exactly, keeping the course name: "Welcome to ${courseName}. Let's get started with today's lecture."`,
-          { temperature: 0.2, numPredict: 60 })).trim()
-        || `Welcome to ${courseName}. Let's get started with today's lecture.`;
+    if (lang === 'en') {
+      utterText = `Welcome to ${courseName}. Let's get started with today's lecture.`;
+    } else {
+      utterText = await generateUtteranceText(
+        `Translate this welcome exactly, keeping the course name, and wrap it in <utterance> tags: "Welcome to ${courseName}. Let's get started with today's lecture."`,
+        lang, { material: `Welcome to ${courseName}. Let's get started with today's lecture.` });
+      // Never fall back to English in a non-English room.
+      if (!utterText) utterText = utteranceFallback('opening', lang);
+    }
     if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
     await fs.writeFile(textPath, utterText).catch(() => {});
   }
@@ -1143,8 +1256,14 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
       purpose, lectureTitle: manifest.title, topicTitle, texts, instruction: instr, lang,
       courseName: manifest.course,
     });
-    utterText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 160 })).trim();
-    if (!utterText) throw new Error('Empty utterance from LLM');
+    if (lang === 'en') {
+      utterText = (await generateOllama(prompt, { temperature: 0.6, numPredict: 160 })).trim();
+      if (!utterText) throw new Error('Empty utterance from LLM');
+    } else {
+      utterText = await generateUtteranceText(prompt, lang, { material });
+      // Exhausted retries → fixed pre-translated template, never English.
+      if (!utterText) utterText = utteranceFallback(purpose, lang);
+    }
     if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
     await fs.writeFile(textPath, utterText).catch(() => {});
   }
