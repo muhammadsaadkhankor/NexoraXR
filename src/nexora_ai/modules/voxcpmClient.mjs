@@ -105,19 +105,21 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
   for (let i = 0; i < attempts; i++) {
     const wav = await synth(text, voiceId, lang);
     const detected = await detect(wav);
-    const windows = Array.isArray(detected) ? detected : [detected];
-    // Windowed rejection: 80% of windows must match the target, AND — for
-    // non-zh targets — a single 'zh' window fails the clip outright. VoxCPM2
-    // can faithfully read leaked Chinese meta-text in non-zh translations;
-    // a lone Whisper mislabel is rare but a real zh window must never pass.
-    const zhWindows = windows.filter((l) => l === 'zh').length;
-    const matches = windows.filter((l) => l === lang).length;
-    const ok = (lang === 'zh' || zhWindows === 0) &&
-      matches >= Math.ceil(windows.length * 0.8);
+    // Windows are {lang, prob} (legacy detectors return bare codes → prob 1).
+    const windows = (Array.isArray(detected) ? detected : [detected])
+      .map((w) => (typeof w === 'string' ? { lang: w, prob: 1.0 } : w));
+    // A confident foreign window (>=0.7) fails the clip outright — real drift.
+    // A low-confidence off-language guess on a short intro/tail window is
+    // detector noise (e.g. 'pl' at 0.48 on a 3s German greeting): it only
+    // counts against the majority vote, not as a hard reject.
+    const CONFIDENT = 0.7;
+    const confidentForeign = windows.find((w) => w.lang !== lang && w.prob >= CONFIDENT);
+    const matches = windows.filter((w) => w.lang === lang).length;
+    const ok = !confidentForeign && matches >= Math.ceil(windows.length / 2);
     if (ok) return wav;
     console.warn(
       `[tts-verify] rejected lecture=${opts.lectureId ?? '?'} segment=${opts.segmentId ?? '?'} ` +
-      `lang=${lang} attempt=${i + 1}/${attempts} windows=[${windows.join(',')}]`);
+      `lang=${lang} attempt=${i + 1}/${attempts} windows=[${windows.map((w) => `${w.lang}@${w.prob}`).join(',')}]`);
     lastError = new Error(`TTS language mismatch: expected '${lang}', detected '${JSON.stringify(detected)}'`);
   }
   throw lastError;

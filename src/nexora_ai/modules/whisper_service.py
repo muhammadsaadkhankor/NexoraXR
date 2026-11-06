@@ -31,8 +31,11 @@ def detect(path, window_sec):
         # 30s-padded window — ~10x cheaper than transcribe().
         mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(chunk)).to(m.device)
         _, probs = m.detect_language(mel)
-        langs.append(max(probs, key=probs.get))
-    return langs or ['unknown']
+        best = max(probs, key=probs.get)
+        # Confidence matters: a 0.48 'pl' guess on a short intro window is
+        # detector noise, not real drift — the caller decides per-window.
+        langs.append({'lang': best, 'prob': round(float(probs[best]), 3)})
+    return langs or [{'lang': 'unknown', 'prob': 1.0}]
 
 
 def transcribe_lang(path):

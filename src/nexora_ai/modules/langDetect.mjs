@@ -23,7 +23,7 @@ const SERVICE_SCRIPT = path.join(
 const USE_SERVICE = process.env.WHISPER_NO_SERVICE !== '1';
 
 // Legacy per-clip fallback snippets (model loaded inside Python each call).
-const PY_SNIPPET_WINDOWED = `import sys, whisper, warnings
+const PY_SNIPPET_WINDOWED = `import sys, json, whisper, warnings
 warnings.filterwarnings('ignore')
 try:
     m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
@@ -43,8 +43,9 @@ for i in range(0, len(audio), win):
     # direct language probability rather than a transcription side effect.
     mel = whisper.log_mel_spectrogram(whisper.pad_or_trim(chunk)).to(m.device)
     _, probs = m.detect_language(mel)
-    langs.append(max(probs, key=probs.get))
-print('\\n'.join(langs) if langs else 'unknown')
+    best = max(probs, key=probs.get)
+    langs.append({'lang': best, 'prob': round(float(probs[best]), 3)})
+print(json.dumps(langs if langs else [{'lang': 'unknown', 'prob': 1.0}]))
 `;
 
 const PY_SNIPPET = `import sys, whisper, warnings
@@ -198,7 +199,7 @@ export async function detectLanguageFromWav(wavBuffer) {
   });
 }
 
-// Returns an array of per-window ISO codes (e.g. ['ar','ar','zh']) or throws.
+// Returns an array of per-window results [{lang, prob}, ...] or throws.
 // windowSec defaults to 3s — VoxCPM2 can drift for only a couple of seconds,
 // and a 5s window hides a sub-window blip inside the dominant language.
 export async function detectLanguagesWindowed(wavBuffer, windowSec = 3) {
@@ -209,6 +210,12 @@ export async function detectLanguagesWindowed(wavBuffer, windowSec = 3) {
       } catch { /* fall through to legacy spawn */ }
     }
     const out = await runWhisper(['-c', PY_SNIPPET_WINDOWED, tmp, String(windowSec)]);
-    return out.split('\n').map((l) => l.trim()).filter(Boolean);
+    try {
+      return JSON.parse(out);
+    } catch {
+      // Older fallback format: newline-separated codes.
+      return out.split('\n').map((l) => l.trim()).filter(Boolean)
+        .map((lang) => ({ lang, prob: 1.0 }));
+    }
   });
 }
