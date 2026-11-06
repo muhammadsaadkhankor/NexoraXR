@@ -42,6 +42,19 @@ def transcribe_lang(path):
     return [m.transcribe(path)['language']]
 
 
+def transcribe_window(path, start_sec, window_sec):
+    # Second-opinion language ID for a single window: full transcription is
+    # much more reliable than the 30s-padded detect_language classifier on
+    # short clips (observed: es clip openings mislabeled 'it' at 0.99 while
+    # transcribe reads correct Spanish).
+    audio = whisper.load_audio(path)
+    lo, hi = int(float(start_sec) * SR), int(float(start_sec) * SR) + int(float(window_sec) * SR)
+    chunk = audio[lo:hi]
+    if len(chunk) < SR:
+        return ['unknown']
+    return [m.transcribe(whisper.pad_or_trim(chunk))['language']]
+
+
 def pick_device():
     # GPU only when there is real headroom — the CUDA context alone costs
     # ~4-5 GiB, and a failed allocation by ANOTHER process (VoxCPM, Ollama)
@@ -73,6 +86,9 @@ def main():
             req = json.loads(line)
             if req.get('mode') == 'transcribe':
                 langs = transcribe_lang(req['path'])
+            elif req.get('mode') == 'transcribe_window':
+                langs = transcribe_window(
+                    req['path'], req.get('start', 0), req.get('window', 3.0))
             else:
                 langs = detect(req['path'], req.get('window', 3.0))
             print(json.dumps({'id': req.get('id'), 'langs': langs}), flush=True)

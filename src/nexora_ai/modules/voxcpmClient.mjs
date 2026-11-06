@@ -59,7 +59,7 @@ export async function getDefaultVoice(preferred = VOXCPM_VOICE_ID) {
 // in the request body (`language` field — accepted by the OpenAI speech
 // schema; the deployed VoxCPM2 adapter ignores it, but sending it is harmless
 // and forward-compatible). Conditioning comes from ref_audio + ref_text.
-export async function synthesize(text, voiceId, lang = null) {
+export async function synthesize(text, voiceId, lang = null, opts = {}) {
   const body = {
     model: VOXCPM_MODEL,
     input: text,
@@ -67,10 +67,20 @@ export async function synthesize(text, voiceId, lang = null) {
     response_format: 'wav',
     stream: false,
   };
-  const { ref_audio, ref_text } = refForVoice(voiceId || VOXCPM_VOICE_ID, lang);
+  const { ref_audio, ref_text } = opts.noRef
+    ? { ref_audio: null, ref_text: null }
+    : refForVoice(voiceId || VOXCPM_VOICE_ID, lang);
   if (ref_audio) body.ref_audio = ref_audio;
   if (ref_text) body.ref_text = ref_text;
   if (lang) body.language = lang;
+  // The backend is Qwen3-TTS — without an explicit accent instruction it
+  // sometimes drifts at clip starts (verified: es text rendered as Italian
+  // "e l'apprendissage"; with the instruction it reads correct Spanish).
+  const LANG_NAME = { en: 'English', ar: 'Arabic', fr: 'French',
+    de: 'German', es: 'Spanish', zh: 'Chinese' };
+  if (lang && lang !== 'en' && LANG_NAME[lang]) {
+    body.instructions = `Speak only in ${LANG_NAME[lang]}.`;
+  }
 
   const res = await fetch(`${VOXCPM_BASE_URL}/v1/audio/speech`, {
     method: 'POST',
@@ -103,7 +113,7 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
   const attempts = opts.attempts ?? 3; // 1 initial + 2 retries
   let lastError = null;
   for (let i = 0; i < attempts; i++) {
-    const wav = await synth(text, voiceId, lang);
+    const wav = await synth(text, voiceId, lang, opts.synthOpts || {});
     const detected = await detect(wav);
     // Windows are {lang, prob} (legacy detectors return bare codes → prob 1).
     const windows = (Array.isArray(detected) ? detected : [detected])
@@ -113,16 +123,42 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
     // detector noise (e.g. 'pl' at 0.48 on a 3s German greeting): it only
     // counts against the majority vote, not as a hard reject.
     const CONFIDENT = 0.7;
-    const confidentForeign = windows.find((w) => w.lang !== lang && w.prob >= CONFIDENT);
+    // Confident-foreign windows get a transcribe second opinion — the
+    // padded-window classifier is unreliable on short clips (clean es
+    // openings labeled 'it' at 0.99; transcribe reads correct Spanish).
+    // A window confirmed foreign BY TRANSCRIBE is real drift and fails.
+    const second = opts.secondOpinion
+      || (await import('./langDetect.mjs')).detectLanguageWindowTranscribe;
+    for (let checked = 0; checked < 3; checked++) {
+      const i = windows.findIndex((w) => w.lang !== lang && w.prob >= CONFIDENT);
+      if (i === -1) break;
+      try {
+        const opinion = await second(wav, i * 3, 3);
+        if (opinion === lang) windows[i] = { lang, prob: 0.5 };
+        else if (opinion === 'unknown') windows[i] = { ...windows[i], prob: 0.5 };
+        else break; // transcribe agrees it's foreign — keep the hard fail
+      } catch { windows[i] = { ...windows[i], prob: 0.5 }; }
+    }
+    // Embedded proper-noun span (a course/title name in Title-Case mid-text,
+    // e.g. "…mit dem Kurs E2E Fresh Course 1") legitimately SOUNDS foreign —
+    // grant up to one tolerant window per ~5 name tokens, max 2.
+    const nameTokens = (text.match(/(?<=\s)(?:[A-Z][\w-]*|\d+)(?:\s+(?:[A-Z][\w-]*|\d+))+/gu) || [])
+      .reduce((s, m) => s + m.split(/\s+/).length, 0);
+    const foreignAllowance = Math.min(2, Math.floor(nameTokens / 4));
+    if (foreignAllowance > 0) {
+      const foreignWindows = windows.filter((w) => w.lang !== lang && w.prob >= CONFIDENT);
+      if (foreignWindows.length <= foreignAllowance) {
+        for (const w of foreignWindows) w.prob = 0.5;
+      }
+    }
+    const confidentForeign2 = windows.find((w) => w.lang !== lang && w.prob >= CONFIDENT);
     // Voting: target windows count fully; uncertain off-language guesses
     // (detector noise on short/borderline stretches) count half. A clip
-    // passes when no confident-foreign window exists and the score clears
-    // half the window count — e.g. [de,la,de,en,it] with only de confident
-    // passes, while [he,de,…] or [pt,pt,de] with a confident foreign window
-    // still fails hard.
+    // passes when no confirmed-foreign window exists and the score clears
+    // half the window count.
     const score = windows.reduce((s, w) =>
       s + (w.lang === lang ? 1 : (w.prob < CONFIDENT ? 0.5 : 0)), 0);
-    const ok = !confidentForeign && score >= windows.length / 2;
+    const ok = !confidentForeign2 && score >= windows.length / 2;
     if (ok) return wav;
     console.warn(
       `[tts-verify] rejected lecture=${opts.lectureId ?? '?'} segment=${opts.segmentId ?? '?'} ` +

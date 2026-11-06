@@ -348,18 +348,36 @@ export async function generateSegmentAudio(lectureId, index, text, lang = null) 
     const sentences = ttsText
       .split(/(?<=[.!?。！？…؟])\s+/)
       .map((s) => s.trim()).filter(Boolean);
-    if (sentences.length > 1) {
+    {
+      const effLang = lang || langFromCacheKey(lectureId);
       try {
+        if (sentences.length <= 1 && lang !== 'en') {
+          // Single-sentence clip still failing — drop the ref clip, which
+          // can force a wrong-accent opening (verified on the es ref).
+          audioBuffer = await synthesizeVerified(ttsText, voiceId, effLang,
+            { attempts: 1, lectureId, segmentId: `${index}n`,
+              synthOpts: { noRef: true } });
+        } else if (sentences.length > 1) {
         const parts = [];
         for (const s of sentences) {
-          parts.push(await synthesizeVerified(s, voiceId,
-            lang || langFromCacheKey(lectureId),
-            { attempts: 2, lectureId, segmentId: `${index}s` }));
+          try {
+            parts.push(await synthesizeVerified(s, voiceId, effLang,
+              { attempts: 2, lectureId, segmentId: `${index}s` }));
+          } catch {
+            // Last resort: drop the reference clip — deterministic ref
+            // conditioning can force a wrong-accent opening (verified: the
+            // es ref renders "El aprendizaje" as Italian). The default
+            // voice says the same words in the correct language.
+            parts.push(await synthesizeVerified(s, voiceId, effLang,
+              { attempts: 1, lectureId, segmentId: `${index}s`,
+                synthOpts: { noRef: true } }));
+          }
         }
         const { joinWavs } = await import('../modules/audioUtils.mjs');
         audioBuffer = joinWavs(parts);
         (await import('../modules/bakeStats.mjs')).bakeStats.ttsSentenceSplits++;
         console.log(`[segments] sentence-split rescue ${lectureId}/${index} (${parts.length} parts)`);
+        }
       } catch (e) {
         console.warn(`[segments] sentence-split rescue failed ${lectureId}/${index}: ${e.message.slice(0, 120)}`);
       }
@@ -1375,15 +1393,27 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
       // Sentence-split rescue — same as segments: a localized drift stretch
       // in one sentence shouldn't fail the whole utterance.
       const sentences = ttsUtter.split(/(?<=[.!?。！？…؟])\s+/).map((s) => s.trim()).filter(Boolean);
-      if (sentences.length <= 1) throw firstErr;
+      if (sentences.length <= 1) {
+        if (lang === 'en') throw firstErr;
+        // Single sentence — try once without the reference clip, which can
+        // force a wrong-accent opening (verified on the es ref).
+        audioBuffer = await synthesizeVerified(ttsUtter, voiceId, lang,
+          { attempts: 1, lectureId, synthOpts: { noRef: true } });
+      } else {
       const parts = [];
       for (const s of sentences) {
-        parts.push(await synthesizeVerified(s, voiceId, lang, { attempts: 2, lectureId }));
+        try {
+          parts.push(await synthesizeVerified(s, voiceId, lang, { attempts: 2, lectureId }));
+        } catch {
+          parts.push(await synthesizeVerified(s, voiceId, lang, { attempts: 1, lectureId,
+            synthOpts: { noRef: true } }));
+        }
       }
       const { joinWavs } = await import('../modules/audioUtils.mjs');
       audioBuffer = joinWavs(parts);
       (await import('../modules/bakeStats.mjs')).bakeStats.ttsSentenceSplits++;
       console.log(`[utterance] sentence-split rescue ${lectureId}/${lang}/${purpose} (${parts.length} parts)`);
+      }
     }
     if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
     await fs.writeFile(audioPath, audioBuffer);

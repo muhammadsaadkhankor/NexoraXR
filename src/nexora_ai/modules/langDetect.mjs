@@ -199,6 +199,34 @@ export async function detectLanguageFromWav(wavBuffer) {
   });
 }
 
+// Second-opinion language ID for one window — full transcription, far more
+// reliable than the padded-window classifier on short stretches (the
+// classifier labels clean Spanish clip openings 'it' at 0.99; transcribe
+// reads them correctly). Returns the ISO code or 'unknown'.
+export async function detectLanguageWindowTranscribe(wavBuffer, startSec = 0, windowSec = 3) {
+  return withTmpWav(wavBuffer, async (tmp) => {
+    if (USE_SERVICE && !svc.broken) {
+      try {
+        const langs = await svcDetect({
+          path: tmp, mode: 'transcribe_window', start: startSec, window: windowSec });
+        return langs[langs.length - 1];
+      } catch { /* fall through to legacy spawn */ }
+    }
+    // Legacy path: single-window slice + transcribe, model loaded per call.
+    const out = await runWhisper(['-c', `
+import sys, whisper, warnings
+warnings.filterwarnings('ignore')
+m = whisper.load_model(${JSON.stringify(WHISPER_MODEL)})
+a = whisper.load_audio(sys.argv[1])
+sr = 16000
+lo, hi = int(float(sys.argv[3])*sr), int(float(sys.argv[3])*sr)+int(float(sys.argv[2])*sr)
+c = a[lo:hi]
+print('unknown' if len(c) < sr else m.transcribe(whisper.pad_or_trim(c))['language'])
+`, tmp, String(windowSec), String(startSec)]);
+    return out.split('\n').pop();
+  });
+}
+
 // Returns an array of per-window results [{lang, prob}, ...] or throws.
 // windowSec defaults to 3s — VoxCPM2 can drift for only a couple of seconds,
 // and a 5s window hides a sub-window blip inside the dominant language.

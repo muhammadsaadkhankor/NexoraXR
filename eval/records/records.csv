@@ -29,3 +29,5 @@ at,version,model,course,idx,title,words,estMin,llmCalls,revisions,elapsedMs,vali
 2026-10-30T18:27:22.817Z,fast.1,qwen3:8b,1ca690c6,1,"Lecture 1: Introduction",1054,14.6,5,,269047,FAIL,9,9,1
 2026-11-04T17:44:48.781Z,fast.1,qwen3:8b,18b7cc52,1,"Lecture 1: Introduction",1089,15.1,9,,44336,FAIL,13,13,1
 2026-11-06T14:26:36.892Z,fast.1,qwen3:8b,957fc478,1,"Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",1057,14.7,7,,206230,FAIL,9,9,0
+2026-11-06T15:59:06.285Z,fast.1,qwen3:8b,25e89fdc,1,"Lecture 1: Introduction",846,11.8,4,,175960,FAIL,9,9,2
+2026-11-06T17:14:08.768Z,fast.1,qwen3:8b,bf9f962e,1,"Lecture 1: Introduction",904,12.6,4,,158384,FAIL,8,8,2
