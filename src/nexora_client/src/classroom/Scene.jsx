@@ -116,9 +116,14 @@ function ClassroomPanel({
   onHostResume,
   onHostEnd,
   canEndLecture = false,
+  langReadiness = null,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
-  const canStart = state === 'idle' || state === 'completed' || state === 'error';
+  // Class may only start when every supported language is fully baked —
+  // the server enforces the same rule on lecture.start.
+  const langReadyMap = langReadiness?.langs || null;
+  const allLangsReady = !langReadyMap || Object.values(langReadyMap).every((r) => r?.ready);
+  const canStart = (state === 'idle' || state === 'completed' || state === 'error') && allLangsReady;
   const [handMenuOpen, setHandMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -132,6 +137,10 @@ function ClassroomPanel({
   else if (state === 'teaching') { buttonLabel = 'Class in Progress'; ButtonIcon = Play; }
   else if (state === 'completed') { buttonLabel = 'Replay Lecture'; ButtonIcon = RotateCcw; }
   else if (state === 'error') { buttonLabel = 'Retry Class'; ButtonIcon = RotateCcw; }
+  if (!allLangsReady && state !== 'teaching') {
+    buttonLabel = 'Preparing…';
+    ButtonIcon = Loader2;
+  }
 
   const handLabel = isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand';
 
@@ -406,7 +415,7 @@ function ClassroomPanel({
 
             {langMenuOpen && (
               <div className='absolute left-1/2 top-full z-50 mt-2 w-44 -translate-x-1/2 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur'>
-                {LANGUAGES.map((l) => (
+                {LANGUAGES.filter((l) => !langReadyMap || langReadyMap[l.code]?.ready).map((l) => (
                   <button
                     key={l.code}
                     onClick={() => {
@@ -434,15 +443,25 @@ function ClassroomPanel({
             <button
               onClick={onStart}
               disabled={!canStart}
+              title={!allLangsReady && langReadiness?.missing?.length
+                ? `Still preparing: ${langReadiness.missing.join('; ')}`
+                : undefined}
               className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
                 state === 'teaching' || state === 'loading'
                   ? 'cursor-not-allowed bg-slate-700 text-slate-300'
                   : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
               }`}
             >
-              <ButtonIcon size={16} className={state === 'loading' ? 'animate-spin' : ''} />
+              <ButtonIcon size={16} className={state === 'loading' || !allLangsReady ? 'animate-spin' : ''} />
               {buttonLabel}
             </button>
+          )}
+
+          {!allLangsReady && state !== 'teaching' && (
+            <div className='rounded-2xl border border-amber-500/30 bg-slate-900/85 px-4 py-2 text-[11px] text-amber-200/90 backdrop-blur'
+              title='A class can only start when every language is fully baked'>
+              Still preparing: {langReadiness.missing.join(' · ')}
+            </div>
           )}
 
           {/* Host lecture lifecycle — private rooms only (server-enforced). */}
@@ -920,6 +939,23 @@ function SceneRoom({ sceneName, baseConfig }) {
     return () => { cancelled = true; };
   }, [lectureId, lectureLang]);
 
+  // Per-language readiness — the Start button and the language menu are
+  // gated on this so a partially-baked language is never offered. Polls
+  // while the lecture is selected so a finishing bake flips it live.
+  const [langReadiness, setLangReadiness] = useState(null);
+  useEffect(() => {
+    setLangReadiness(null);
+    if (!lectureId) return;
+    let cancelled = false;
+    const poll = () => fetch(`${API_URL}/api/lecture/${lectureId}/readiness`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.langs) setLangReadiness(d); })
+      .catch(() => {});
+    poll();
+    const t = setInterval(poll, 8000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [lectureId]);
+
   // Lazily fetch the segment manifest for transcript-seeding and language-
   // switch rebuilds — metadata only, NEVER pushed to the playback queue
   // (V2: the server emits each segment itself via professor-speak).
@@ -941,7 +977,8 @@ function SceneRoom({ sceneName, baseConfig }) {
   }, []);
 
   const handleStartClass = () => {
-    if (!lectureId || !canStartClass) return;
+    // Server re-checks this anyway — the client check only avoids the emit.
+    if (!lectureId || !canStartClass || langReadiness?.allReady === false) return;
     clearMessages();
     setLectureStatus('loading');
     setLectureError(null);
@@ -1835,6 +1872,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onHostResume={() => socketRef.current?.emit('lecture-control', { action: 'resume' })}
             onHostEnd={() => socketRef.current?.emit('lecture-control', { action: 'end' })}
             canEndLecture={canEndLecture}
+            langReadiness={langReadiness}
           />
 
           {langNotice && (

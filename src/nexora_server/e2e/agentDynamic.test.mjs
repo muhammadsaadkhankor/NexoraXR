@@ -25,7 +25,7 @@ before(async () => {
     cwd: path.join(__dirname, '..'),
     env: { ...process.env, PORT: String(PORT), NXR_UTTERANCE_STUB: '1',
       // e2e drives full NCIP without a database — legacy trust mode (dev only).
-      NXR_DEV_UNAUTH_PROTOCOL: '1' },
+      NXR_DEV_UNAUTH_PROTOCOL: '1', NXR_START_REQUIRES_ALL_LANGS: '0' },
     stdio: 'ignore',
   });
   for (let i = 0; i < 60; i++) {

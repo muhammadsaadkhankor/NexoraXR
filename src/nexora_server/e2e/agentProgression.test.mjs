@@ -35,6 +35,9 @@ before(async () => {
       VOXCPM_BASE_URL: 'http://127.0.0.1:9',
       // e2e drives full NCIP without a database — legacy trust mode (dev only).
       NXR_DEV_UNAUTH_PROTOCOL: '1',
+      // Fixture lectures exist in English only — the all-languages start gate
+      // is exercised separately in langswitch_reliability.test.mjs.
+      NXR_START_REQUIRES_ALL_LANGS: '0',
     },
     stdio: 'ignore',
   });

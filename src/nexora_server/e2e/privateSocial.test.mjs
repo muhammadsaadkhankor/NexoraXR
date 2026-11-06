@@ -23,7 +23,7 @@ let server;
 before(async () => {
   server = spawn(process.execPath, ['server.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), NXR_DEV_UNAUTH_PROTOCOL: '1' },
+    env: { ...process.env, PORT: String(PORT), NXR_DEV_UNAUTH_PROTOCOL: '1', NXR_START_REQUIRES_ALL_LANGS: '0' },
     stdio: 'ignore',
   });
   // wait for the port to accept connections
