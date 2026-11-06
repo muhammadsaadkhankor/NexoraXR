@@ -1,0 +1,121 @@
+{
+  "at": "2026-11-06T14:26:36.892Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "9fc7b62e71ea874a0dd6e1e962750d4f5f08509525b71f81a914ebab3f55111e",
+  "courseId": "957fc478-2ea5-4551-a9bd-bd2f5ef19b30",
+  "lecture": "Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",
+  "wordCount": 1057,
+  "estimatedMinutes": 14.680555555555555,
+  "llmCalls": 7,
+  "llmUsage": {
+    "promptTokens": 18136,
+    "genTokens": 2131,
+    "loadDurationMs": 861,
+    "promptEvalMs": 10492,
+    "evalMs": 193263,
+    "totalMs": 206174
+  },
+  "promptChars": 49458,
+  "approxPromptTokens": 14131,
+  "revisionCycles": null,
+  "elapsedMs": 206230,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 5 segments",
+      "instructional coverage 19% — no narration on: \"Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1\" p.1, \"distributivity  [14] :   X • Y + X • Y'   =   X • (Y + Y') 2.\" p.7, \"Page 8\" p.8, \"CEG 2136 Computer Architecture I AND   rules (identities)   0 .\" p.9, \"Z =  (X+Y)  .\" p.10 (+24 more)"
+    ],
+    "warnings": [
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the fundamental concepts of Boolean algebra and its applications in digital logic circuits, including truth tables, simplification techniques, and Karnaugh maps.",
+    "objective": "Understand the fundamental concepts of Boolean algebra and its applications in digital logic circuits, including truth tables, simplification techniques, and Karnaugh maps.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Boolean Algebra and Its Axioms",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Boolean algebra is the foundation of digital logic circuits and is essential for representing and simplifying logic functions.",
+        "examples": [
+          "axioms and theorems of Boolean algebra, including identities, complementarity, and distributivity"
+        ],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf",
+            "pageStart": 2,
+            "pageEnd": 4
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Truth Tables and Logic Expressions",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Truth tables provide a clear way to represent the behavior of logic functions and are used to derive Boolean expressions.",
+        "examples": [
+          "truth tables for logic functions, Boolean expressions for logic functions"
+        ],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf",
+            "pageStart": 3,
+            "pageEnd": 5
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Simplification of Boolean Expressions",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Simplifying Boolean expressions reduces the complexity of digital circuits, leading to more efficient designs.",
+        "examples": [
+          "rewriting method for proving Boolean theorems, distributivity theorem"
+        ],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf",
+            "pageStart": 4,
+            "pageEnd": 6
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Karnaugh Maps and Logic Simplification",
+        "role": "core",
+        "budget": 300,
+        "teachingObjective": "Karnaugh maps provide a visual method to simplify Boolean expressions and identify prime implicants.",
+        "examples": [
+          "Karnaugh map as a graphical representation of a truth table, K-map rules for identifying prime implicants"
+        ],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf",
+            "pageStart": 14,
+            "pageEnd": 22
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 5
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 5
+}
