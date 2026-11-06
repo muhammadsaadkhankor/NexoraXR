@@ -140,7 +140,9 @@ export async function bakeLecture(lectureId, lang = 'en') {
     }));
   }
   if (missing.length) {
-    throw new Error(`${missing.length}/${segments.length} segments failed: ${missing[0].error}`);
+    const err = new Error(`${missing.length}/${segments.length} segments failed: ${missing[0].error}`);
+    err.missing = missing; // [{idx, error}] — repair + review UI need the exact segments
+    throw err;
   }
   return { segments: segments.length, durationMs: totalMs, durationMin: totalMs / 60000, segmentMs };
 }
@@ -182,7 +184,7 @@ async function warmLectureSlides(lectureId) {
 // opening, one transition per subsequent topic, closing recap — keyed exactly
 // as the runtime generates them, so classroom playback hits cache with no
 // Ollama/TTS call at every topic boundary.
-async function warmLectureUtterances(lectureId, lang) {
+export async function warmLectureUtterances(lectureId, lang) {
   const { plannedUtteranceCalls } = await import('../../nexora_ai/routes/lectureRoutes.mjs');
   const manifest = await loadLectureManifest(lectureId, lang);
   const calls = await plannedUtteranceCalls(lectureId, manifest);
@@ -220,7 +222,7 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
   let lecIdx = 0;
   for (const l of rows) {
     lecIdx += 1;
-    const langsDone = [], errs = [];
+    const langsDone = [], errs = [], failedSegs = [];
     for (const lang of langList) {
       const t0 = Date.now();
       onProgress?.(`lecture ${lecIdx}/${rows.length} · ${lang.toUpperCase()}`);
@@ -283,6 +285,9 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
         }
       } catch (e) {
         errs.push(`${lang}: ${String(e.message || e)}`);
+        for (const m of (e.missing || [])) {
+          failedSegs.push({ lang, idx: m.idx, reason: m.error });
+        }
       }
     }
     if (errs.length) {
@@ -297,13 +302,15 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
       // language is fully baked, so partial coverage must block 'ready'.
       await getPool().query(
         `UPDATE course_lectures SET artifacts = artifacts || $2 WHERE lecture_id=$1`,
-        [l.lecture_id, JSON.stringify({ baked_langs: langsDone, partial_langs: errs })]);
+        [l.lecture_id, JSON.stringify({ baked_langs: langsDone, partial_langs: errs,
+          failed_segments: failedSegs })]);
       report.push({ idx: l.idx, lectureId: l.lecture_id, title: l.title,
         error: `incomplete language coverage: ${msg}` });
     } else {
       await getPool().query(
         `UPDATE course_lectures SET artifacts = artifacts || $2 WHERE lecture_id=$1`,
-        [l.lecture_id, JSON.stringify({ baked_langs: langsDone })]);
+        [l.lecture_id, JSON.stringify({ baked_langs: langsDone,
+          partial_langs: [], failed_segments: [] })]);
     }
     // Language-independent slide render warm — any lang failure is tolerated.
     if (langsDone.includes('en')) {

@@ -5,6 +5,8 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from 'fs/promises';
+import fsp from 'fs/promises';
+import { repairCourse, repairLecture, repairStatus, repairIncompleteOnBoot } from './courses/repair.mjs';
 import { openAIChain, parser } from "../nexora_ai/modules/openAI.mjs";
 import { lipSync } from "../nexora_ai/modules/lip-sync.mjs";
 import { sendDefaultMessages, defaultResponse } from "../nexora_ai/modules/defaultMessages.mjs";
@@ -850,6 +852,8 @@ app.get('/api/rooms/public', (_req, res) => {
 // Course materials upload — instructors attach PDFs to their room so the
 // course can be built from them later (RAG pipeline). Host-only.
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+const AI_SEGMENTS = path.resolve(SERVER_DIR, '../nexora_ai/lecture_cache/segments');
+const PROFBRAIN_LECTURES = path.resolve(SERVER_DIR, '../../profbrain/lectures');
 const REPO_ROOT = path.resolve(SERVER_DIR, '..', '..');
 
 // Display names for user-facing language readiness errors.
@@ -1179,16 +1183,114 @@ app.post('/api/rooms/:roomId/invite', (req, res) => {
 });
 
 // Readiness matrix for the classroom UI — the Start button and language
-// menu use this so a partially-baked language is never offered.
+// menu use this so a partially-baked language is never offered. Includes
+// whether a repair job is currently filling the gaps.
 app.get('/api/lecture/:lectureId/readiness', async (req, res) => {
   const { lectureId } = req.params;
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '')) {
     return res.status(400).json({ error: 'Invalid lectureId' });
   }
   try {
-    res.json(await lectureReadiness(lectureId));
+    const r = await lectureReadiness(lectureId);
+    const job = repairStatus(lectureId);
+    // A build's audio phase counts as "running" too — the panel shows
+    // 'Preparing' only while real work is in flight.
+    const { rows: [lec] } = await getPool().query(
+      `SELECT course_id FROM course_lectures WHERE lecture_id=$1`, [lectureId])
+      .catch(() => ({ rows: [null] }));
+    const buildRunningNow = lec?.course_id ? buildRunning(lec.course_id) : false;
+    const jobOrBuild = job || (buildRunningNow ? { build: true } : null);
+    // Per-language failed-segment detail for the review screen —
+    // English text + whatever translated text exists.
+    const failed = [];
+    const enManifest = await loadLectureManifest(lectureId, 'en').catch(() => null);
+    for (const [lang, lr] of Object.entries(r.langs)) {
+      for (const idx of lr.missingSegments || []) {
+        const enText = enManifest?.segments?.[idx]?.text || '';
+        let langText = null;
+        try {
+          langText = await fsp.readFile(path.join(
+            AI_SEGMENTS, `${lectureId}__${lang}`,
+            `segment_${String(idx).padStart(3, '0')}.txt`), 'utf-8');
+        } catch { /* no translation exists */ }
+        failed.push({ lang, idx, enText, langText });
+      }
+    }
+    res.json({ ...r, failed, running: !!jobOrBuild, repair: job || null });
   } catch (err) {
     res.status(500).json({ error: 'Readiness check failed', detail: String(err.message || err).slice(0, 200) });
+  }
+});
+
+// Kick a repair job for one lecture — fills only missing
+// segments/utterances per language. Runs in background; the readiness
+// endpoint reports progress via 'running'.
+app.post('/api/lecture/:lectureId/repair', requireAuth,
+  requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const { lectureId } = req.params;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '')) {
+    return res.status(400).json({ error: 'Invalid lectureId' });
+  }
+  if (repairStatus(lectureId)) return res.json({ running: true });
+  repairLecture(lectureId).then((r) =>
+    console.log(`[repair] ${lectureId}: ${r.ready ? 'READY' : 'incomplete: ' + (r.missing || []).join('; ')}`))
+    .catch((e) => console.warn(`[repair] ${lectureId} failed:`, e.message));
+  res.json({ running: true });
+});
+
+// Repair a whole course — same job, course-scoped (host "Retry" button).
+app.post('/api/courses/:id/repair', requireAuth, requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const courseId = req.params.id;
+  if (!(await courseOwnerOrAdmin(req, res, courseId))) return;
+  if (repairStatus(courseId)) return res.json({ running: true });
+  repairCourse(courseId, (p) => console.log(`[repair] ${courseId}: ${p}`))
+    .then((r) => console.log(`[repair] course ${courseId} done:`,
+      Object.entries(r.lectures || {}).map(([l, x]) => `${l}:${x.ready ? 'ready' : 'incomplete'}`).join(', ')))
+    .catch((e) => console.warn(`[repair] course ${courseId} failed:`, e.message));
+  res.json({ running: true });
+});
+
+// Instructor edit of one translated segment + immediate single-segment
+// rebake — the "still fails" escape hatch: fix the text, bake just it.
+app.post('/api/lecture/:lectureId/segment/:lang/:idx', requireAuth,
+  requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const { lectureId, lang, idx } = req.params;
+  const { text } = req.body || {};
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '') ||
+      !/^[a-z]{2}$/.test(lang || '') || !/^\d+$/.test(idx || '') ||
+      typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'Expected lectureId, lang, idx and {text}' });
+  }
+  try {
+    const { validateTranslation } = await import('../nexora_ai/modules/textLangCheck.mjs');
+    const check = await validateTranslation(text, lang).catch(() => ({ ok: true }));
+    if (check.ok === false && lang !== 'en') {
+      return res.status(422).json({ error: `Text failed language validation: ${check.reason}` });
+    }
+    const segDir = path.join(AI_SEGMENTS, lang === 'en' ? lectureId : `${lectureId}__${lang}`);
+    const base = `segment_${String(+idx).padStart(3, '0')}`;
+    await fsp.mkdir(segDir, { recursive: true });
+    await fsp.writeFile(path.join(segDir, `${base}.txt`), text.trim());
+    await fsp.rm(path.join(segDir, `${base}.wav`), { force: true });
+    // Update the reviewable translation draft too so a future re-bake keeps it.
+    const { loadLectureLangDraft } = await import('./courses/drafts.mjs');
+    const draft = await loadLectureLangDraft(lectureId, lang);
+    if (draft?.segments) {
+      const s = draft.segments.find((x) => x.id === +idx);
+      if (s) {
+        s.text = text.trim();
+        draft.edited = true;
+        await fsp.writeFile(
+          path.join(PROFBRAIN_LECTURES, lectureId, 'translations', `${lang}.json`),
+          JSON.stringify(draft, null, 2));
+      }
+    }
+    const { generateSegmentAudio } = await import('../nexora_ai/routes/lectureRoutes.mjs');
+    const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
+    await generateSegmentAudio(cacheKey, +idx, text.trim(), lang);
+    res.json({ ok: true, readiness: await lectureReadiness(lectureId) });
+  } catch (err) {
+    res.status(500).json({ error: `Segment rebake failed: ${String(err.message || err).slice(0, 200)}` });
   }
 });
 
@@ -2604,6 +2706,11 @@ initDb().then(async () => {
   await roomRegistry.hydrate(getPool());
   resumeInterrupted();
   resumeInterruptedDocs();
+  // Backfill: every lecture that is not allReady in all six languages gets
+  // its missing segments/utterances queued — sequential, incremental.
+  if (process.env.NXR_REPAIR_ON_BOOT !== '0') {
+    setTimeout(() => repairIncompleteOnBoot(), 10_000); // let services settle first
+  }
 }).catch((e) => console.error('[db] init failed:', e.message));
 
 httpServer.listen(port, '0.0.0.0', () => {

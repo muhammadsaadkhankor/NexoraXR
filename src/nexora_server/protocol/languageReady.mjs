@@ -26,6 +26,7 @@ export async function isLanguageReady(lectureId, lang) {
     utterances: { ready: false, expected: 0, have: 0 } };
 
   let readyCount = total;
+  const missingSegments = [];
   if (lang !== 'en') {
     const dir = path.join(SEGMENTS_ROOT, `${lectureId}__${lang}`);
     readyCount = 0;
@@ -33,7 +34,7 @@ export async function isLanguageReady(lectureId, lang) {
       if (existsSync(path.join(dir, `${pad(i)}.txt`)) &&
           existsSync(path.join(dir, `${pad(i)}.wav`))) {
         readyCount++;
-      }
+      } else missingSegments.push(i);
     }
   }
   let utterances = { ready: false, expected: 0, have: 0 };
@@ -41,7 +42,7 @@ export async function isLanguageReady(lectureId, lang) {
   catch { /* unreadable plan/manifest — treated as not ready */ }
   return {
     ready: readyCount === total && utterances.ready,
-    readyCount, total, utterances,
+    readyCount, total, utterances, missingSegments,
   };
 }
 
@@ -61,9 +62,14 @@ export async function lectureReadiness(lectureId) {
     const r = langs[lang];
     if (!r.ready) {
       const bits = [];
-      if (r.readyCount < r.total) bits.push(`${r.readyCount}/${r.total} segments`);
+      if (r.readyCount < r.total) {
+        bits.push(`${r.readyCount}/${r.total} segments` +
+          (r.missingSegments?.length ? ` (failed: ${r.missingSegments.join(', ')})` : ''));
+      }
       if (!r.utterances.ready && r.utterances.expected) {
-        bits.push(`${r.utterances.have}/${r.utterances.expected} utterances`);
+        bits.push(`${r.utterances.have}/${r.utterances.expected} utterances` +
+          (r.utterances.missing?.length
+            ? ` (missing: ${r.utterances.missing.map((u) => u.purpose).join(', ')})` : ''));
       }
       missing.push(`${lang.toUpperCase()}: ${bits.join(', ') || 'not checked'}`);
     }

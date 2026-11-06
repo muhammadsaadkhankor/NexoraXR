@@ -117,6 +117,7 @@ function ClassroomPanel({
   onHostEnd,
   canEndLecture = false,
   langReadiness = null,
+  onRepair = null,
 }) {
   const number = String(Number(String(lectureId).replace(/\D/g, '')) || 0).padStart(2, '0');
   // Class may only start when every supported language is fully baked —
@@ -458,9 +459,46 @@ function ClassroomPanel({
           )}
 
           {!allLangsReady && state !== 'teaching' && (
-            <div className='rounded-2xl border border-amber-500/30 bg-slate-900/85 px-4 py-2 text-[11px] text-amber-200/90 backdrop-blur'
-              title='A class can only start when every language is fully baked'>
-              Still preparing: {langReadiness.missing.join(' · ')}
+            <div className='absolute left-1/2 top-full z-40 mt-2 w-80 -translate-x-1/2 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-3 shadow-2xl backdrop-blur'>
+              <div className='mb-2 flex items-center justify-between'>
+                <p className='text-xs font-semibold text-slate-200'>
+                  {langReadiness?.running ? 'Preparing…' : 'Incomplete'}
+                </p>
+                {!langReadiness?.running && onRepair && (
+                  <button
+                    onClick={onRepair}
+                    className='rounded-full bg-cyan-500/90 px-3 py-1 text-[11px] font-semibold text-slate-950 hover:bg-cyan-400'
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
+              {(langReadyMap ? Object.entries(langReadyMap) : []).map(([code, r]) => {
+                const done = (r?.readyCount ?? 0) + (r?.utterances?.have ?? 0);
+                const total = (r?.total ?? 0) + (r?.utterances?.expected ?? 0);
+                const pct = total ? Math.round((done / total) * 100) : 0;
+                return (
+                  <div key={code} className='mb-1.5 last:mb-0'>
+                    <div className='flex items-baseline justify-between text-[11px]'>
+                      <span className='font-semibold uppercase text-slate-300'>{code}</span>
+                      <span className='text-slate-400'>
+                        segments {r?.readyCount ?? 0}/{r?.total ?? 0} · utterances {r?.utterances?.have ?? 0}/{r?.utterances?.expected ?? 0}
+                      </span>
+                    </div>
+                    <div className='mt-0.5 h-1.5 overflow-hidden rounded-full bg-slate-700/60'>
+                      <div
+                        className={`h-full rounded-full ${r?.ready ? 'bg-emerald-400' : langReadiness?.running ? 'bg-cyan-400' : 'bg-amber-400'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    {!r?.ready && !langReadiness?.running && r?.missingSegments?.length > 0 && (
+                      <p className='mt-0.5 text-[10px] text-amber-300/80'>
+                        failed: segments {r.missingSegments.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -954,6 +992,16 @@ function SceneRoom({ sceneName, baseConfig }) {
     poll();
     const t = setInterval(poll, 8000);
     return () => { cancelled = true; clearInterval(t); };
+  }, [lectureId]);
+
+  // Host "Retry" on an incomplete lecture — the repair job only redoes the
+  // missing segments/utterances; readiness re-polls pick up the progress.
+  const repairLectureAssets = useCallback(async () => {
+    if (!lectureId) return;
+    try {
+      await fetch(`${API_URL}/api/lecture/${lectureId}/repair`, {
+        method: 'POST', credentials: 'include' });
+    } catch { /* the next poll reflects state either way */ }
   }, [lectureId]);
 
   // Lazily fetch the segment manifest for transcript-seeding and language-
@@ -1873,6 +1921,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             onHostEnd={() => socketRef.current?.emit('lecture-control', { action: 'end' })}
             canEndLecture={canEndLecture}
             langReadiness={langReadiness}
+            onRepair={canChangeLanguage ? repairLectureAssets : null}
           />
 
           {langNotice && (

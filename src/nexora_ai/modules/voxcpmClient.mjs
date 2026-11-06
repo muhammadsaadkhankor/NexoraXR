@@ -114,8 +114,15 @@ export async function synthesizeVerified(text, voiceId, lang, opts = {}) {
     // counts against the majority vote, not as a hard reject.
     const CONFIDENT = 0.7;
     const confidentForeign = windows.find((w) => w.lang !== lang && w.prob >= CONFIDENT);
-    const matches = windows.filter((w) => w.lang === lang).length;
-    const ok = !confidentForeign && matches >= Math.ceil(windows.length / 2);
+    // Voting: target windows count fully; uncertain off-language guesses
+    // (detector noise on short/borderline stretches) count half. A clip
+    // passes when no confident-foreign window exists and the score clears
+    // half the window count — e.g. [de,la,de,en,it] with only de confident
+    // passes, while [he,de,…] or [pt,pt,de] with a confident foreign window
+    // still fails hard.
+    const score = windows.reduce((s, w) =>
+      s + (w.lang === lang ? 1 : (w.prob < CONFIDENT ? 0.5 : 0)), 0);
+    const ok = !confidentForeign && score >= windows.length / 2;
     if (ok) return wav;
     console.warn(
       `[tts-verify] rejected lecture=${opts.lectureId ?? '?'} segment=${opts.segmentId ?? '?'} ` +

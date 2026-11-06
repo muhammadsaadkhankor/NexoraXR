@@ -29,8 +29,8 @@ const PORT = Number(process.env.E2E_PORT || 3997);
 const BASE = `http://localhost:${PORT}`;
 const ROOM = process.env.E2E_ROOM || 'pub_b133789c047843fbce';
 const HOST = process.env.E2E_HOST || '91a9c76a-49e1-4b05-bd27-529078b00701';
-const READY_LID = 'gen_18b7cc52_L1';     // all 6 langs: 13/13 + utterances
-const PARTIAL_LID = 'gen_957fc478_L1';   // ar/es/de incomplete
+const READY_LID = process.env.E2E_READY_LID || 'gen_18b7cc52_L1';
+const PARTIAL_LID = process.env.E2E_PARTIAL_LID || 'gen_957fc478_L1';   // historically ar/es/de incomplete
 const DATABASE_URL = process.env.DATABASE_URL
   || 'postgres://postgres:postgres@localhost:5433/nexoraxr';
 
@@ -86,7 +86,9 @@ const check = (ok, label) => { console.log(`  ${ok ? 'PASS' : 'FAIL'} ${label}`)
   console.log(`\n[start gate] ${JSON.stringify(d?.error)}`);
   check(!!d && /Cannot start class/.test(d.error || ''),
     'lecture.start refused for incompletely-baked lecture');
-  check(!!d && /AR: 7\/9/.test(d.error || ''), 'reason names AR 7/9 segments');
+  if (PARTIAL_LID === 'gen_957fc478_L1') {
+    check(!!d && /AR: 7\/9/.test(d.error || ''), 'reason names AR 7/9 segments');
+  }
 }
 
 // ---- Assertion 2: switch matrix on the fully-ready lecture ------------------

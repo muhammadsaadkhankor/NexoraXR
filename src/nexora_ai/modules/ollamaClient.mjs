@@ -4,7 +4,7 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
 const OLLAMA_TRANSLATE_MODEL = process.env.OLLAMA_TRANSLATE_MODEL || OLLAMA_MODEL;
 
 export async function generate(prompt, opts = {}) {
-  const model = opts.translate ? OLLAMA_TRANSLATE_MODEL : OLLAMA_MODEL;
+  const model = opts.model || (opts.translate ? OLLAMA_TRANSLATE_MODEL : OLLAMA_MODEL);
   const options = {
     temperature: opts.temperature ?? 0.7,
     num_predict: opts.numPredict ?? 180,
@@ -52,7 +52,8 @@ export async function generate(prompt, opts = {}) {
 // whole bake even after an explicit unload of the other model.
 export async function unloadModel(model = null) {
   const models = model ? [model]
-    : [...new Set([OLLAMA_TRANSLATE_MODEL, OLLAMA_MODEL])];
+    : [...new Set([OLLAMA_TRANSLATE_MODEL, OLLAMA_MODEL,
+      process.env.OLLAMA_STRONG_TRANSLATE_MODEL || 'qwen3:8b'])];
   for (const m of models) {
     try {
       await fetch(`${OLLAMA_BASE_URL}/api/generate`, {

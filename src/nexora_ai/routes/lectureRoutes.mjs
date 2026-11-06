@@ -241,6 +241,34 @@ export async function translateForLecture(text, lang, ctx = {}) {
       lastReason = `invalid-language:${check.reason || 'mismatch'}`;
     }
     console.warn(`[translate] rejected lecture=${lectureId} segment=${segmentId} lang=${lang} attempt=${attempt}/${TRANSLATE_ATTEMPTS} reason=${lastReason}`);
+    try { (await import('../modules/bakeStats.mjs')).bakeStats.translationRetries++; } catch {}
+  }
+  // Last resort: one attempt on the stronger model (think:false comes free
+  // from the qwen3 name). A stubborn segment — e.g. a technical term that
+  // keeps dragging foreign script in — gets a bigger reasoning budget
+  // before the segment is reported as failed.
+  const STRONG = process.env.OLLAMA_STRONG_TRANSLATE_MODEL || 'qwen3:8b';
+  try {
+    const out = await generateOllama(null, {
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      numPredict: 800, translate: true, model: STRONG,
+      ollamaOptions: { num_ctx: 2048 }, temperature: 0.15,
+    });
+    const tagged = /<translation>([\s\S]*?)<\/translation>/i.exec(out || '');
+    const translated = (tagged ? tagged[1] : (out || '')).trim();
+    if (translated && translated !== text.trim() && translated.length >= srcLen * MIN_RATIO) {
+      const check = await validate(translated, lang, { source: text });
+      if (check.ok !== false) {
+        console.log(`[translate] strong-model rescue lecture=${lectureId} segment=${segmentId} lang=${lang} model=${STRONG}`);
+        (await import('../modules/bakeStats.mjs')).bakeStats.translationStrongModel++;
+        return translated;
+      }
+      lastReason = `invalid-language(strong):${check.reason || 'mismatch'}`;
+    } else {
+      lastReason = `invalid-output(strong):${translated ? 'too-short-or-identical' : 'empty'}`;
+    }
+  } catch (e) {
+    lastReason = `strong-model-error:${e.message.slice(0, 80)}`;
   }
   throw new Error(`Translation failed: lecture=${lectureId} segment=${segmentId} lang=${lang} reason=${lastReason}`);
 }
@@ -311,6 +339,30 @@ export async function generateSegmentAudio(lectureId, index, text, lang = null) 
       console.error(`[segments] TTS attempt ${attempt + 1} failed for ${lectureId}/${index}:`, err.message || err);
       if (!isRetryable(err)) break;
       await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
+  }
+  if (!audioBuffer) {
+    // Sentence-split rescue: a segment that keeps drifting as a whole often
+    // verifies sentence-by-sentence (the drift is typically a short
+    // borderline stretch). Synthesize + verify each sentence, then join.
+    const sentences = ttsText
+      .split(/(?<=[.!?。！？…؟])\s+/)
+      .map((s) => s.trim()).filter(Boolean);
+    if (sentences.length > 1) {
+      try {
+        const parts = [];
+        for (const s of sentences) {
+          parts.push(await synthesizeVerified(s, voiceId,
+            lang || langFromCacheKey(lectureId),
+            { attempts: 2, lectureId, segmentId: `${index}s` }));
+        }
+        const { joinWavs } = await import('../modules/audioUtils.mjs');
+        audioBuffer = joinWavs(parts);
+        (await import('../modules/bakeStats.mjs')).bakeStats.ttsSentenceSplits++;
+        console.log(`[segments] sentence-split rescue ${lectureId}/${index} (${parts.length} parts)`);
+      } catch (e) {
+        console.warn(`[segments] sentence-split rescue failed ${lectureId}/${index}: ${e.message.slice(0, 120)}`);
+      }
     }
   }
   if (!audioBuffer) {
@@ -1315,7 +1367,24 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
   if (!existsSync(audioPath)) {
     const voiceId = await getDefaultVoice();
     if (!voiceId) throw new Error('No professor voice configured');
-    const audioBuffer = await synthesizeVerified(cleanTextForTts(utterText), voiceId, lang, { lectureId });
+    const ttsUtter = cleanTextForTts(utterText);
+    let audioBuffer;
+    try {
+      audioBuffer = await synthesizeVerified(ttsUtter, voiceId, lang, { lectureId });
+    } catch (firstErr) {
+      // Sentence-split rescue — same as segments: a localized drift stretch
+      // in one sentence shouldn't fail the whole utterance.
+      const sentences = ttsUtter.split(/(?<=[.!?。！？…؟])\s+/).map((s) => s.trim()).filter(Boolean);
+      if (sentences.length <= 1) throw firstErr;
+      const parts = [];
+      for (const s of sentences) {
+        parts.push(await synthesizeVerified(s, voiceId, lang, { attempts: 2, lectureId }));
+      }
+      const { joinWavs } = await import('../modules/audioUtils.mjs');
+      audioBuffer = joinWavs(parts);
+      (await import('../modules/bakeStats.mjs')).bakeStats.ttsSentenceSplits++;
+      console.log(`[utterance] sentence-split rescue ${lectureId}/${lang}/${purpose} (${parts.length} parts)`);
+    }
     if (!existsSync(ANSWERS_DIR)) await fs.mkdir(ANSWERS_DIR, { recursive: true });
     await fs.writeFile(audioPath, audioBuffer);
   }

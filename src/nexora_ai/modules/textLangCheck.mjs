@@ -22,8 +22,8 @@ const SCRIPT_THRESHOLD = 0.5;
 const STOPWORDS = {
   en: new Set('the,and,is,are,was,were,that,this,which,will,would,have,has,with,for,from,when,there,what,them,than,each,not,all,who,how,into,can,because,through,about,these,those,they,their,should,could'.split(',')),
   fr: new Set('le,la,les,de,des,et,est,une,dans,pour,que,qui,nous,vous,aux,avec,sur,pas,par,son,ses,au,ce,cette,comme,mais,où,leur,leurs,bien,aussi,très,ont,sans,entre,plus,en,il,elle,ils,elles,du,ne,se,sa,ces,dont'.split(',')),
-  de: new Set('der,die,das,und,ist,ein,eine,den,von,mit,auf,für,als,an,dem,es,ich,nicht,sie,sich,wir,werden,dass,auch,kann,nur,wie,oder,aber,über,beim,des,zu,in,im,aus,bei,nach,vor,zum,zur,uns'.split(',')),
-  es: new Set('el,la,los,las,de,y,es,un,una,en,que,por,con,para,se,su,al,como,más,pero,sus,muy,sin,sobre,también,esto,este,esta,donde,cuando,del,lo,nos,les,ya'.split(',')),
+  de: new Set('der,die,das,und,ist,ein,eine,den,von,mit,auf,für,als,an,dem,es,ich,nicht,sie,sich,wir,werden,dass,auch,kann,nur,wie,oder,aber,über,beim,des,zu,in,im,aus,bei,nach,vor,zum,zur,uns,was,will,so,am,um,doch,dann,mehr,sehr,jetzt,nun,dies,diese,dieser,dieses,vom,bis,durch,gegen,ohne,wenn,weil,warum'.split(',')),
+  es: new Set('el,la,los,las,de,y,es,un,una,en,que,por,con,para,se,su,al,como,más,pero,sus,muy,sin,sobre,también,esto,este,esta,donde,cuando,del,lo,nos,les,ya,entre,hasta,desde,hacia,según,tras,otros,otras,todo,toda,todos,todas,cada,parte,dentro,fuera,ante,bajo,par,sur,son'.split(',')),
 };
 const DIACRITICS = {
   fr: /[àâäçéèêëîïôöùûüœ]/g,

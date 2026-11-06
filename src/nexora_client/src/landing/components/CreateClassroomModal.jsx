@@ -107,10 +107,50 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         // approving again. Pre-script failures still need a rebuild.
         const retryable = ['translations', 'audio', 'validating'].includes(st.build?.stats?.stage);
         setError(retryable
-          ? `Audio generation failed: ${st.build.error || 'server error'}. Your scripts are saved. Fix the issue and press "Retry Missing Audio" to continue (already-baked segments are reused).`
+          ? `Audio generation failed: ${st.build.error || 'server error'}. Your scripts are saved. Fix the failing segments below or press "Retry Missing Audio" (already-baked segments are reused).`
           : `Course build failed: ${st.build.error || 'server error'}. The classroom is created; you can rebuild later.`);
+        loadFailedSegments(courseId);
         return 'failed';
       }
+    }
+  };
+
+  // Exact per-segment failures — English text + editable translation, so a
+  // persistently-failing segment can be corrected and re-baked alone.
+  const [failedSegs, setFailedSegs] = useState([]); // [{lectureId,lang,idx,enText,langText,edit}]
+  const [rebaking, setRebaking] = useState(null);   // 'lectureId:lang:idx'
+  const loadFailedSegments = async (cid) => {
+    const dr = await fetch(`${API_URL}/api/courses/${cid}/drafts`, { credentials: 'include' })
+      .then((r) => r.json()).catch(() => null);
+    const out = [];
+    for (const d of dr?.drafts || []) {
+      const rd = await fetch(`${API_URL}/api/lecture/${d.lectureId}/readiness`, { credentials: 'include' })
+        .then((r) => r.json()).catch(() => null);
+      for (const f of rd?.failed || []) {
+        out.push({ lectureId: d.lectureId, ...f, edit: f.langText || '' });
+      }
+    }
+    setFailedSegs(out);
+  };
+  const rebakeSegment = async (f) => {
+    const key = `${f.lectureId}:${f.lang}:${f.idx}`;
+    if (rebaking) return;
+    setRebaking(key);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/lecture/${f.lectureId}/segment/${f.lang}/${f.idx}`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: f.edit }),
+        });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Re-bake failed');
+      // Fixed segments disappear from the list; the rest stay for review.
+      setFailedSegs((fs) => fs.filter((x) => !(x.lectureId === f.lectureId && x.lang === f.lang && x.idx === f.idx)));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRebaking(null);
     }
   };
 
@@ -561,6 +601,39 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                 </div>
               ))}
             </div>
+            {failedSegs.length ? (
+              <div style={{ margin: '12px 0' }}>
+                <p className="ccmodal__error" style={{ textAlign: 'left', marginBottom: 6 }}>
+                  {failedSegs.length} segment(s) failed — edit the translation and re-bake just that segment:
+                </p>
+                {failedSegs.map((f) => (
+                  <div key={`${f.lectureId}:${f.lang}:${f.idx}`} style={{
+                    marginBottom: 10, border: '1px solid #7c2d12', borderRadius: 10, padding: 8 }}>
+                    <p style={{ margin: '0 0 4px', fontSize: 11, color: '#fdba74' }}>
+                      {f.lectureId} · segment {f.idx} · {f.lang.toUpperCase()}
+                    </p>
+                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#94a3b8', maxHeight: 60, overflow: 'auto' }}>
+                      EN: {f.enText}
+                    </p>
+                    <textarea
+                      rows={3}
+                      value={f.edit}
+                      spellCheck={false}
+                      onChange={(e) => setFailedSegs((fs) => fs.map((x) =>
+                        x === f ? { ...x, edit: e.target.value } : x))}
+                      style={{ width: '100%', background: '#0f172a', border: '1px solid #334155',
+                        borderRadius: 8, color: '#e2e8f0', padding: 6, fontSize: 12 }}
+                    />
+                    <button type="button"
+                      onClick={() => rebakeSegment(f)}
+                      disabled={!!rebaking}
+                      className="btn btn-ghost" style={{ marginTop: 4, fontSize: 11 }}>
+                      {rebaking === `${f.lectureId}:${f.lang}:${f.idx}` ? 'Re-baking…' : 'Re-bake this segment'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {approveBlocked?.list?.length ? (
               <div className="ccmodal__error" style={{ textAlign: 'left' }}>
                 <p style={{ margin: '0 0 4px' }}>Approval blocked:</p>
