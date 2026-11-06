@@ -79,3 +79,43 @@ Filesystem confirms: `gen_957fc478_L1__ar/` has 7/9 wav+txt
 - Readiness now includes pre-baked utterance wavs.
 - The classroom language menu only lists languages the server reports
   ready; start is disabled with visible progress until all six are.
+
+## Additional fix surfaced during verification
+
+The new utterance-readiness gate exposed a real latent bug:
+`gen_18b7cc52_L1` had a `de` opening whose cached text was the stale
+pre-A1 `"Welcome to Maschinelles Lernen…"` — the English word "Welcome"
+made VoxCPM's first ~3s drift (detected `tr`/`pl` at 0.48), which
+rejected synthesis forever. Two fixes: (a) the opening translate prompt
+now demands a full translation including the greeting; (b) windowed
+language verification is confidence-aware — Whisper returns per-window
+probabilities and only *confident* foreign windows (>=0.7) hard-fail a
+clip, while borderline windows only count against the majority vote.
+The `de` utterance then baked cleanly and the ML lecture reports
+`allReady: true`.
+
+## Test results
+
+- `e2e/langswitch_reliability.test.mjs` — **5/5 runs, 23/23 checks**:
+  start refused on `gen_957fc478_L1` with reason
+  `AR: 7/9 segments, 0/9 utterances; FR: 7/9 utterances; DE: 8/9…; ES: 7/9…`;
+  `gen_18b7cc52_L1` (fully ready, all six) starts and survives a
+  20-switch matrix (every language ≥3×, incl. fr→ar, ar→zh, zh→en) on
+  two clients — identical authoritative `segmentIndex`, correct
+  `__<lang>` audio bucket, zero pending translations on every hop.
+- `agentProgression`/`agentDynamic`/`privateSocial`/`authz` e2e: green
+  (fixtures use `NXR_START_REQUIRES_ALL_LANGS=0` — English-only lectures).
+- `bake.test.mjs`, `voxcpmClient.test.mjs`, `ncipSync.test.js`: green.
+- Client production build: green.
+
+## Not fixed / out of scope
+
+- `gen_957fc478_L1` itself remains partially baked (ar/es translation
+  validation, de TTS drift on seg 5). It now correctly *refuses* to
+  start; a re-run of the audio phase (approve-audio) will only redo the
+  missing work — whether those particular translations/segments then
+  pass depends on the LLM/TTS quality issues noted in
+  `fix_batch_3_report.md`, unchanged here.
+- Builds already recorded as `ready` with partial languages (like
+  61828551) keep their DB status, but `lecture.start` blocks them
+  server-side, so the state cannot reproduce.
