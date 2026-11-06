@@ -1,0 +1,146 @@
+{
+  "at": "2026-11-06T17:44:36.637Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c369cee2c9dd693d84246ce5d2209d8bf4e850545cb96d4474a4dbce083ebb29",
+  "courseId": "26e63ddc-9ac5-4b1f-9881-fb5d84f2e125",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 1008,
+  "estimatedMinutes": 14,
+  "llmCalls": 9,
+  "llmUsage": {
+    "promptTokens": 6101,
+    "genTokens": 2122,
+    "loadDurationMs": 145589,
+    "promptEvalMs": 4646,
+    "evalMs": 179354,
+    "totalMs": 489803
+  },
+  "promptChars": 27661,
+  "approxPromptTokens": 7903,
+  "revisionCycles": null,
+  "elapsedMs": 1392026,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 2 is a fragment, not narration",
+      "segment 3 is a fragment, not narration",
+      "repetition across 3 segments",
+      "instructional coverage 42% — no narration on: \"Big Picture of ML\" p.18, \"Page 19\" p.19, \"20 A Regression Example\" p.20, \"21 A Classification Example\" p.21, \"Page 23\" p.23 (+6 more)"
+    ],
+    "warnings": [
+      "segment -1: page 14 → 15 (outside Lec1_Introduction.pdf p.15–15)",
+      "topics omitted from narration: Administrative slides like syllabus, grading, schedule, and logistics"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "objective": "Understand the foundational concepts of Machine Learning and its real-world applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Machine Learning relies on mathematical tools to model and analyze data.",
+        "examples": [
+          "Probability theory for uncertainty modeling",
+          "Linear algebra for data representation",
+          "Calculus for optimization"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the core definition of Machine Learning is essential for grasping its scope and purpose.",
+        "examples": [
+          "Definition of Machine Learning as a field"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Seeing how Machine Learning is applied in practice helps students connect theory with real-world problems.",
+        "examples": [
+          "Smart assistants",
+          "Advertising",
+          "Electrical load prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 12,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Why Study Machine Learning?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the motivations behind studying Machine Learning helps students appreciate its significance.",
+        "examples": [
+          "Growing demand for data-driven solutions",
+          "Impact on various industries"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 15,
+            "pageEnd": 15
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "A broad understanding of Machine Learning's structure helps in navigating its various subfields and techniques.",
+        "examples": [
+          "Taking picking fruits as an example to illustrate the big picture"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 16,
+    "withDoc": 16,
+    "withPage": 16
+  },
+  "adminLeakSegments": 2,
+  "repetitionFindings": 3
+}

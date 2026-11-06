@@ -33,6 +33,9 @@ const server = spawn(process.execPath, ['server.js'], {
   cwd: path.join(__dirname, '..'),
   env: {
     ...process.env, PORT: String(PORT), DATABASE_URL,
+    // Real services — never inherit stubbed endpoints from a test shell.
+    VOXCPM_BASE_URL: 'http://localhost:8010',
+    OLLAMA_BASE_URL: 'http://localhost:11434',
     NXR_DEV_UNAUTH_PROTOCOL: '1',
     NXR_REPAIR_ON_BOOT: '0', // time the build, not the backfill
   },
@@ -74,7 +77,7 @@ const { course } = await api('POST', '/api/courses', { name });
 if (!course?.id) { console.error('course create failed'); process.exit(1); }
 const { roomId } = await api('POST', '/api/rooms', {
   className: name, courseName: name, courseId: course.id,
-  roomType: 'public', lectureCount: 1 });
+  roomType: 'private', lectureCount: 1 });
 if (!roomId) { console.error('room create failed'); process.exit(1); }
 lap(`course ${course.id} room ${roomId}`);
 
@@ -102,18 +105,61 @@ if (!b.ok && !b.buildId) { console.error('build start failed', b); process.exit(
 
 // Poll to the script-review gate, then approve audio — programmatically,
 // exactly what the modal's single button does.
-const poll = async (want, label, timeoutMin = 40) => {
+// Every wait has a NO-PROGRESS watchdog: if neither status, stage nor
+// progress changes for STALL_MIN minutes, stop and report instead of
+// polling forever. A 'failed' build reports its per-segment detail and
+// terminates immediately — a build parked for instructor review can never
+// be satisfied by waiting.
+const STALL_MIN = Number(process.env.E2E_STALL_MIN || 10);
+const poll = async (want, label, timeoutMin = 90) => {
+  let lastSig = null, lastChange = Date.now();
   for (let i = 0; i < timeoutMin * 20; i++) {
     await new Promise((r) => setTimeout(r, 3000));
     const st = await api('GET', `/api/courses/${course.id}/status`);
     const step = st?.build?.status;
-    if (i % 10 === 0) lap(`${label}: build=${step} stage=${st?.build?.stats?.stage || ''} ${st?.build?.stats?.progress || ''}`);
+    const sig = `${step}|${st?.build?.stats?.stage || ''}|${st?.build?.stats?.progress || ''}`;
+    if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); lap(`${label}: ${sig}`); }
+    else if (i % 20 === 0) lap(`${label}: ${sig} (no change for ${((Date.now() - lastChange) / 60000).toFixed(1)} min)`);
     if (want === 'awaiting_review' && step === 'awaiting_review') return st;
     if (want === 'ready' && step === 'ready') return st;
-    if (step === 'failed') { console.error('BUILD FAILED:', st.build?.error); return null; }
+    if (step === 'failed') {
+      console.error(`BUILD FAILED: ${st.build?.error}`);
+      await reportFailedSegments();
+      return null;
+    }
+    // Parked at a review gate while we were waiting for 'ready' — that is
+    // the instructor-repair path; no amount of waiting clears it.
+    if (want === 'ready' && step === 'awaiting_review'
+        && st?.build?.stats?.stage === 'translations') {
+      console.error('BUILD PARKED for instructor review:', st.build?.error || st.build?.stats?.translation_errors);
+      await reportFailedSegments();
+      return null;
+    }
+    if (Date.now() - lastChange > STALL_MIN * 60_000) {
+      console.error(`STALLED: no progress for ${STALL_MIN} min at "${sig}" — stopping.`);
+      await reportFailedSegments();
+      return null;
+    }
   }
   console.error('timeout waiting for', want); return null;
 };
+
+// Exact failing segments per language, straight from the readiness endpoint.
+async function reportFailedSegments() {
+  const { rows: lecs } = await getPool().query(
+    `SELECT lecture_id FROM course_lectures WHERE course_id=$1`, [course.id]).catch(() => ({ rows: [] }));
+  for (const { lecture_id: lid } of lecs) {
+    const rd = await api('GET', `/api/lecture/${lid}/readiness`);
+    console.error(`  ${lid}: allReady=${rd.allReady} running=${rd.running}`);
+    for (const [l, x] of Object.entries(rd.langs || {})) {
+      console.error(`    ${l} segments ${x.readyCount}/${x.total} utterances ${x.utterances?.have}/${x.utterances?.expected}` +
+        (x.missingSegments?.length ? ` missing:[${x.missingSegments.join(',')}]` : ''));
+    }
+    for (const f of (rd.failed || []).slice(0, 10)) {
+      console.error(`    FAILED ${f.lang} seg ${f.idx}: en="${(f.enText || '').slice(0, 60)}…" translated=${f.langText ? `"${f.langText.slice(0, 60)}…"` : 'MISSING'}`);
+    }
+  }
+}
 
 const gate = await poll('awaiting_review', 'scripting', 30);
 if (!gate) process.exit(1);

@@ -39,11 +39,57 @@ import { llmConfigured } from './llm.mjs';
 
 const running = new Map(); // courseId -> buildId (in-memory guard only)
 
-async function setStep(buildId, status, patch = {}) {
-  await getPool().query(
+// Phase order — a build only ever moves FORWARD. A late write from a stale
+// or duplicate runner (two server processes on one DB) must not drag a
+// live build back: observed in the wild as a second runBuild, started by
+// another process's resumeInterrupted, rewriting 'audio' back to
+// 'awaiting_review'/'scripts' mid-bake and re-emitting the script.
+const PHASE = {
+  pending: 0, ingesting: 1, planning: 2, scripts: 3, awaiting_review: 4,
+  translating: 5, audio: 6, validating: 7, ready: 8, failed: 8,
+};
+
+// `opts.force` bypasses the forward-only guard for an INTENTIONAL reopen
+// (e.g. the script changed after approval → back to review).
+async function setStep(buildId, status, patch = {}, opts = {}) {
+  const { rowCount } = await getPool().query(
     `UPDATE course_builds SET status=$2, error=$3, stats=COALESCE(stats,'{}'::jsonb) || $4::jsonb, updated_at=now()
-      WHERE id=$1`,
-    [buildId, status, patch.error || null, JSON.stringify(patch)]);
+      WHERE id=$1
+        AND COALESCE($5::int, 99) >= COALESCE(
+          ('{"pending":0,"ingesting":1,"planning":2,"scripts":3,"awaiting_review":4,
+             "translating":5,"audio":6,"validating":7,"ready":8,"failed":8}'::jsonb
+           ->> status)::int, 0)`,
+    [buildId, status, patch.error || null, JSON.stringify(patch),
+      opts.force ? 99 : (PHASE[status] ?? null)]);
+  if (!rowCount) {
+    console.warn(`[course] setStep ignored: build ${buildId} is past '${status}' (stale runner)`);
+  }
+  return rowCount > 0;
+}
+
+// Cross-process mutual exclusion for one build. `running` is per-process,
+// so two servers sharing the DB would otherwise run the same build
+// concurrently. The lock is held on a dedicated connection for the whole
+// phase and released in a finally block.
+async function withBuildLock(buildId, fn) {
+  const pool = getPool();
+  const client = await pool.connect();
+  // Advisory key: first 15 hex chars of the uuid — stable per build.
+  const key = BigInt('0x' + buildId.replace(/-/g, '').slice(0, 15)).toString();
+  try {
+    const { rows: [{ locked }] } = await client.query(
+      'SELECT pg_try_advisory_lock($1::bigint) AS locked', [key]);
+    if (!locked) {
+      console.warn(`[course] build ${buildId} already running in another process — skipping`);
+      return false;
+    }
+    try { await fn(); } finally {
+      await client.query('SELECT pg_advisory_unlock($1::bigint)', [key]).catch(() => {});
+    }
+    return true;
+  } finally {
+    client.release();
+  }
 }
 
 export async function startBuild(courseId, lectureCount, lang = 'en', lecturePlan = null, minutes = null) {
@@ -82,7 +128,7 @@ async function deriveOutline(courseId, lectureCount) {
   }));
 }
 
-export async function runBuild(buildId, courseId, lectureCount, lang = 'en', lecturePlan = null) {
+async function runBuildImpl(buildId, courseId, lectureCount, lang = 'en', lecturePlan = null) {
   if (!llmConfigured()) {
     await setStep(buildId, 'failed', { error: 'No LLM configured (OPENAI_API_KEY or OLLAMA_BASE_URL)' });
     return;
@@ -91,7 +137,13 @@ export async function runBuild(buildId, courseId, lectureCount, lang = 'en', lec
   const pool = getPool();
   try {
     // --- ingesting ---
-    await setStep(buildId, 'ingesting');
+    // A rejected first transition means this build has already moved past
+    // the script phase (another runner owns it) — stop before regenerating
+    // and re-emitting the lecture under a live bake.
+    if (!await setStep(buildId, 'ingesting')) {
+      console.warn(`[course] build ${buildId}: stale runBuild, aborting`);
+      return;
+    }
     // Uploads register docs asynchronously — wait briefly for rows to appear
     // before deciding the course is empty (avoids the build/upload race).
     let pending = [];
@@ -194,11 +246,14 @@ export async function runBuild(buildId, courseId, lectureCount, lang = 'en', lec
 // Stage 2a — translate the APPROVED canonical script into every supported
 // language, then park at a second review gate (stage 'translations') so the
 // reviewer can edit each language before audio.
-export async function runTranslationPhase(buildId, courseId) {
+async function runTranslationPhaseImpl(buildId, courseId) {
   running.set(courseId, buildId);
   const t0 = Date.now();
   try {
-    await setStep(buildId, 'translating', { stage: 'translations' });
+    if (!await setStep(buildId, 'translating', { stage: 'translations' })) {
+      console.warn(`[course] build ${buildId}: stale translation phase, aborting`);
+      return;
+    }
     const report = await prepareTranslations(courseId);
     const failed = report.filter((r) => r.status === 'failed' || r.status === 'partial');
     await setStep(buildId, 'awaiting_review', {
@@ -223,7 +278,7 @@ export async function runTranslationPhase(buildId, courseId) {
 // or by resumeInterrupted for a build that died mid-bake. Before baking we
 // verify the on-disk text still matches what was approved — edits racing a
 // bake can't publish a mismatched script/audio pair.
-export async function runAudioPhase(buildId, courseId, lectureCount) {
+async function runAudioPhaseImpl(buildId, courseId, lectureCount) {
   const pool = getPool();
   running.set(courseId, buildId);
   let translateTiming = null;
@@ -242,7 +297,7 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
         await setStep(buildId, 'awaiting_review', {
           stage: 'translations',
           error: `${lid}/${lang}: script changed after approval — review again before audio`,
-        });
+        }, { force: true });
         return;
       }
     }
@@ -337,14 +392,23 @@ export async function runAudioPhase(buildId, courseId, lectureCount) {
 
 export function buildRunning(courseId) { return running.has(courseId); }
 
+let resumeRescanTimer = null;
+
 // Resume crashed/interrupted builds on server boot. 'awaiting_review' is a
 // parked state — it waits for a human, not a retry. Builds that died inside
 // the audio stage resume from there directly.
 export async function resumeInterrupted() {
   try {
+    // A build touched in the last 10 minutes has a LIVE runner (possibly in
+    // another process — nodemon restarts, a second server on the same DB).
+    // Resuming it would duplicate script generation and re-emit segments.json
+    // underneath the running bake. The advisory lock also refuses it, but
+    // skipping here avoids the pointless work entirely.
     const { rows } = await getPool().query(
       `SELECT id, course_id, lecture_count, lang, status FROM course_builds
-        WHERE status NOT IN ('ready','failed','awaiting_review') ORDER BY created_at`);
+        WHERE status NOT IN ('ready','failed','awaiting_review')
+          AND updated_at < now() - interval '10 minutes'
+        ORDER BY created_at`);
     for (const b of rows) {
       const audioStage = b.status === 'audio' || b.status === 'validating';
       const transStage = b.status === 'translating';
@@ -355,9 +419,23 @@ export async function resumeInterrupted() {
           ? runTranslationPhase(b.id, b.course_id)
           : runBuild(b.id, b.course_id, b.lecture_count, b.lang));
     }
+    // Builds skipped as "recently touched" are rescanned once later, so a
+    // runner that really did die still gets resumed (the advisory lock makes
+    // a double-resume harmless if it was in fact alive).
+    const { rows: [{ n }] } = await getPool().query(
+      `SELECT count(*)::int AS n FROM course_builds
+        WHERE status NOT IN ('ready','failed','awaiting_review')
+          AND updated_at >= now() - interval '10 minutes'`);
+    if (n > 0 && !resumeRescanTimer) {
+      console.log(`[course] ${n} build(s) have a live runner — rescanning in 11 min`);
+      resumeRescanTimer = setTimeout(() => {
+        resumeRescanTimer = null;
+        resumeInterrupted();
+      }, 11 * 60_000);
+      resumeRescanTimer.unref?.();
+    }
   } catch (e) { console.error('[course] resume scan failed:', e.message); }
 }
-
 export async function buildStatus(courseId) {
   const pool = getPool();
   const { rows: [build] } = await pool.query(
@@ -376,3 +454,16 @@ export async function buildStatus(courseId) {
     lectures: lectures.map((l) => ({ ...l, lectureId: l.lecture_id })),
   };
 }
+
+// Public phase entry points — each runs under a cross-process advisory
+// lock on the build, so a duplicate runner (another server process
+// resuming the same build) exits instead of corrupting it.
+export const runBuild = (buildId, courseId, lectureCount, lang = 'en', lecturePlan = null) =>
+  withBuildLock(buildId, () => runBuildImpl(buildId, courseId, lectureCount, lang, lecturePlan));
+
+export const runTranslationPhase = (buildId, courseId) =>
+  withBuildLock(buildId, () => runTranslationPhaseImpl(buildId, courseId));
+
+export const runAudioPhase = (buildId, courseId, lectureCount) =>
+  withBuildLock(buildId, () => runAudioPhaseImpl(buildId, courseId, lectureCount));
+
