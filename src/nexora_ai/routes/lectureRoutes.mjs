@@ -1147,6 +1147,53 @@ export function utteranceCacheKey({ lectureId, lang, purpose, topicId, sourceSeg
   ].join('::')).digest('hex');
 }
 
+// The deterministic utterances every lecture needs: opening, one transition
+// per subsequent topic, closing recap. Shared by the bake warm-up and the
+// readiness gate so both compute the SAME call set (and cache keys).
+export async function plannedUtteranceCalls(lectureId, manifest) {
+  let topics = null;
+  try {
+    const plan = JSON.parse(
+      await fs.readFile(path.join(PROFBRAIN_DIR, lectureId, 'lecture_plan.json'), 'utf-8'));
+    topics = plan?.topics || null;
+  } catch { /* legacy lectures have no plan */ }
+  const segIds = manifest.segments.map((s) => s.id);
+  const calls = [];
+  const first = topics?.[0];
+  calls.push({ purpose: 'opening', topicId: first?.id ?? null, sourceSegmentIds: [segIds[0]] });
+  for (const t of (topics || []).slice(1)) {
+    calls.push({ purpose: 'transition', topicId: t.id,
+      sourceSegmentIds: t.segmentIds.filter((id) => segIds.includes(id)) });
+  }
+  const last = topics?.[topics.length - 1];
+  calls.push({ purpose: 'closing_recap', topicId: last?.id ?? null, sourceSegmentIds: segIds });
+  return calls;
+}
+
+// Are all deterministic utterances pre-baked for (lectureId, lang)?
+// Reproduces the runtime cache key for every planned call and checks the
+// .wav exists. {ready, expected, have, missing:[{purpose,topicId}]}
+export async function utteranceReadiness(lectureId, language) {
+  const lang = normalizeLang(language);
+  const manifest = await loadLectureManifest(lectureId, lang);
+  const calls = await plannedUtteranceCalls(lectureId, manifest);
+  const missing = [];
+  let have = 0;
+  for (const c of calls) {
+    const texts = c.sourceSegmentIds
+      .map((sid) => manifest.segments.find((s) => s.id === sid)?.text || '');
+    const material = texts.join('\n\n');
+    const key = utteranceCacheKey({
+      lectureId, lang, purpose: c.purpose, topicId: c.topicId ?? '',
+      sourceSegmentIds: c.sourceSegmentIds,
+      instruction: UTTERANCE_INSTRUCTIONS[c.purpose], material,
+    });
+    if (existsSync(path.join(ANSWERS_DIR, `utt_${key}.wav`))) have += 1;
+    else missing.push({ purpose: c.purpose, topicId: c.topicId });
+  }
+  return { ready: missing.length === 0, expected: calls.length, have, missing };
+}
+
 // Validate the request and resolve ONLY the referenced source segment texts.
 // Returns { status, error } or { lang, texts, manifest }. Exported for tests —
 // performs no LLM/TTS work.
@@ -1240,7 +1287,7 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
       utterText = `Welcome to ${courseName}. Let's get started with today's lecture.`;
     } else {
       utterText = await generateUtteranceText(
-        `Translate this welcome exactly, keeping the course name, and wrap it in <utterance> tags: "Welcome to ${courseName}. Let's get started with today's lecture."`,
+        `Translate this welcome fully into ${LECTURE_LANGUAGES[lang]} — every word, including the greeting — keeping the course name, and wrap it in <utterance> tags: "Welcome to ${courseName}. Let's get started with today's lecture."`,
         lang, { material: `Welcome to ${courseName}. Let's get started with today's lecture.` });
       // Never fall back to English in a non-English room.
       if (!utterText) utterText = utteranceFallback('opening', lang);

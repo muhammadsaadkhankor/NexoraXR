@@ -40,7 +40,7 @@ import brandingRouter from "./branding/routes.mjs";
 import { attachUser, socketAuth, requireAuth, requireRole } from "./auth/sessionMiddleware.mjs";
 import { resolveGuestToken, mintGuestToken } from "./auth/passwordless.mjs";
 import { RoomRegistry } from "./protocol/roomRegistry.mjs";
-import { isLanguageReady } from "./protocol/languageReady.mjs";
+import { isLanguageReady, lectureReadiness } from "./protocol/languageReady.mjs";
 
 dotenv.config();
 
@@ -1176,6 +1176,20 @@ app.post('/api/rooms/:roomId/invite', (req, res) => {
   res.json({
     inviteUrl: `${classroomPath(rot.room)}&invite=${rot.room.inviteToken}`,
   });
+});
+
+// Readiness matrix for the classroom UI — the Start button and language
+// menu use this so a partially-baked language is never offered.
+app.get('/api/lecture/:lectureId/readiness', async (req, res) => {
+  const { lectureId } = req.params;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '')) {
+    return res.status(400).json({ error: 'Invalid lectureId' });
+  }
+  try {
+    res.json(await lectureReadiness(lectureId));
+  } catch (err) {
+    res.status(500).json({ error: 'Readiness check failed', detail: String(err.message || err).slice(0, 200) });
+  }
 });
 
 app.use('/api', lectureRouter);
@@ -2399,6 +2413,21 @@ io.on('connection', (socket) => {
     }
     const lectureId = data?.lectureId;
     if (typeof lectureId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(lectureId)) return;
+    // A class may only start when the lecture is fully ready in EVERY
+    // supported language — otherwise a mid-lecture switch can hit an
+    // unbaked language and students hear the wrong language or nothing.
+    // NXR_START_REQUIRES_ALL_LANGS=0 skips this (e2e fixtures whose lectures
+    // only exist in English); production always enforces.
+    const readiness = process.env.NXR_START_REQUIRES_ALL_LANGS === '0'
+      ? { allReady: true, missing: [] }
+      : await lectureReadiness(lectureId).catch(() => null);
+    if (!readiness || !readiness.allReady) {
+      const detail = readiness?.missing?.length
+        ? `Not ready: ${readiness.missing.join('; ')}`
+        : `Lecture '${lectureId}' has no playable manifest`;
+      socket.emit('lecture-control', { action: 'control-error', error: `Cannot start class — ${detail}` });
+      return;
+    }
     const meta = roomRegistry.get(roomId);
     const ncip = getNcipRoom(roomId);
     // Start-request dedup + switch gating — simultaneous Start clicks

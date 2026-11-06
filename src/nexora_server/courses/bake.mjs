@@ -183,28 +183,19 @@ async function warmLectureSlides(lectureId) {
 // as the runtime generates them, so classroom playback hits cache with no
 // Ollama/TTS call at every topic boundary.
 async function warmLectureUtterances(lectureId, lang) {
-  let topics = null;
-  try {
-    const plan = JSON.parse(await fsp.readFile(path.join(PROFBRAIN_DIR, lectureId, 'lecture_plan.json'), 'utf-8'));
-    topics = plan?.topics || null;
-  } catch { /* legacy lectures have no plan */ }
+  const { plannedUtteranceCalls } = await import('../../nexora_ai/routes/lectureRoutes.mjs');
   const manifest = await loadLectureManifest(lectureId, lang);
-  const segIds = manifest.segments.map((s) => s.id);
-  const calls = [];
-  const first = topics?.[0];
-  calls.push({ purpose: 'opening', topicId: first?.id ?? null, sourceSegmentIds: [segIds[0]] });
-  for (const t of (topics || []).slice(1)) {
-    calls.push({ purpose: 'transition', topicId: t.id, sourceSegmentIds: t.segmentIds.filter((id) => segIds.includes(id)) });
-  }
-  const last = topics?.[topics.length - 1];
-  calls.push({ purpose: 'closing_recap', topicId: last?.id ?? null, sourceSegmentIds: segIds });
+  const calls = await plannedUtteranceCalls(lectureId, manifest);
+  const failed = [];
   for (const c of calls) {
     try {
       await generateLectureUtterance({ lectureId, language: lang, ...c });
     } catch (e) {
       console.warn(`[bake] utterance warm ${lectureId}/${lang}/${c.purpose}:`, e.message.slice(0, 120));
+      failed.push(c.purpose);
     }
   }
+  return failed;
 }
 
 // Languages baked ahead of time — instructor selects which; the default is
@@ -235,7 +226,10 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
       onProgress?.(`lecture ${lecIdx}/${rows.length} · ${lang.toUpperCase()}`);
       try {
         const r = await bakeLecture(l.lecture_id, lang);
-        await warmLectureUtterances(l.lecture_id, lang);
+        const uttFailed = await warmLectureUtterances(l.lecture_id, lang);
+        if (uttFailed.length) {
+          errs.push(`${lang}: ${uttFailed.length} utterance(s) not baked (${uttFailed.join(',')})`);
+        }
         langsDone.push(lang);
         timings[`${l.lecture_id}@${lang}`] = Date.now() - t0;
         if (lang !== 'en') {
@@ -298,10 +292,14 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
         report.push({ idx: l.idx, lectureId: l.lecture_id, title: l.title, error: msg });
         continue;
       }
-      // English baked — partial language coverage is non-fatal, note it.
+      // English baked but some language incomplete — record it AND report
+      // it as a failure: a classroom may only start when EVERY supported
+      // language is fully baked, so partial coverage must block 'ready'.
       await getPool().query(
         `UPDATE course_lectures SET artifacts = artifacts || $2 WHERE lecture_id=$1`,
         [l.lecture_id, JSON.stringify({ baked_langs: langsDone, partial_langs: errs })]);
+      report.push({ idx: l.idx, lectureId: l.lecture_id, title: l.title,
+        error: `incomplete language coverage: ${msg}` });
     } else {
       await getPool().query(
         `UPDATE course_lectures SET artifacts = artifacts || $2 WHERE lecture_id=$1`,
