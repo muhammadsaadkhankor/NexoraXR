@@ -1,0 +1,145 @@
+{
+  "at": "2026-11-06T19:44:15.994Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c369cee2c9dd693d84246ce5d2209d8bf4e850545cb96d4474a4dbce083ebb29",
+  "courseId": "14ccda50-6ac1-44cd-b161-ef4895a38f51",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 978,
+  "estimatedMinutes": 13.583333333333334,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 4420,
+    "genTokens": 1914,
+    "loadDurationMs": 468,
+    "promptEvalMs": 1223,
+    "evalMs": 36901,
+    "totalMs": 39118
+  },
+  "promptChars": 18545,
+  "approxPromptTokens": 5299,
+  "revisionCycles": null,
+  "elapsedMs": 39144,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 4 segments",
+      "instructional coverage 35% — no narration on: \"Students are expected to work in groups  (two to four students).\" p.6, \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"14 Why ML?\" p.14, \"Page 16\" p.16, \"Big Picture of ML\" p.18 (+8 more)"
+    ],
+    "warnings": [
+      "segment -1: page 9 → 2 (outside Lec1_Introduction.pdf p.2–2)",
+      "segment -1: page 19 → 20 (outside Lec1_Introduction.pdf p.20–26)",
+      "topics omitted from narration: Students are expected to work in groups (two to four students)."
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning, its applications, and the mathematical tools required for the course.",
+    "objective": "Understand the foundational concepts of Machine Learning, its applications, and the mathematical tools required for the course.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Machine Learning relies on mathematical concepts to model and analyze data.",
+        "examples": [
+          "probability theory, linear algebra, and calculus"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the definition of Machine Learning is essential to grasp its scope and purpose.",
+        "examples": [
+          "What is Machine Learning (ML)?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Seeing how Machine Learning is applied in real-life scenarios helps contextualize its importance.",
+        "examples": [
+          "Smart Assistants",
+          "Advertising",
+          "Electrical Load Prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "The Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the big picture helps students see how different ML tasks fit together.",
+        "examples": [
+          "Taking picking fruits as an example...",
+          "Big Picture of ML"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 19
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Examples of Machine Learning Tasks",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Concrete examples help students understand the different types of ML problems.",
+        "examples": [
+          "A Regression Example",
+          "A Classification Example",
+          "A Clustering Example"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 20,
+            "pageEnd": 26
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Students are expected to work in groups (two to four students)."
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 10,
+    "withDoc": 10,
+    "withPage": 10
+  },
+  "adminLeakSegments": 3,
+  "repetitionFindings": 4
+}

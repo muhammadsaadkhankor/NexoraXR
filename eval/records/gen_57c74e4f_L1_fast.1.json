@@ -1,0 +1,170 @@
+{
+  "at": "2026-11-06T18:08:26.540Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c369cee2c9dd693d84246ce5d2209d8bf4e850545cb96d4474a4dbce083ebb29",
+  "courseId": "57c74e4f-8b45-42a5-a881-ad7c5af43061",
+  "lecture": "Lecture 1: Introduction",
+  "wordCount": 969,
+  "estimatedMinutes": 13.458333333333334,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 4280,
+    "genTokens": 2087,
+    "loadDurationMs": 633,
+    "promptEvalMs": 2747,
+    "evalMs": 170922,
+    "totalMs": 174869
+  },
+  "promptChars": 18043,
+  "approxPromptTokens": 5155,
+  "revisionCycles": null,
+  "elapsedMs": 174905,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "segment 1 opens on administrative content",
+      "segment 2 opens on administrative content",
+      "instructional coverage 29% — no narration on: \"Students are expected to work in groups  (two to four students).\" p.6, \"▪ Mathematical foundation:  probability theory, linear algebra, and calculus.\" p.9, \"12 ML in Real Life: Advertising\" p.12, \"13 ML in EE: Electrical Load Prediction  When and what load?\" p.13, \"Big Picture of ML\" p.18 (+10 more)"
+    ],
+    "warnings": [
+      "segment -1: page 9 → 2 (outside Lec1_Introduction.pdf p.2–2)",
+      "segment -1: page 10 → 3 (outside Lec1_Introduction.pdf p.3–3)",
+      "topics omitted from narration: Page 16; Page 19; Page 20; Page 21; Page 23; Page 26; An RL Example; Page 28; Page 29; Page 30"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the foundational concepts of Machine Learning, its applications, and the course structure.",
+    "objective": "Understand the foundational concepts of Machine Learning, its applications, and the course structure.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Course Structure and Expectations",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Students need to know the workload and group work expectations to prepare effectively.",
+        "examples": [
+          "The workload includes four assignments, a three-phase project, two midterms, and bonus poi"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 2,
+            "pageEnd": 2
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Mathematical Foundations of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "A strong mathematical foundation is essential for understanding ML algorithms and models.",
+        "examples": [
+          "▪ Mathematical foundation: probability theory, linear algebra, and calculus."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 3,
+            "pageEnd": 3
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "What is Machine Learning?",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Understanding the core definition of ML is the first step in grasping its principles and applications.",
+        "examples": [
+          "10 What is Machine Learning (ML)?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 10,
+            "pageEnd": 10
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Real-World Applications of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Seeing ML in action helps students appreciate its relevance and potential impact.",
+        "examples": [
+          "11 Machine Learning (ML) in Real Life: Smart Assistants",
+          "12 ML in Real Life: Advertising",
+          "13 ML in EE: Electrical Load Prediction  When and what load?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 11,
+            "pageEnd": 13
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Why Study Machine Learning?",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "Understanding the motivations behind studying ML helps students connect theory with practical value.",
+        "examples": [
+          "14 Why ML?"
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 14,
+            "pageEnd": 14
+          }
+        ]
+      },
+      {
+        "id": "c6",
+        "title": "Big Picture of Machine Learning",
+        "role": "core",
+        "budget": 200,
+        "teachingObjective": "A broad understanding of ML's scope and structure is crucial for navigating the course and its topics.",
+        "examples": [
+          "Big Picture of ML",
+          "17 Big Picture of ML (Cont.) Taking picking fruits as an example..."
+        ],
+        "sources": [
+          {
+            "filename": "Lec1_Introduction.pdf",
+            "pageStart": 17,
+            "pageEnd": 17
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Page 16",
+      "Page 19",
+      "Page 20",
+      "Page 21",
+      "Page 23",
+      "Page 26",
+      "An RL Example",
+      "Page 28",
+      "Page 29",
+      "Page 30"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 7
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 3,
+  "repetitionFindings": 2
+}

@@ -1,0 +1,143 @@
+{
+  "at": "2026-11-06T20:32:29.361Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "6813ddb5e1187d7e9276b9fe7c30c8eef291705fc15a833ba7570fb7d5a7f2e6",
+  "courseId": "9c3a91e9-8b1d-49bd-8c7d-72aac5257434",
+  "lecture": "Lecture 2: Linear Regression",
+  "wordCount": 1073,
+  "estimatedMinutes": 14.902777777777779,
+  "llmCalls": 6,
+  "llmUsage": {
+    "promptTokens": 11590,
+    "genTokens": 2206,
+    "loadDurationMs": 729,
+    "promptEvalMs": 4525,
+    "evalMs": 94441,
+    "totalMs": 100742
+  },
+  "promptChars": 34494,
+  "approxPromptTokens": 9855,
+  "revisionCycles": null,
+  "elapsedMs": 100786,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "repetition across 3 segments",
+      "instructional coverage 13% — no narration on: \"Page 1\" p.1, \"3 Example 1: Sales vs Advertising\" p.3, \"4 Example  2 :  Power Plant Generation\" p.4, \"5 What’s in common?\" p.5, \"6 Linear Regression Modelling: an Example The housing price prediction: x (feature)?\" p.6 (+42 more)"
+    ],
+    "warnings": [
+      "length note: 1073 words (reference band 576–720 — informational only)"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the core principles and implementation of linear regression, including its mathematical formulation, cost function, optimization techniques, and applications.",
+    "objective": "Understand the core principles and implementation of linear regression, including its mathematical formulation, cost function, optimization techniques, and applications.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "What is Linear Regression?",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Linear regression is the foundation for modeling continuous outcomes using a linear relationship between variables.",
+        "examples": [
+          "Sales vs Advertising",
+          "Housing price prediction"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 5
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Cost Function and Mean Squared Error (MSE)",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The cost function quantifies the error between predicted and actual values, guiding the optimization process.",
+        "examples": [
+          "MSE is a differentiable and convex function",
+          "Residual plots expose a biased model"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 2,
+            "pageEnd": 11
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Gradient Descent Optimization",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Gradient descent is an iterative method to minimize the cost function by adjusting model parameters.",
+        "examples": [
+          "Gradient descent approach: How it works",
+          "Code demo of gradient descent"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 15,
+            "pageEnd": 21
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Linear Regression Model Formulation",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "Understanding the mathematical form of the model is essential for interpreting and implementing linear regression.",
+        "examples": [
+          "Write down f_w(x) for house pricing",
+          "Linear regression model: f_w(x) = w_0 + w_1x"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 22,
+            "pageEnd": 24
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Closed-Form Solution and Matrix Operations",
+        "role": "core",
+        "budget": 240,
+        "teachingObjective": "The closed-form solution provides an alternative to gradient descent for solving linear regression problems using linear algebra.",
+        "examples": [
+          "Closed-form approach: Does it always work?",
+          "Vectorization benefits of matrix operations"
+        ],
+        "sources": [
+          {
+            "filename": "Lec2_Linear_Regression.pdf",
+            "pageStart": 48,
+            "pageEnd": 53
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Administrative slides like syllabus, grading, schedule, and logistics"
+    ],
+    "degraded": false,
+    "recommendedMinutes": 6
+  },
+  "provenance": {
+    "total": 9,
+    "withDoc": 9,
+    "withPage": 9
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 3
+}

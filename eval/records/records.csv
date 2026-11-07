@@ -33,3 +33,7 @@ at,version,model,course,idx,title,words,estMin,llmCalls,revisions,elapsedMs,vali
 2026-11-06T17:14:08.768Z,fast.1,qwen3:8b,bf9f962e,1,"Lecture 1: Introduction",904,12.6,4,,158384,FAIL,8,8,2
 2026-11-06T17:26:05.985Z,fast.1,qwen3:8b,26e63ddc,1,"Lecture 1: Introduction",1003,13.9,4,,292403,FAIL,8,8,2
 2026-11-06T17:44:36.637Z,fast.1,qwen3:8b,26e63ddc,1,"Lecture 1: Introduction",1008,14.0,9,,1392026,FAIL,16,16,2
+2026-11-06T18:01:27.449Z,fast.1,qwen3:8b,c069bbbc,1,"Lecture 1: Introduction",1087,15.1,5,,191605,FAIL,8,8,1
+2026-11-06T18:08:26.540Z,fast.1,qwen3:8b,57c74e4f,1,"Lecture 1: Introduction",969,13.5,5,,174905,FAIL,9,9,3
+2026-11-06T19:44:15.994Z,fast.1,qwen3:8b,14ccda50,1,"Lecture 1: Introduction",978,13.6,5,,39144,FAIL,10,10,3
+2026-11-06T20:32:29.361Z,fast.1,qwen3:8b,9c3a91e9,1,"Lecture 2: Linear Regression",1073,14.9,6,,100786,FAIL,9,9,0
