@@ -37,6 +37,7 @@ import { loadLectureDraft, saveLectureDraft, saveLectureFullDraft, saveLectureLa
          loadLectureLangDraft, invalidateSegmentAudio, textFingerprintForBake,
          audioApprovalGate, validateDraftScript, TRANSLATION_LANGS } from "./courses/drafts.mjs";
 import { planFromDocuments } from "./courses/generator.mjs";
+import { isAdminTopic } from "./courses/admin.mjs";
 import adminRouter from "./admin/routes.mjs";
 import brandingRouter from "./branding/routes.mjs";
 import { attachUser, socketAuth, requireAuth, requireRole } from "./auth/sessionMiddleware.mjs";
@@ -481,11 +482,18 @@ app.get('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER
           outdated: (t.basedOnVersion ?? -1) !== (d?.version ?? 0),
         };
       }
+      // "Possible missing topics" lists teachable omissions only — admin
+      // content (grading, group work, office hours…) is filtered here too so
+      // artifacts stored before the filter existed stay clean for the UI.
+      const coverage = l.artifacts?.coverage
+        ? { ...l.artifacts.coverage,
+            missing: (l.artifacts.coverage.missing || []).filter((m) => !isAdminTopic(m)) }
+        : null;
       drafts.push({
         lectureId: l.lecture_id, title: d?.title || l.title, status: l.status,
         version: d?.version ?? 0,
         audioOutdated: l.artifacts?.audio_outdated === true,
-        coverage: l.artifacts?.coverage || null,
+        coverage,
         segments: d?.segments || [],
         langs,
       });
@@ -1201,10 +1209,19 @@ app.get('/api/lecture/:lectureId/readiness', async (req, res) => {
     const buildRunningNow = lec?.course_id ? buildRunning(lec.course_id) : false;
     const jobOrBuild = job || (buildRunningNow ? { build: true } : null);
     // Per-language failed-segment detail for the review screen —
-    // English text + whatever translated text exists.
+    // English text + whatever translated text exists + the exact reason
+    // the segment failed (translation draft 'failures' map first, then
+    // duration flags / repair records from lecture artifacts).
+    const { rows: [lecArt] } = await getPool().query(
+      `SELECT artifacts FROM course_lectures WHERE lecture_id=$1`, [lectureId])
+      .catch(() => ({ rows: [null] }));
+    const durFlags = lecArt?.artifacts?.duration_flags || {};
+    const repairFlags = lecArt?.artifacts?.failed_segments || [];
     const failed = [];
     const enManifest = await loadLectureManifest(lectureId, 'en').catch(() => null);
     for (const [lang, lr] of Object.entries(r.langs)) {
+      if (!(lr.missingSegments || []).length) continue;
+      const draft = await loadLectureLangDraft(lectureId, lang).catch(() => null);
       for (const idx of lr.missingSegments || []) {
         const enText = enManifest?.segments?.[idx]?.text || '';
         let langText = null;
@@ -1213,7 +1230,13 @@ app.get('/api/lecture/:lectureId/readiness', async (req, res) => {
             AI_SEGMENTS, `${lectureId}__${lang}`,
             `segment_${String(idx).padStart(3, '0')}.txt`), 'utf-8');
         } catch { /* no translation exists */ }
-        failed.push({ lang, idx, enText, langText });
+        const durFlag = (durFlags[lang] || []).find((f) => f.idx === idx);
+        const reason = draft?.failures?.[String(idx)] || draft?.failures?.[idx]
+          || (durFlag
+            ? `audio duration ${durFlag.ratio}× English segment — outside 0.5–3.0 safety band (likely truncated or a TTS loop)`
+            : repairFlags.find((f) => f.lang === lang && f.idx === idx)?.reason)
+          || null;
+        failed.push({ lang, idx, enText, langText, reason });
       }
     }
     res.json({ ...r, failed, running: !!jobOrBuild, repair: job || null });
@@ -1291,6 +1314,58 @@ app.post('/api/lecture/:lectureId/segment/:lang/:idx', requireAuth,
     res.json({ ok: true, readiness: await lectureReadiness(lectureId) });
   } catch (err) {
     res.status(500).json({ error: `Segment rebake failed: ${String(err.message || err).slice(0, 200)}` });
+  }
+});
+
+// "Retry translation" for one failed segment — re-runs the translator on the
+// English source with the STRONG model only, writes the draft + runtime
+// cache text, and returns the new text for review. Audio bake stays a
+// separate step (the reviewer's edit/re-bake path).
+app.post('/api/lecture/:lectureId/segment/:lang/:idx/retranslate', requireAuth,
+  requireRole('INSTRUCTOR', 'SUPER_ADMIN'), async (req, res) => {
+  const { lectureId, lang, idx } = req.params;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(lectureId || '') ||
+      !/^[a-z]{2}$/.test(lang || '') || lang === 'en' || !/^\d+$/.test(idx || '')) {
+    return res.status(400).json({ error: 'Expected lectureId, non-en lang, idx' });
+  }
+  try {
+    const { translateForLecture, loadLectureManifest } =
+      await import('../nexora_ai/routes/lectureRoutes.mjs');
+    const en = await loadLectureManifest(lectureId, 'en');
+    const src = en?.segments?.[+idx]?.text;
+    if (!src) return res.status(404).json({ error: `No English segment ${idx} for ${lectureId}` });
+    const text = await translateForLecture(src, lang,
+      { lectureId, segmentId: +idx, strongOnly: true });
+    // Upsert the translation draft + runtime cache text; clear the recorded
+    // failure so readiness stops reporting the old reason.
+    const { loadLectureLangDraft, scriptFingerprint, canonicalVersion } =
+      await import('./courses/drafts.mjs');
+    const draft = await loadLectureLangDraft(lectureId, lang);
+    const version = draft?.basedOnVersion ?? await canonicalVersion(lectureId);
+    const segments = [...(draft?.segments || [])];
+    const slot = segments.findIndex((s) => s.id === +idx);
+    if (slot >= 0) segments[slot] = { ...segments[slot], text };
+    else segments.push({ id: +idx, text });
+    segments.sort((a, b) => a.id - b.id);
+    const failures = { ...(draft?.failures || {}) };
+    delete failures[idx]; delete failures[String(idx)];
+    const payload = { ...(draft || {}), lang, lectureId,
+      version: draft?.version ?? version, basedOnVersion: version,
+      fingerprint: scriptFingerprint(segments), edited: draft?.edited ?? false,
+      segments, ...(Object.keys(failures).length ? { failures } : { failures: {} }) };
+    await fsp.mkdir(path.join(PROFBRAIN_LECTURES, lectureId, 'translations'), { recursive: true });
+    await fsp.writeFile(path.join(
+      PROFBRAIN_LECTURES, lectureId, 'translations', `${lang}.json`),
+      JSON.stringify(payload, null, 2));
+    const segDir = path.join(AI_SEGMENTS, `${lectureId}__${lang}`);
+    const base = `segment_${String(+idx).padStart(3, '0')}`;
+    await fsp.mkdir(segDir, { recursive: true });
+    await fsp.writeFile(path.join(segDir, `${base}.txt`), text);
+    await fsp.rm(path.join(segDir, `${base}.wav`), { force: true }).catch(() => {});
+    await fsp.rm(path.join(segDir, `${base}_lipsync.json`), { force: true }).catch(() => {});
+    res.json({ ok: true, text });
+  } catch (err) {
+    res.status(422).json({ error: `Retranslation failed: ${String(err.message || err).slice(0, 300)}` });
   }
 });
 

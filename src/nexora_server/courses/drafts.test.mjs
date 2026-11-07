@@ -78,11 +78,13 @@ test('alignSegments: kept on similar text, auto on chunk match, uncertain on no 
   assert.equal(r[2].page, 14);           // inherited previous position
 });
 
-test('validateDraftScript flags empty/oversized scripts', () => {
+test('validateDraftScript flags only structurally-empty scripts', () => {
   assert.equal(validateDraftScript([{ text: 'word '.repeat(200) }]).ok, true);
+  // No length gate — lecture length follows the content.
+  assert.equal(validateDraftScript([{ text: 'tiny' }]).ok, true);
+  assert.equal(validateDraftScript([{ text: 'w '.repeat(2000) }]).ok, true);
   assert.equal(validateDraftScript([]).ok, false);
-  assert.equal(validateDraftScript([{ text: 'tiny' }]).ok, false);
-  assert.equal(validateDraftScript([{ text: 'w '.repeat(2000) }]).ok, false);
+  assert.equal(validateDraftScript([{ text: 'real text' }, { text: '  ' }]).ok, false);
 });
 
 test('scriptFingerprint changes when any segment text changes', () => {

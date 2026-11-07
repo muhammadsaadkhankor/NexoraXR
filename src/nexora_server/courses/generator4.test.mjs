@@ -247,17 +247,18 @@ test('coverage: full-page coverage passes', () => {
   assert.equal(v.ok, true, JSON.stringify(v.problems));
 });
 
-test('undershoot: 55%-of-target script now fails', () => {
+test('undershoot: below-target script passes with an informational warning', () => {
   const plan = { objective: 'x', blocks: [], concepts: [{ title: 'A', importance: 'high', blockId: 'c1' }] };
   const parsed = { title: 't', segments: [
     { id: 0, section: 'Introduction', document: 'lec.pdf', page: 1, text: prose(200, 'i'), blockId: '__intro' },
     { id: 1, section: 'A', document: 'lec.pdf', page: 2, text: prose(200, 'a'), blockId: 'c1' },
-    { id: 2, section: 'Recap', document: 'lec.pdf', page: 3, text: prose(100, 'r'), blockId: '__recap' },
-  ] }; // 500w vs 1000w target = 50%
+    { id: 2, section: 'B', document: 'lec.pdf', page: 3, text: prose(100, 'b'), blockId: 'c1' },
+    { id: 3, section: 'Recap', document: 'lec.pdf', page: 4, text: prose(100, 'r'), blockId: '__recap' },
+  ] }; // 600w vs 1000w target — length follows content, not a failure
   const v = validateFast(parsed, { 'lec.pdf': { documentId: 'd1', pages: [[1, 60]] } }, plan,
     { targetWords: 1000, minutes: 10 });
-  assert.equal(v.ok, false);
-  assert.ok(v.problems.some((p) => p.includes('too short for target')));
+  assert.equal(v.ok, true);
+  assert.ok(v.warnings.some((w) => w.includes('undershoot')));
 });
 
 test('math: equation-bearing block without math narration fails', () => {

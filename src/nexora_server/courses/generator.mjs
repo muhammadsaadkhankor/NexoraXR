@@ -24,7 +24,7 @@ const execFileP = promisify(execFile);
 import { getPool } from '../db/pool.mjs';
 import { chat, embed, cosine } from './llm.mjs';
 import { writeSlides } from './slides.mjs';
-import { isAdminText, ADMIN_NARRATION } from './admin.mjs';
+import { isAdminText, isAdminTopic, ADMIN_NARRATION } from './admin.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PROFBRAIN_DIR = path.join(REPO_ROOT, 'profbrain', 'lectures');
@@ -32,8 +32,6 @@ const PROFBRAIN_DIR = path.join(REPO_ROOT, 'profbrain', 'lectures');
 const RETRIEVE_K = Number(process.env.COURSE_RETRIEVE_K || 24);
 // Measured VoxCPM pace on these voices ≈65–80 wpm — ~350 words ≈ five minutes.
 const TARGET_WORDS = Number(process.env.COURSE_LECTURE_WORDS || 350);
-// Soft length gate — the REAL duration check is measured audio (4:30–5:30).
-const WORD_BAND = [Math.round(TARGET_WORDS * 0.7), Math.round(TARGET_WORDS * 1.2)];
 const MAX_WRITE_ATTEMPTS = Number(process.env.COURSE_WRITE_ATTEMPTS || 2);
 const MAX_SLIDES = Number(process.env.COURSE_MAX_SLIDES || 5);
 
@@ -596,8 +594,8 @@ export function validateLecture(parsed, allowedDocs) {
       problems.push(`segment ${i + 1}: page ${s.page} outside assigned ranges of "${s.document}"`);
     }
   }
-  if (words < WORD_BAND[0]) problems.push(`too short (${words} words < ${WORD_BAND[0]})`);
-  if (words > WORD_BAND[1]) problems.push(`too long (${words} words > ${WORD_BAND[1]})`);
+  // No word-count gate — lecture length follows the content. Structural
+  // checks (fragments, provenance, admin narration) catch real breakage.
   // Narration must cover subject matter only — reject course-structure talk.
   for (const [i, sec] of parsed.sections.entries()) {
     const hits = sec.segments.filter((s) => ADMIN_NARRATION.test(s.text)).length;
@@ -644,11 +642,7 @@ export async function generateLecture(courseId, outlineEntry) {
     const hint = attempt === 0 ? ''
       : lastProblems.some((p) => p.includes('admin'))
         ? 'Your last attempt narrated course logistics — start directly with the subject matter; do NOT include an overview/"this lecture covers" section.'
-        : wordCount(parsed || { segments: [] }) < WORD_BAND[0]
-          ? 'Your last attempt was too short — expand into fuller spoken explanation.'
-          : wordCount(parsed || { segments: [] }) > WORD_BAND[1]
-            ? 'Your last attempt was too long — be more concise.'
-            : 'Your last attempt had invalid sources or fragments — fix segment documents/pages and expand every point into full spoken sentences.';
+        : 'Your last attempt had invalid sources or fragments — fix segment documents/pages and expand every point into full spoken sentences.';
     const script = await writeSegments(outlineEntry, chunks, hint, writerCtx);
     const candidate = parseSegments(script);
     if (!candidate.segments.length) {
@@ -698,21 +692,8 @@ export async function generateLecture(courseId, outlineEntry) {
     }
   }
 
-  // Deterministic length control — qwen3 cannot count words, so when every
-  // attempt overshoots the duration band we trim WHOLE trailing segments
-  // (provenance stays exact; coverage drops gracefully to earlier topics).
-  if (wordCount(parsed) > WORD_BAND[1] && parsed.segments.length > 6) {
-    let total = wordCount(parsed);
-    while (parsed.segments.length > 6 && total > WORD_BAND[1]) {
-      const dropped = parsed.segments.pop();
-      total -= dropped.text.split(/\s+/).filter(Boolean).length;
-    }
-    parsed.sections = parsed.sections.filter((s) =>
-      parsed.segments.some((g) => s.segments.includes(g)));
-    console.log(`[course] lecture ${outlineEntry.idx}: trimmed to ${total} words / ${parsed.segments.length} segments for the duration band`);
-    const v = validateLecture(parsed, allowedDocs);
-    parsed.validation = v.ok ? undefined : { ok: false, problems: v.problems };
-  }
+  // No length trimming — lecture length follows the content; the reviewer
+  // sees the full script and its measured audio duration as information.
 
   if (parsed.title === 'Untitled lecture') parsed.title = outlineEntry.title;
   parsed.wordCount = wordCount(parsed);
@@ -919,7 +900,11 @@ export async function emitLecture(courseId, outlineEntry, lecture, { buildId = n
        validation: lecture.validation || { ok: true },
        ...(lecture.coverage ? { coverage: {
          checklist: lecture.coverage.checklist.map((t) => `${t.n}. ${t.title}`),
-         missing: lecture.coverage.missing.map((t) => `${t.n}. ${t.title}`),
+         // Admin content (grading, group work, office hours…) is not a
+         // "missing topic" — the warning lists teachable omissions only.
+         missing: lecture.coverage.missing
+           .filter((t) => !isAdminTopic(t.title))
+           .map((t) => `${t.n}. ${t.title}`),
          ...(lecture.coverage.recommendedMinutes ? { recommendedMinutes: lecture.coverage.recommendedMinutes } : {}) } } : {}),
        ...(lecture.contextMode ? { context_mode: lecture.contextMode } : {}),
      })]);

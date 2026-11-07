@@ -57,6 +57,8 @@ test('synthesizeVerified: wrong detected language triggers retry until correct',
   const wav = await synthesizeVerified('text', 'abed101', 'ar', {
     synthesize: async () => { calls++; return Buffer.from('wav'); },
     detect: async () => (calls === 1 ? 'zh' : 'ar'), // first drifts, second ok
+    // Transcribe second opinion confirms the window is foreign → hard fail.
+    secondOpinion: async () => 'zh',
   });
   assert.equal(calls, 2);
   assert.ok(wav.length > 0);
@@ -77,6 +79,7 @@ test('synthesizeVerified: retry exhaustion fails safely', async () => {
     synthesizeVerified('text', 'abed101', 'ar', {
       synthesize: async () => { calls++; return Buffer.from('wav'); },
       detect: async () => 'zh',
+      secondOpinion: async () => 'zh',
     }),
     /language mismatch/i
   );
@@ -109,6 +112,7 @@ test('synthesizeVerified: a mid-segment language blip is rejected (windowed)', a
   const wav = await synthesizeVerified('نص', 'v', 'ar', {
     synthesize: async () => Buffer.from('wav'),
     detect: async () => (++calls === 1 ? ['ar', 'zh', 'ar'] : ['ar', 'ar', 'ar']),
+    secondOpinion: async () => 'zh',
   });
   assert.equal(calls, 2); // first wav rejected due to the 'zh' window
   assert.ok(wav.length);

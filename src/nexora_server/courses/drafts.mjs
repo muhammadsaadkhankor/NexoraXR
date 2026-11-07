@@ -131,9 +131,8 @@ export function alignSegments(newTexts, oldSegments, chunks) {
 export function validateDraftScript(segments) {
   const problems = [];
   if (!segments.length) problems.push('script is empty');
-  const total = segments.reduce((n, s) => n + words(s.text).length, 0);
-  if (total < 80) problems.push(`script too short (${total} words)`);
-  if (total > 1500) problems.push(`script too long (${total} words)`);
+  // No word-count gate — lecture length follows the content. Only structural
+  // breakage (missing/empty narration) blocks approval.
   const empty = segments.filter((s) => !s.text.trim()).length;
   if (empty) problems.push(`${empty} empty segment(s)`);
   return { ok: problems.length === 0, problems };
@@ -384,7 +383,7 @@ async function pool(tasks, worker, concurrency = TRANSLATE_CONCURRENCY) {
 // Skips languages that have human edits (edited:true) — never overwrites a
 // reviewer's text. Returns per-lang status (with ms per language for
 // stage_timings breakdown).
-export async function prepareTranslations(courseId) {
+export async function prepareTranslations(courseId, onProgress = null) {
   const { rows } = await getPool().query(
     `SELECT lecture_id FROM course_lectures WHERE course_id=$1
        AND COALESCE(artifacts->'script','0'::jsonb)::text='1' ORDER BY idx`, [courseId]);
@@ -398,6 +397,10 @@ export async function prepareTranslations(courseId) {
     await fsp.mkdir(path.dirname(transPath(lid, 'ar')), { recursive: true });
     for (const lang of TRANSLATION_LANGS) {
       const langT0 = Date.now();
+      // Report per-language progress: the translation stage can run for many
+      // minutes, and a status string that never changes is indistinguishable
+      // from a hung build (both for the UI and for the e2e watchdog).
+      onProgress?.(`translating ${lang.toUpperCase()}`);
       const existing = await loadLectureLangDraft(lid, lang);
       const srcById = new Map(parsed.segments.map((s) => [s.id, s.text]));
       const { validateTranslation } = await import('../../nexora_ai/modules/textLangCheck.mjs');
@@ -477,6 +480,7 @@ export async function prepareTranslations(courseId) {
             segments[i] = { id: s.id, text: t };
             failedMap.delete(s.id);
             console.log(`[translate] lecture=${lid} seg=${s.id} lang=${lang} ${Date.now() - st}ms`);
+            onProgress?.(`translating ${lang.toUpperCase()} ${segments.filter(Boolean).length}/${parsed.segments.length}`);
           } catch (e) {
             failedMap.set(s.id, String(e.message || e));
           }
@@ -493,7 +497,10 @@ export async function prepareTranslations(courseId) {
       if (done.length) {
         const fingerprint = scriptFingerprint(done);
         const payload = { lang, lectureId: lid, version, basedOnVersion: version,
-          fingerprint, edited: false, segments: done };
+          fingerprint, edited: false, segments: done,
+          // Exact reason the last attempt failed per unfinished segment —
+          // the readiness endpoint surfaces it to the reviewer.
+          ...(failedMap.size ? { failures: Object.fromEntries(failedMap) } : {}) };
         await fsp.writeFile(transPath(lid, lang), JSON.stringify(payload, null, 2));
         // Mirror into the runtime text cache so audio bakes this exact text.
         for (const s of done) {

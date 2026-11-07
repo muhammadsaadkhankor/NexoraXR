@@ -36,7 +36,6 @@ export const PROMPT_VERSION = 'v2-plan-2026-10-26';
 const TARGET_MINUTES = Math.min(10, Math.max(5, Number(process.env.COURSE_TARGET_MINUTES || 7)));
 export const EFFECTIVE_WPM = Math.min(130, Math.max(50, Number(process.env.COURSE_EFFECTIVE_WPM || 72)));
 const WORD_BUDGET = Math.round(TARGET_MINUTES * EFFECTIVE_WPM);
-const WORD_BAND_V2 = [Math.round(WORD_BUDGET * 0.8), Math.round(WORD_BUDGET * 1.15)];
 const INTRO_FRacT = 0.10, RECAP_FRacT = 0.10; // reserved for intro + conclusion
 const MAX_REVISION_CYCLES = Number(process.env.COURSE_REVISION_CYCLES || 2);
 
@@ -458,8 +457,8 @@ export function validateLectureV2(parsed, allowedDocs, plan) {
       problems.push(`segment ${i + 1}: page ${s.page} outside assigned ranges of "${s.document}"`);
     }
   }
-  if (words < WORD_BAND_V2[0]) problems.push(`too short (${words} words < ${WORD_BAND_V2[0]} for ~${Math.round(plan?.wordBudget || WORD_BUDGET)}w target)`);
-  if (words > WORD_BAND_V2[1]) problems.push(`too long (${words} words > ${WORD_BAND_V2[1]} for ~${Math.round(plan?.wordBudget || WORD_BUDGET)}w target)`);
+  // No word-count gate — lecture length follows the content. Structural
+  // checks (fragments, provenance, admin narration) catch real breakage.
   // Admin leak: FIRST segment must be subject matter — no course logistics
   // opening, ever.
   for (const [i, s] of parsed.segments.slice(0, 2).entries()) {
@@ -533,8 +532,8 @@ export async function generateLectureV2(courseId, outlineEntry, deps = {}) {
     const next = assignSegmentTopics(revised, plan);
     next.sections = segsToSections(next.segments);
     const v = validateLectureV2(next, allowedDocs, plan);
-    if (v.ok || wordCount(next) <= WORD_BAND_V2[1]) parsed = next;
-    else { parsed = next; break; }
+    parsed = next;
+    if (!v.ok) break;
   }
   meta.revisionCycles = revisions;
 

@@ -39,20 +39,20 @@ test('en passthrough makes no calls', async () => {
   assert.equal(requests, 0);
 });
 
-test('empty output: 3 attempts then throws, never returns source', async () => {
+test('empty output: 3 attempts + strong rescue then throws, never returns source', async () => {
   mode = 'empty'; requests = 0;
   await assert.rejects(
     () => translateForLecture(SRC, 'fr', { lectureId: 'L1', segmentId: 3 }),
-    /Translation failed: lecture=L1 segment=3 lang=fr reason=empty-output/);
-  assert.equal(requests, 3);
+    /Translation failed: lecture=L1 segment=3 lang=fr reason=invalid-output\(strong\):empty/);
+  assert.equal(requests, 4); // 3 base + 1 strong-model rescue
 });
 
 test('identical-to-source output retries and fails', async () => {
   mode = 'english'; requests = 0;
   await assert.rejects(
     () => translateForLecture(SRC, 'de', { lectureId: 'L1', segmentId: 0 }),
-    /Translation failed: lecture=L1 segment=0 lang=de reason=identical-to-source/);
-  assert.equal(requests, 3);
+    /Translation failed: lecture=L1 segment=0 lang=de reason=invalid-output\(strong\):too-short-or-identical/);
+  assert.equal(requests, 4);
 });
 
 test('valid translation returns translated text once', async () => {

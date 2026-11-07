@@ -153,6 +153,31 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       setRebaking(null);
     }
   };
+  // Re-run the translator (strong model) for one failed segment — the new
+  // text lands in the edit box so the reviewer can inspect, adjust, then
+  // re-bake with the button beside it.
+  const [retrying, setRetrying] = useState(null); // 'lectureId:lang:idx'
+  const retryTranslation = async (f) => {
+    const key = `${f.lectureId}:${f.lang}:${f.idx}`;
+    if (retrying) return;
+    setRetrying(key);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/lecture/${f.lectureId}/segment/${f.lang}/${f.idx}/retranslate`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Retry translation failed');
+      setFailedSegs((fs) => fs.map((x) =>
+        x === f ? { ...x, edit: data.text, langText: data.text, reason: null } : x));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRetrying(null);
+    }
+  };
 
   // Load the canonical drafts for the review screen (single shape used by
   // every entry point — origText lets approval skip unchanged scripts).
@@ -612,6 +637,11 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                     <p style={{ margin: '0 0 4px', fontSize: 11, color: '#fdba74' }}>
                       {f.lectureId} · segment {f.idx} · {f.lang.toUpperCase()}
                     </p>
+                    {f.reason ? (
+                      <p style={{ margin: '0 0 4px', fontSize: 11, color: '#f87171' }}>
+                        Reason: {f.reason}
+                      </p>
+                    ) : null}
                     <p style={{ margin: '0 0 6px', fontSize: 11, color: '#94a3b8', maxHeight: 60, overflow: 'auto' }}>
                       EN: {f.enText}
                     </p>
@@ -624,12 +654,20 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                       style={{ width: '100%', background: '#0f172a', border: '1px solid #334155',
                         borderRadius: 8, color: '#e2e8f0', padding: 6, fontSize: 12 }}
                     />
-                    <button type="button"
-                      onClick={() => rebakeSegment(f)}
-                      disabled={!!rebaking}
-                      className="btn btn-ghost" style={{ marginTop: 4, fontSize: 11 }}>
-                      {rebaking === `${f.lectureId}:${f.lang}:${f.idx}` ? 'Re-baking…' : 'Re-bake this segment'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <button type="button"
+                        onClick={() => retryTranslation(f)}
+                        disabled={!!retrying || !!rebaking}
+                        className="btn btn-ghost" style={{ fontSize: 11 }}>
+                        {retrying === `${f.lectureId}:${f.lang}:${f.idx}` ? 'Retrying…' : 'Retry translation'}
+                      </button>
+                      <button type="button"
+                        onClick={() => rebakeSegment(f)}
+                        disabled={!!rebaking || !!retrying}
+                        className="btn btn-ghost" style={{ fontSize: 11 }}>
+                        {rebaking === `${f.lectureId}:${f.lang}:${f.idx}` ? 'Re-baking…' : 'Re-bake this segment'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

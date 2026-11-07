@@ -52,7 +52,7 @@ export async function repairCourse(courseId, onProgress) {
     // Fixes all missing/stale/failed translation drafts for every lecture
     // in the course — invalid drafts are re-translated, valid ones kept.
     const tErrs = [];
-    const tReport = await prepareTranslations(courseId).catch((e) => {
+    const tReport = await prepareTranslations(courseId, tick).catch((e) => {
       tErrs.push(`translations: ${e.message}`); return [];
     });
     const { rows: lectures } = await getPool().query(
@@ -119,10 +119,10 @@ export async function repairIncompleteOnBoot() {
     console.log(`[repair] ${rows.length} incompletely-baked lecture(s) found — queueing repair`);
     for (const { lecture_id, course_id } of rows) {
       try {
-        const r = await lectureReadiness(lectureId);
+        const r = await lectureReadiness(lecture_id);
         if (r.allReady) continue;
         console.log(`[repair] ${lecture_id}: repairing (${r.missing.join('; ')})`);
-        const out = await repairLecture(lectureId,
+        const out = await repairLecture(lecture_id,
           (p) => console.log(`[repair] ${lecture_id}: ${p}`));
         console.log(`[repair] ${lecture_id}: ${out.ready ? 'READY' : 'still incomplete: ' + out.missing.join('; ')}`);
       } catch (e) {

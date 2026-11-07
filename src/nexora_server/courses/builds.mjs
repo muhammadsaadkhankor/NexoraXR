@@ -254,7 +254,8 @@ async function runTranslationPhaseImpl(buildId, courseId) {
       console.warn(`[course] build ${buildId}: stale translation phase, aborting`);
       return;
     }
-    const report = await prepareTranslations(courseId);
+    const report = await prepareTranslations(courseId,
+      (p) => setStep(buildId, 'translating', { stage: 'translations', progress: p }).catch(() => {}));
     const failed = report.filter((r) => r.status === 'failed' || r.status === 'partial');
     await setStep(buildId, 'awaiting_review', {
       stage: 'translations',
@@ -324,7 +325,8 @@ async function runAudioPhaseImpl(buildId, courseId, lectureCount) {
         const translateT0 = Date.now();
         // Translation failures are reported on the build — a rejected
         // translation never silently ships English text/audio.
-        const report = await prepareTranslations(courseId);
+        const report = await prepareTranslations(courseId,
+          (p) => setStep(buildId, 'audio', { stage: 'audio', progress: p }).catch(() => {}));
         translateTiming = {
           translating_ms: Date.now() - translateT0,
           translate_per_lang_ms: Object.fromEntries(

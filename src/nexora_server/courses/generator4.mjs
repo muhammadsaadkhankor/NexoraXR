@@ -22,6 +22,7 @@ import {
   detectRepetition, dedupeSegments, blockGaps, repairGaps,
   validateLectureV3, compressOvershootV3,
 } from './generator3.mjs';
+import { isAdminTopic } from './admin.mjs';
 
 export const GENERATOR_VERSION = 'fast.1';
 export const PROMPT_VERSION = 'fast-2call-2026-10-26';
@@ -225,9 +226,9 @@ export function validateFast(parsed, allowedDocs, plan, opts = {}) {
   const warnings = [...(v.warnings || [])];
   const words = (id) => parsed.segments.filter((s) => s.blockId === id)
     .reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
-  // Duration: hard-fail a badly under-delivered script; overshoot is a
-  // warning (long lectures are the reviewer's call, not a compressor's).
-  if (v.words < target * 0.7) problems.push(`too short for target (${v.words}w < ${Math.round(target * 0.7)}w of ~${target}w)`);
+  // Duration is informational — lecture length follows the content. Under/
+  // over the target is a review note, never a validation failure.
+  if (v.words < target * 0.7) warnings.push(`undershoot: ${v.words}w vs ~${target}w target (informational)`);
   if (v.words > target * 1.15) warnings.push(`overshoot: ${v.words}w vs ~${target}w target`);
   // High-importance concepts need depth — under 80 words is named-not-taught.
   for (const c of plan.concepts || []) {
@@ -246,6 +247,9 @@ export function validateFast(parsed, allowedDocs, plan, opts = {}) {
       .map((s) => `${s.document}#${s.page}`);
     const coveredSet = new Set(covered);
     const uncovered = opts.teaching.filter((s) => {
+      // Administrative slides (grading, group work, office hours…) are
+      // legitimate omissions — they never count as missing coverage.
+      if (isAdminTopic(s.title)) return false;
       const lo = s.page_start ?? s.pageStart ?? 1;
       const hi = s.page_end ?? s.pageEnd ?? lo;
       for (let p = lo; p <= hi; p++) {
@@ -263,11 +267,16 @@ export function validateFast(parsed, allowedDocs, plan, opts = {}) {
   }
 
   // Coverage honesty — omitted topics and a recommended longer duration are
-  // reported to the reviewer, never silently dropped.
+  // reported to the reviewer, never silently dropped. Administrative items
+  // (grading, group work, office hours…) are filtered out — they are not
+  // teachable topics.
+  const omittedTopics = (plan.omitted || [])
+    .map((t) => (typeof t === 'string' ? t : t?.title || String(t)))
+    .filter((t) => !isAdminTopic(t));
   if (plan.recommendedMinutes && plan.recommendedMinutes > (opts.minutes || FAST_MINUTES)) {
-    warnings.push(`full topic coverage needs ~${plan.recommendedMinutes} min; target is ${opts.minutes || FAST_MINUTES} — omitted: ${(plan.omitted || []).join('; ') || 'none'}`);
-  } else if (plan.omitted?.length) {
-    warnings.push(`topics omitted from narration: ${plan.omitted.join('; ')}`);
+    warnings.push(`full topic coverage needs ~${plan.recommendedMinutes} min; target is ${opts.minutes || FAST_MINUTES} — omitted: ${omittedTopics.join('; ') || 'none'}`);
+  } else if (omittedTopics.length) {
+    warnings.push(`topics omitted from narration: ${omittedTopics.join('; ')}`);
   }
 
   // Per-concept math check — a block whose evidence contains equations must
@@ -542,7 +551,9 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
   // Coverage report for the review UI — full topic inventory + what didn't fit.
   parsed.coverage = {
     checklist: plan.concepts.map((c, i) => ({ n: i + 1, title: c.title })),
-    missing: (plan.omitted || []).map((t, i) => ({ n: i + 1, title: typeof t === 'string' ? t : t?.title || String(t) })),
+    missing: (plan.omitted || [])
+      .map((t, i) => ({ n: i + 1, title: typeof t === 'string' ? t : t?.title || String(t) }))
+      .filter((t) => !isAdminTopic(t.title)),
     ...(plan.recommendedMinutes > minutes ? { recommendedMinutes: plan.recommendedMinutes } : {}),
   };
   parsed.wordCount = parsed.segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);

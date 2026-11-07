@@ -179,6 +179,8 @@ function normalizeLang(lang) {
 // failed rather than bake English into a non-English bucket.
 // ctx: { lectureId, segmentId } for error/log context; ctx.validate(text, lang)
 // may return { ok, reason } to add a content check (see textLangCheck.mjs).
+// ctx.strongOnly skips the base-model attempts — the "Retry translation"
+// endpoint uses it to go straight to the stronger model.
 const TRANSLATE_ATTEMPTS = 3;
 export async function translateForLecture(text, lang, ctx = {}) {
   if (lang === 'en') return text;
@@ -208,7 +210,7 @@ export async function translateForLecture(text, lang, ctx = {}) {
   // lower there (0.15) than for script-similar languages (0.30).
   const MIN_RATIO = lang === 'zh' ? 0.15 : 0.30;
   let lastReason = 'unknown';
-  for (let attempt = 1; attempt <= TRANSLATE_ATTEMPTS; attempt++) {
+  for (let attempt = 1; !ctx.strongOnly && attempt <= TRANSLATE_ATTEMPTS; attempt++) {
     let out;
     try {
       out = await generateOllama(null, {
@@ -248,27 +250,33 @@ export async function translateForLecture(text, lang, ctx = {}) {
   // keeps dragging foreign script in — gets a bigger reasoning budget
   // before the segment is reported as failed.
   const STRONG = process.env.OLLAMA_STRONG_TRANSLATE_MODEL || 'qwen3:8b';
-  try {
-    const out = await generateOllama(null, {
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      numPredict: 800, translate: true, model: STRONG,
-      ollamaOptions: { num_ctx: 2048 }, temperature: 0.15,
-    });
-    const tagged = /<translation>([\s\S]*?)<\/translation>/i.exec(out || '');
-    const translated = (tagged ? tagged[1] : (out || '')).trim();
-    if (translated && translated !== text.trim() && translated.length >= srcLen * MIN_RATIO) {
-      const check = await validate(translated, lang, { source: text });
-      if (check.ok !== false) {
-        console.log(`[translate] strong-model rescue lecture=${lectureId} segment=${segmentId} lang=${lang} model=${STRONG}`);
-        (await import('../modules/bakeStats.mjs')).bakeStats.translationStrongModel++;
-        return translated;
+  const strongAttempts = ctx.strongOnly ? 2 : 1;
+  for (let sa = 1; sa <= strongAttempts; sa++) {
+    try {
+      const out = await generateOllama(null, {
+        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+        numPredict: 800, translate: true, model: STRONG,
+        ollamaOptions: { num_ctx: 2048 }, temperature: 0.15,
+      });
+      const tagged = /<translation>([\s\S]*?)<\/translation>/i.exec(out || '');
+      const translated = (tagged ? tagged[1] : (out || '')).trim();
+      if (translated && translated !== text.trim() && translated.length >= srcLen * MIN_RATIO) {
+        const check = await validate(translated, lang, { source: text });
+        if (check.ok !== false) {
+          console.log(`[translate] strong-model rescue lecture=${lectureId} segment=${segmentId} lang=${lang} model=${STRONG}`);
+          (await import('../modules/bakeStats.mjs')).bakeStats.translationStrongModel++;
+          return translated;
+        }
+        lastReason = `invalid-language(strong):${check.reason || 'mismatch'}`;
+      } else {
+        lastReason = `invalid-output(strong):${translated ? 'too-short-or-identical' : 'empty'}`;
       }
-      lastReason = `invalid-language(strong):${check.reason || 'mismatch'}`;
-    } else {
-      lastReason = `invalid-output(strong):${translated ? 'too-short-or-identical' : 'empty'}`;
+    } catch (e) {
+      lastReason = `strong-model-error:${e.message.slice(0, 80)}`;
     }
-  } catch (e) {
-    lastReason = `strong-model-error:${e.message.slice(0, 80)}`;
+    if (sa < strongAttempts) {
+      console.warn(`[translate] strong-model rejected lecture=${lectureId} segment=${segmentId} lang=${lang} attempt=${sa}/${strongAttempts} reason=${lastReason}`);
+    }
   }
   throw new Error(`Translation failed: lecture=${lectureId} segment=${segmentId} lang=${lang} reason=${lastReason}`);
 }

@@ -184,3 +184,45 @@ test('zh with Chinese meta phrase rejected when source lacks it', () => {
   const r = validateTranslation(t, 'zh', { source: 'Machine learning is a field of study.' });
   assert.equal(r.ok, false);
 });
+
+// ---- meta check: normal vocabulary passes, only real meta phrases block ----
+
+test('zh normal words 以下/继续/示例 are not meta', () => {
+  const t = '以下三个原因解释了为什么机器学习有效，我们将继续讨论更多示例。';
+  const r = validateTranslation(t, 'zh', { source: 'Three reasons explain why machine learning works.' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('zh real meta phrase 以下是翻译 rejected', () => {
+  const t = '以下是翻译：机器学习是一个使计算机无需明确编程即可学习的研究领域。';
+  const r = validateTranslation(t, 'zh', { source: 'Machine learning is a field of study.' });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /leaked-meta/);
+});
+
+test('zh real meta phrase 翻译如下 rejected', () => {
+  const t = '翻译如下：机器学习是一个研究领域，它使计算机能够学习。';
+  const r = validateTranslation(t, 'zh', { source: 'Machine learning is a field of study.' });
+  assert.equal(r.ok, false);
+});
+
+// ---- technical terms in Latin script inside ar/zh are allowed ----
+
+test('zh keeps Latin technical terms absent from source (machine, ML)', () => {
+  const t = '在电气工程领域，ML被用于负荷预测，即利用machine learning和时间序列神经网络基于历史数据预测能源需求。';
+  const r = validateTranslation(t, 'zh', {
+    source: 'In electrical engineering, ML is used for load prediction based on historical data.' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('zh keeps product names absent from source (Siri, Alexa)', () => {
+  const t = '智能助手如Siri和Alexa使用机器学习来理解语音命令，这是最常见的应用之一。';
+  const r = validateTranslation(t, 'zh', { source: 'Smart assistants use ML to understand voice commands.' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test('zh still rejects genuine foreign bleed', () => {
+  const t = '机器学习是推动marketing效果的关键应用，它帮助公司理解用户行为';
+  const r = validateTranslation(t, 'zh', { source: 'Machine learning models analyze user behavior.' });
+  assert.equal(r.ok, false);
+});

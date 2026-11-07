@@ -153,12 +153,11 @@ test('compressOvershoot shrinks text via injected LLM — NO segments deleted', 
   assert.ok(out.segments[2].text.includes('compressed'));
 });
 
-test('word overflow path fails validation with a reason, never trims silently', () => {
+test('word overflow no longer fails validation — length follows content', () => {
   const p = goodParsed();
   p.segments.push({ id: 9, section: 'T', document: 'lec.pdf', page: 6, text: prose(600) });
   const v = validateLectureV2(p, allowed, buildTeachingPlan(entry, { topics: [] }, {}));
-  assert.equal(v.ok, false);
-  assert.ok(v.problems.some((x) => x.startsWith('too long')));
+  assert.equal(v.ok, true, JSON.stringify(v.problems));
 });
 
 // ---------- Phase 4: critic + bounded revision ----------------------------------

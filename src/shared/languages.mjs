@@ -18,17 +18,15 @@ export const LANGUAGES = [
   { code: 'en', name: 'English', label: 'English', speechLang: 'en-US',
     voiceSuffix: null, durationRatio: null, textCheck: 'english' },
   { code: 'ar', name: 'Arabic', label: 'العربية', speechLang: 'ar-SA',
-    voiceSuffix: 'ar', durationRatio: { min: 0.6, max: 1.7 }, textCheck: 'script' },
+    voiceSuffix: 'ar', durationRatio: { min: 0.5, max: 3.0 }, textCheck: 'script' },
   { code: 'fr', name: 'French', label: 'Français', speechLang: 'fr-FR',
-    voiceSuffix: 'fr', durationRatio: { min: 0.6, max: 1.7 }, textCheck: 'franc:fra' },
+    voiceSuffix: 'fr', durationRatio: { min: 0.5, max: 3.0 }, textCheck: 'franc:fra' },
   { code: 'de', name: 'German', label: 'Deutsch', speechLang: 'de-DE',
-    voiceSuffix: 'de', durationRatio: { min: 0.6, max: 1.7 }, textCheck: 'franc:deu' },
+    voiceSuffix: 'de', durationRatio: { min: 0.5, max: 3.0 }, textCheck: 'franc:deu' },
   { code: 'es', name: 'Spanish', label: 'Español', speechLang: 'es-ES',
-    voiceSuffix: 'es', durationRatio: { min: 0.6, max: 1.7 }, textCheck: 'franc:spa' },
+    voiceSuffix: 'es', durationRatio: { min: 0.5, max: 3.0 }, textCheck: 'franc:spa' },
   { code: 'zh', name: 'Chinese', label: '中文', speechLang: 'zh-CN',
-    // Chinese narration is denser — observed 0.82–1.07 on the reference
-    // lecture, so the band sits lower than the Latin-script languages.
-    voiceSuffix: 'zh', durationRatio: { min: 0.5, max: 1.3 }, textCheck: 'script' },
+    voiceSuffix: 'zh', durationRatio: { min: 0.5, max: 3.0 }, textCheck: 'script' },
 ];
 
 export const LANGUAGE_CODES = Object.freeze(LANGUAGES.map((l) => l.code));
@@ -56,8 +54,9 @@ export function getLanguage(code) {
   return LANGUAGES.find((l) => l.code === code) || null;
 }
 
-// Expected audio-duration band vs the English segment, or null for English
-// itself. Falls back to the global default band when unset.
-export function durationRatioBand(code, fallback = { min: 0.6, max: 1.7 }) {
+// Broken-audio safety band vs the English segment — NOT a style target:
+// <0.5x is likely truncated synthesis, >3x is likely a TTS repetition loop.
+// Anything inside the band is accepted however unusual the pacing is.
+export function durationRatioBand(code, fallback = { min: 0.5, max: 3.0 }) {
   return getLanguage(code)?.durationRatio || fallback;
 }

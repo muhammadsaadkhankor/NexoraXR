@@ -42,38 +42,23 @@ function langSignal(text, lang) {
 }
 
 // Leaked instruction/meta text — the translator model sometimes narrates its
-// own task ("below is the translation", "继续您的翻译"). Strong CJK phrases are
-// never legitimate narration. Weak markers are legitimized when the English
-// source itself talks about translating/continuing/examples.
-const META_STRONG = [
-  '以下是', '翻译内容', '继续翻译', '您的翻译', '示例结束', '这是阿拉伯语', '这段话',
+// own task ("below is the translation", "继续翻译"). Only REAL meta phrases
+// block: single vocabulary words like 以下 (below/following), 继续 (continue),
+// 示例 (example) or 翻译 (translation) are normal narration and must pass.
+const META_PHRASES = [
+  // Chinese task-narration phrases
+  '以下是翻译', '以下为翻译', '以下是译文', '翻译如下', '译文如下',
+  '翻译内容', '继续翻译', '您的翻译', '你的翻译', '翻译：', '译文：',
+  '示例结束', '这是阿拉伯语', '这段话的翻译', '翻译这段话',
+  // English task-narration phrases
   'below is the translation', 'here is the translation', 'the translation:',
-];
-// [marker-in-output, substring-that-legitimizes-it-in-source]
-const META_WEAK = [
-  ['翻译', 'translat'],
-  ['以下', 'below'], ['以下', 'following'],
-  ['继续', 'continu'],
-  ['示例', 'example'],
-  ['here is', 'here'],
-  ['below is', 'below'],
-  ['the following', 'following'],
-  ['output only', 'output'],
-  ['translation', 'translat'],
-  ['translated', 'translat'],
+  'translated text:', 'translation of the source', 'output only',
 ];
 
-function leakedMetaReason(text, source) {
+function leakedMetaReason(text) {
   const lower = text.toLowerCase();
-  const src = (source || '').toLowerCase();
-  for (const m of META_STRONG) {
+  for (const m of META_PHRASES) {
     if (lower.includes(m.toLowerCase())) return m;
-  }
-  for (const [marker, legit] of META_WEAK) {
-    const needle = marker.toLowerCase();
-    if (!lower.includes(needle)) continue;
-    if (src.includes(legit)) continue; // source mentions it — fair vocabulary
-    return marker;
   }
   return null;
 }
@@ -124,13 +109,35 @@ function scriptAuditReason(text, lang) {
 }
 
 // Word-level source vocabulary: lowercase latin words of the source. Output
-// Latin words must appear in it (technical terms are kept in brackets) or be
-// ALL-CAPS acronyms like ML, AI, GPU.
+// Latin words must appear in it (technical terms are kept in brackets), be
+// ALL-CAPS acronyms like ML, AI, GPU, or be a well-known technical term or
+// product name that translators legitimately keep in Latin script even when
+// the English source phrases it differently (e.g. "ML" → "machine learning").
+const TECH_LATIN = new Set((
+  'machine,learning,deep,neural,network,networks,data,dataset,datasets,database,' +
+  'databases,model,models,algorithm,algorithms,computer,computers,software,' +
+  'hardware,internet,web,email,app,apps,application,smartphone,smartphones,' +
+  'digital,online,offline,cloud,server,servers,token,tokens,prompt,prompts,' +
+  'robot,robots,robotics,sensor,sensors,image,images,video,audio,text,chatbot,' +
+  'chatbots,voice,assistant,assistants,gradient,regression,classification,' +
+  'clustering,supervised,unsupervised,reinforcement,transformer,transformers,' +
+  'training,inference,embedding,embeddings,vector,vectors,matrix,parameter,' +
+  'parameters,hyperparameter,benchmark,framework,laptop,smart,bigdata,' +
+  'big,science,computing,series,time,load,prediction,forecast,forecasting,' +
+  'energy,demand,electricity,power,grid,signal,signals,wave,waves,' +
+  'ai,ml,nlp,llm,llms,gpu,cpu,api,ui,ux,ar,vr,xr,iot,tts,asr,ocr,sql,json,' +
+  'csv,html,http,https,url,fps,led,oled,lcd,usb,ssd,ram,rom,' +
+  'python,java,javascript,typescript,matlab,tensorflow,pytorch,keras,sklearn,' +
+  'scikit,numpy,pandas,excel,windows,linux,macos,android,iphone,wifi,' +
+  'bluetooth,gps,siri,alexa,cortana,google,amazon,apple,microsoft,openai,' +
+  'chatgpt,gpt,facebook,instagram,youtube,tiktok,whatsapp,tesla,autopilot'
+).split(','));
 function sourceWordSet(source) {
   return new Set(((source || '').toLowerCase().match(LATIN_WORD_RE) || []));
 }
 const isAllowedLatin = (w, srcWords) =>
-  srcWords.has(w.toLowerCase()) || (/^[A-Z0-9]{2,5}$/.test(w) && w.length <= 5);
+  srcWords.has(w.toLowerCase()) || TECH_LATIN.has(w.toLowerCase()) ||
+  (/^[A-Z0-9]{2,5}$/.test(w) && w.length <= 5);
 
 // Signature diacritics per latin-script language — chars that NEVER belong
 // to the target (e.g. ñ inside German, ß inside Spanish). Plain ASCII
@@ -184,7 +191,7 @@ export function validateTranslation(text, lang, ctx = {}) {
   const wordBad = foreignWordReason(t, lang, srcWords);
   if (wordBad) return { ok: false, reason: wordBad };
 
-  const meta = leakedMetaReason(t, ctx.source);
+  const meta = leakedMetaReason(t);
   if (meta) return { ok: false, reason: `leaked-meta:${meta}` };
 
   if (lang === 'zh') {

@@ -14,10 +14,15 @@ const PY_BIN = process.env.SEMANTIC_PYTHON
   || `${process.env.HOME}/anaconda3/envs/voxcpm/bin/python`;
 const TIMEOUT_MS = Number(process.env.SEMANTIC_TIMEOUT_MS) || 300_000;
 
-// Minimum cosine similarity source↔translation. Calibrated on
-// gen_18b7cc52_L1: correct translations score 0.82–0.90, unrelated text
-// ~0.74. 0.78 sits midway — semantic drift and wrong-topic output fail.
-export const SEMANTIC_MIN = Number(process.env.TRANSLATE_SIM_MIN) || 0.78;
+// Minimum cosine similarity source↔translation. Calibrated 2026-11 on every
+// accepted baked translation in lecture_cache (n=63: min 0.759, p5 0.787,
+// median 0.853) against cross-lecture mismatches (median 0.770, max 0.837).
+// The distributions overlap — e5-small cannot separate a same-domain
+// mismatch from a real translation — so the gate only catches GROSS drift
+// (wrong topic / unrelated text, <0.70), never borderline style. 0.74 sits
+// below the observed good minimum with margin; the old 0.78 rejected
+// verified-good Arabic output.
+export const SEMANTIC_MIN = Number(process.env.TRANSLATE_SIM_MIN) || 0.74;
 
 export async function scorePairs(pairs) {
   if (!pairs.length) return [];

@@ -760,6 +760,7 @@ export async function reviseV3(parsed, findings, plan, deps) {
 // ---- validation -------------------------------------------------------------------
 export function validateLectureV3(parsed, allowedDocs, plan) {
   const problems = [];
+  const warnings = [];
   const words = wordCount(parsed);
   if (parsed.title === 'Untitled lecture') problems.push('missing title');
   if (parsed.segments.length < 4) problems.push(`too few segments (${parsed.segments.length})`);
@@ -773,8 +774,12 @@ export function validateLectureV3(parsed, allowedDocs, plan) {
       problems.push(`segment ${i + 1}: page ${s.page} outside assigned ranges of "${s.document}"`);
     }
   }
-  if (words < WORD_BAND[0]) problems.push(`too short (${words} < ${WORD_BAND[0]})`);
-  if (words > WORD_BAND[1]) problems.push(`too long (${words} > ${WORD_BAND[1]})`);
+  // Length is informational only — the lecture runs as long as the content
+  // needs. No word-count gate: broken scripts are caught by the structural
+  // checks below (fragments, missing intro/recap, shallow core blocks).
+  if (words < WORD_BAND[0] || words > WORD_BAND[1]) {
+    warnings.push(`length note: ${words} words (reference band ${WORD_BAND[0]}–${WORD_BAND[1]} — informational only)`);
+  }
   // IDs must be unique and sequential for the canonical manifest.
   const ids = parsed.segments.map((s) => s.id);
   if (new Set(ids).size !== ids.length) problems.push('duplicate segment ids');
@@ -813,7 +818,7 @@ export function validateLectureV3(parsed, allowedDocs, plan) {
   for (const bf of parsed.blockFailures || []) {
     problems.push(`block "${bf.title}" produced no usable narration: ${bf.reason}`);
   }
-  return { ok: !problems.length, problems, words };
+  return { ok: !problems.length, problems, warnings, words };
 }
 
 // ---- orchestration ------------------------------------------------------------------

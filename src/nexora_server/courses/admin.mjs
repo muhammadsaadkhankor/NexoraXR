@@ -14,3 +14,10 @@ export function isAdminText(t) {
 // Lighter check for narration — flags any paragraph that mentions admin topics
 // at all (the validator decides how much is too much per section).
 export const ADMIN_NARRATION = /\b(grading|assessment|assignments|office hours|deadline|syllabus|course structure|what you('| wi)ll learn|contact|email|exam dates?|attendance|policies|prerequisites?)\b/i;
+
+// Topic-level admin detection — used on coverage "missing topics" lists and
+// plan omissions. These entries are slide titles or short sentences, so a
+// single hit is enough; patterns stay specific to real logistics (grading,
+// group work, office hours, policies…) and never match subject matter.
+const ADMIN_TOPIC_RE = /\b(grading|grade|grades|syllabus|office hours?|attendance|deadlines?|timetable|class schedule|course schedule|group work|work in groups|group projects?|teamwork|participation|exams?|midterms?|quizzes?|final exams?|assignments?|homework|problem sets?|course (policy|policies|overview|structure|description|aims|logistics|staff|mechanics|content|website)|learning outcomes|textbooks?|contacts?|e-?mails?|instructors?|teaching assistants?|\btas?\b|logistics|prerequisites?|announcements?|plagiarism|academic integrity|late (work|submissions?|policy)|make-?up|office hours?|introduction to the course)\b/i;
+export const isAdminTopic = (t) => ADMIN_TOPIC_RE.test(String(t || ''));

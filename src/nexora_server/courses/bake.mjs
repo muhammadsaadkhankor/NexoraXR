@@ -19,10 +19,9 @@ const IMG_CACHE = path.join(AI_DIR, 'lecture_cache');
 const PROFBRAIN_DIR = path.resolve(AI_DIR, '..', '..', 'profbrain', 'lectures');
 
 const CONCURRENCY = Number(process.env.COURSE_TTS_CONCURRENCY || 2);
-// Required narration-duration band in SECONDS — real audio is measured, not
-// estimated. Max is configurable up to 20 min (COURSE_AUDIO_MAX_S=1200) —
-// longer reviewed scripts are legitimate, never a reason to discard them.
-// A lecture outside it fails the build.
+// INFORMATIONAL reference band in SECONDS — measured audio duration is shown
+// to the reviewer for context only. Lecture length follows the content;
+// being outside this band is never a build failure.
 export const AUDIO_MIN_S = Number(process.env.COURSE_AUDIO_MIN_S || 240);
 export const AUDIO_MAX_S = Math.min(1800, Number(process.env.COURSE_AUDIO_MAX_S || 1200));
 export const audioOnTarget = (durationMs) =>
@@ -58,8 +57,8 @@ const segDurationMs = async (lecId, i, lang) => {
 // re-bake; still bad → the segment is failed (wav removed) so the
 // instructor sees it and the readiness gate keeps the room off that
 // language. Band is env-tunable; calibrate from COURSE_DUR_RATIO_*.
-export const DUR_RATIO_MIN = Number(process.env.COURSE_DUR_RATIO_MIN || 0.6);
-export const DUR_RATIO_MAX = Number(process.env.COURSE_DUR_RATIO_MAX || 1.7);
+export const DUR_RATIO_MIN = Number(process.env.COURSE_DUR_RATIO_MIN || 0.5);
+export const DUR_RATIO_MAX = Number(process.env.COURSE_DUR_RATIO_MAX || 3.0);
 
 // Compare every segment's duration in `lang` against its English twin.
 // Returns { ratios: {idx: ratio}, flagged: [{idx, ratio}] } — flagged
@@ -256,10 +255,11 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
         if (lang === 'en') {
           const onTarget = audioOnTarget(r.durationMs);
           const entry = { idx: l.idx, lectureId: l.lecture_id, title: l.title, ...r, onTarget, timings };
-          // Out-of-band audio is a build-level failure — blocks publication.
+          // Duration is reported as INFORMATION only — lecture length follows
+          // the content and is never a build-level failure.
           if (!onTarget) {
-            entry.error = `duration ${r.durationMin.toFixed(1)}m outside ` +
-              `${(AUDIO_MIN_S / 60).toFixed(1)}–${(AUDIO_MAX_S / 60).toFixed(1)}m band`;
+            entry.durationNote = `duration ${r.durationMin.toFixed(1)}m outside ` +
+              `${(AUDIO_MIN_S / 60).toFixed(1)}–${(AUDIO_MAX_S / 60).toFixed(1)}m reference band (informational)`;
           }
           report.push(entry);
           // Heal scripts whose validation was poisoned by an earlier bake
@@ -276,11 +276,10 @@ export async function verifyCourseAudio(courseId, langs = null, onProgress = nul
             [l.lecture_id, JSON.stringify({
               audio: 1, duration_s: Math.round(r.durationMs / 1000), segments: r.segments,
               // Audio duration is NOT script validation — an off-target bake
-              // must never poison the reviewed script's approval gate. Track
-              // it separately so the retry path stays open.
+              // is recorded as a note only and never blocks approval/retry.
               ...(onTarget
                 ? { audio_offtarget: null, ...(bakePoisoned ? { validation: { ok: true } } : {}) }
-                : { audio_offtarget: entry.error }),
+                : { audio_offtarget: entry.durationNote }),
             })]);
         }
       } catch (e) {

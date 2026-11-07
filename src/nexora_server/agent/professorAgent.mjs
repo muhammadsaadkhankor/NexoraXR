@@ -185,7 +185,10 @@ export function decide({ plan, progress, memory, userMemories, manifest, roomLan
   }
 
   // ---- 5. Topic transition -------------------------------------------------
-  if (plan) {
+  // Opt-out: per-segment lectures (one topic per segment) get a spoken
+  // transition before EVERY segment — reads as a repeated intro. Set
+  // NXR_AGENT_TRANSITIONS=0 to skip transitions entirely.
+  if (plan && process.env.NXR_AGENT_TRANSITIONS !== '0') {
     const nextTopic = topicOf(plan, next);
     const curTopic = topicOf(plan, current);
     if (nextTopic && curTopic?.id !== nextTopic.id &&
