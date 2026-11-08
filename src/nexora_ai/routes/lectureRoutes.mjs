@@ -202,8 +202,14 @@ export async function translateForLecture(text, lang, ctx = {}) {
     `Reply with ONLY the translation wrapped in <translation>...</translation> tags. ` +
     `The entire reply must be in ${LECTURE_LANGUAGES[lang]} — never switch to ` +
     `another language or script for any reason. ` +
+    `Never output symbols, Greek letters, or formulas — spell everything out ` +
+    `as spoken words. ` +
     `No notes, no headings, no commentary outside the tags.`;
   const user = `<source>\n${text}\n</source>`;
+  const { repairForeignSymbols } = await import('../modules/textLangCheck.mjs');
+  // Error-aware retries: each rejection rewrites the user message with the
+  // reason so the model knows exactly what it did wrong.
+  let userMsg = user;
   const srcLen = (text || '').trim().length;
   // CJK packs more meaning per character — a valid Chinese translation is
   // ~40-60% fewer chars than the English source, so the truncation floor is
@@ -214,7 +220,7 @@ export async function translateForLecture(text, lang, ctx = {}) {
     let out;
     try {
       out = await generateOllama(null, {
-        messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userMsg }],
         // Retries nudge the temperature slightly but never exceed 0.3 —
         // high-temperature draws produced broken multilingual output
         // (Cyrillic/Thai inside Arabic, invented vocabulary) that was worse
@@ -238,12 +244,21 @@ export async function translateForLecture(text, lang, ctx = {}) {
     } else if (translated.length < srcLen * MIN_RATIO) {
       lastReason = `too-short(${translated.length}<${Math.ceil(srcLen * MIN_RATIO)}chars)`;
     } else {
-      const check = await validate(translated, lang, { source: text });
-      if (check.ok !== false) return translated;
+      // Repair stray symbols BEFORE validation — spelled-out words are what
+      // TTS wants anyway, so a repaired segment is better than a rejected one.
+      const { text: repaired, repaired: fixed } = repairForeignSymbols(translated, lang);
+      if (fixed.length) {
+        console.log(`[translate] repaired lecture=${lectureId} segment=${segmentId} lang=${lang} symbols=${fixed.join(' ')}`);
+      }
+      const check = await validate(repaired, lang, { source: text });
+      if (check.ok !== false) return repaired;
       lastReason = `invalid-language:${check.reason || 'mismatch'}`;
     }
     console.warn(`[translate] rejected lecture=${lectureId} segment=${segmentId} lang=${lang} attempt=${attempt}/${TRANSLATE_ATTEMPTS} reason=${lastReason}`);
     try { (await import('../modules/bakeStats.mjs')).bakeStats.translationRetries++; } catch {}
+    userMsg = `${user}\n\nYour previous reply was rejected (${lastReason}). ` +
+      `Output ${LECTURE_LANGUAGES[lang]} ONLY — spell every symbol, Greek ` +
+      `letter, and formula out as spoken words.`;
   }
   // Last resort: one attempt on the stronger model (think:false comes free
   // from the qwen3 name). A stubborn segment — e.g. a technical term that
@@ -261,11 +276,15 @@ export async function translateForLecture(text, lang, ctx = {}) {
       const tagged = /<translation>([\s\S]*?)<\/translation>/i.exec(out || '');
       const translated = (tagged ? tagged[1] : (out || '')).trim();
       if (translated && translated !== text.trim() && translated.length >= srcLen * MIN_RATIO) {
-        const check = await validate(translated, lang, { source: text });
+        const { text: repaired, repaired: fixed } = repairForeignSymbols(translated, lang);
+        if (fixed.length) {
+          console.log(`[translate] repaired(strong) lecture=${lectureId} segment=${segmentId} lang=${lang} symbols=${fixed.join(' ')}`);
+        }
+        const check = await validate(repaired, lang, { source: text });
         if (check.ok !== false) {
           console.log(`[translate] strong-model rescue lecture=${lectureId} segment=${segmentId} lang=${lang} model=${STRONG}`);
           (await import('../modules/bakeStats.mjs')).bakeStats.translationStrongModel++;
-          return translated;
+          return repaired;
         }
         lastReason = `invalid-language(strong):${check.reason || 'mismatch'}`;
       } else {
@@ -516,6 +535,9 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
       animation: ANIMATIONS[i % ANIMATIONS.length],
       facialExpression: EXPRESSIONS[i % EXPRESSIONS.length],
       audioUrl: `/api/lecture/segment_audio/${cacheKey}/${i}`,
+      // Offline Audio2Face track: present only where the bake produced one.
+      a2fUrl: existsSync(path.join(segmentCacheDir(cacheKey), `segment_${String(i).padStart(3, '0')}_a2f.bin`))
+        ? `/api/lecture/segment_a2f/${cacheKey}/${i}` : null,
       lipsync,
       slidePage: segList ? (segList[i]?.page ?? null)
         : (() => { const m = slideMap?.segments?.[String(i)];
@@ -1186,13 +1208,17 @@ export async function generateUtteranceText(prompt, lang, { material = '', trans
     `language or script for any reason. ` +
     `Reply with ONLY the spoken lines wrapped in <utterance>...</utterance> ` +
     `tags. Plain text only — no markdown, no lists, no commentary outside ` +
-    `the tags.`;
+    `the tags. ` +
+    `Never output symbols, Greek letters, or formulas — spell everything out ` +
+    `as spoken words.`;
+  const { repairForeignSymbols } = await import('../modules/textLangCheck.mjs');
   let lastReason = 'unknown';
+  let userMsg = prompt;
   for (let attempt = 1; attempt <= UTTERANCE_ATTEMPTS; attempt++) {
     let out;
     try {
       out = await generateOllama(null, {
-        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+        messages: [{ role: 'system', content: system }, { role: 'user', content: userMsg }],
         numPredict: 200, translate: true,
         temperature: Math.min(0.2 + 0.05 * (attempt - 1), 0.3),
         ...translateOpts,
@@ -1206,11 +1232,18 @@ export async function generateUtteranceText(prompt, lang, { material = '', trans
     if (!text) {
       lastReason = 'empty-output';
     } else {
-      const check = await validateTranslation(text, lang, { source: material });
-      if (check.ok !== false) return text;
+      const { text: repaired, repaired: fixed } = repairForeignSymbols(text, lang);
+      if (fixed.length) {
+        console.log(`[utterance] repaired lang=${lang} symbols=${fixed.join(' ')}`);
+      }
+      const check = await validateTranslation(repaired, lang, { source: material });
+      if (check.ok !== false) return repaired;
       lastReason = `invalid-language:${check.reason || 'mismatch'}`;
     }
     console.warn(`[utterance] rejected lang=${lang} attempt=${attempt}/${UTTERANCE_ATTEMPTS} reason=${lastReason}`);
+    userMsg = `${prompt}\n\nYour previous reply was rejected (${lastReason}). ` +
+      `Output ${LECTURE_LANGUAGES[lang]} ONLY — spell every symbol, Greek ` +
+      `letter, and formula out as spoken words.`;
   }
   return null;
 }
@@ -1457,6 +1490,8 @@ export async function generateLectureUtterance({ lectureId, language, purpose, t
     // prefix doesn't match its /^[a-f0-9]{32}$/ route, so utterances get their
     // own endpoint below.
     audioUrl: `/api/lecture/utterance_audio/${key}`,
+    a2fUrl: existsSync(path.join(ANSWERS_DIR, `utt_${key}_a2f.bin`))
+      ? `/api/lecture/utterance_a2f/${key}` : null,
     durationMs,
     lipsync,
   };
@@ -1492,6 +1527,65 @@ router.get('/lecture/answer_audio/:key', async (req, res) => {
   }
   res.set('Content-Type', 'audio/wav');
   res.sendFile(audioPath, { root: '/' });
+});
+
+// Precomputed Audio2Face-3D ARKit-52 tracks (offline bake_a2f.py output).
+// The JSON meta carries names/fps/binUrl; the _bin route streams the raw
+// Float32 (frames x 52) buffer. 404 when no track was baked for the unit.
+router.get('/lecture/segment_a2f/:lectureId/:segmentId', async (req, res) => {
+  const { lectureId, segmentId } = req.params;
+  const index = Number(segmentId);
+  if (!LECTURE_ID_RE.test(lectureId) || !Number.isInteger(index) || index < 0) {
+    return res.status(400).json({ error: 'Invalid lecture/segment id' });
+  }
+  const metaPath = path.join(segmentCacheDir(lectureId),
+    `segment_${String(index).padStart(3, '0')}_a2f.json`);
+  if (!existsSync(metaPath)) return res.status(404).json({ error: 'No A2F track' });
+  try {
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+    meta.binUrl = `/api/lecture/segment_a2f_bin/${lectureId}/${index}`;
+    res.json(meta);
+  } catch {
+    res.status(500).json({ error: 'Corrupt A2F meta' });
+  }
+});
+
+router.get('/lecture/segment_a2f_bin/:lectureId/:segmentId', (req, res) => {
+  const { lectureId, segmentId } = req.params;
+  const index = Number(segmentId);
+  if (!LECTURE_ID_RE.test(lectureId) || !Number.isInteger(index) || index < 0) {
+    return res.status(400).json({ error: 'Invalid lecture/segment id' });
+  }
+  const binPath = path.join(segmentCacheDir(lectureId),
+    `segment_${String(index).padStart(3, '0')}_a2f.bin`);
+  if (!existsSync(binPath)) return res.status(404).json({ error: 'No A2F track' });
+  res.set('Content-Type', 'application/octet-stream');
+  res.sendFile(binPath, { root: '/' });
+});
+
+router.get('/lecture/utterance_a2f/:key', async (req, res) => {
+  const { key } = req.params;
+  const metaPath = path.join(ANSWERS_DIR, `utt_${key}_a2f.json`);
+  if (!/^[a-f0-9]{32}$/.test(key) || !existsSync(metaPath)) {
+    return res.status(404).json({ error: 'No A2F track' });
+  }
+  try {
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+    meta.binUrl = `/api/lecture/utterance_a2f_bin/${key}`;
+    res.json(meta);
+  } catch {
+    res.status(500).json({ error: 'Corrupt A2F meta' });
+  }
+});
+
+router.get('/lecture/utterance_a2f_bin/:key', (req, res) => {
+  const { key } = req.params;
+  const binPath = path.join(ANSWERS_DIR, `utt_${key}_a2f.bin`);
+  if (!/^[a-f0-9]{32}$/.test(key) || !existsSync(binPath)) {
+    return res.status(404).json({ error: 'No A2F track' });
+  }
+  res.set('Content-Type', 'application/octet-stream');
+  res.sendFile(binPath, { root: '/' });
 });
 
 export default router;

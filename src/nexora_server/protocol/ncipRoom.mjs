@@ -611,7 +611,13 @@ export class NcipRoom {
     if (this.professor.status !== ProfessorStatus.LECTURING) {
       return { ok: false, error: 'The professor is not lecturing.' };
     }
-    const pos = this._effectivePosition(now);
+    // Pausing during the opening/welcome (a dynamic, non-segment unit): no
+    // indexed position exists yet, so anchor at the first content segment.
+    // Resume then starts segment 0 cleanly instead of erroring out.
+    const pos = this._effectivePosition(now)
+      || (this.lectureRun?.lectureId
+        ? { lectureId: this.lectureRun.lectureId, segmentIndex: 0, playbackOffsetMs: 0 }
+        : null);
     if (!pos) return { ok: false, error: 'No lecture position to pause at.' };
     this._bump();
     this.professor.status = ProfessorStatus.PAUSED;

@@ -171,6 +171,40 @@ function foreignWordReason(text, lang, srcWords) {
   return null;
 }
 
+// --- Symbol repair -------------------------------------------------------
+// Models leak Greek letters and math symbols into translations (α in French
+// output, λ in Arabic). The script audit rejects them — but TTS needs
+// spelled-out words anyway, so repairing beats rejecting. Applied BEFORE
+// validation at every translate call site.
+const SYMBOL_WORDS = {
+  en: { 'α':'alpha','β':'beta','γ':'gamma','δ':'delta','ε':'epsilon','ζ':'zeta','η':'eta','θ':'theta','ι':'iota','κ':'kappa','λ':'lambda','μ':'mu','ν':'nu','ξ':'xi','π':'pi','ρ':'rho','σ':'sigma','τ':'tau','υ':'upsilon','φ':'phi','χ':'chi','ψ':'psi','ω':'omega','Γ':'Gamma','Δ':'Delta','Θ':'Theta','Λ':'Lambda','Π':'Pi','Σ':'Sigma','Φ':'Phi','Ω':'Omega',
+    '∑':'sum','∏':'product','×':'times','÷':'divided by','≤':'less than or equal to','≥':'greater than or equal to','≈':'approximately','≠':'not equal to','±':'plus or minus','²':'squared','³':'cubed','√':'square root of','%':'percent','∞':'infinity','°':' degrees','∈':'in','→':'to','−':'-' },
+  fr: { 'α':'alpha','β':'bêta','γ':'gamma','δ':'delta','ε':'epsilon','ζ':'zêta','η':'êta','θ':'thêta','ι':'iota','κ':'kappa','λ':'lambda','μ':'mu','ν':'nu','ξ':'xi','π':'pi','ρ':'rhô','σ':'sigma','τ':'tau','υ':'upsilon','φ':'phi','χ':'chi','ψ':'psi','ω':'oméga','Γ':'Gamma','Δ':'Delta','Θ':'Thêta','Λ':'Lambda','Π':'Pi','Σ':'Sigma','Φ':'Phi','Ω':'Oméga',
+    '∑':'somme','∏':'produit','×':'fois','÷':'divisé par','≤':'inférieur ou égal à','≥':'supérieur ou égal à','≈':'environ','≠':'différent de','±':'plus ou moins','²':'au carré','³':'au cube','√':'racine carrée de','%':'pour cent','∞':"l'infini",'°':' degrés','∈':'dans','→':'vers','−':'-' },
+  de: { 'α':'Alpha','β':'Beta','γ':'Gamma','δ':'Delta','ε':'Epsilon','ζ':'Zeta','η':'Eta','θ':'Theta','ι':'Iota','κ':'Kappa','λ':'Lambda','μ':'My','ν':'Ny','ξ':'Xi','π':'Pi','ρ':'Rho','σ':'Sigma','τ':'Tau','υ':'Ypsilon','φ':'Phi','χ':'Chi','ψ':'Psi','ω':'Omega','Γ':'Gamma','Δ':'Delta','Θ':'Theta','Λ':'Lambda','Π':'Pi','Σ':'Sigma','Φ':'Phi','Ω':'Omega',
+    '∑':'Summe','∏':'Produkt','×':'mal','÷':'geteilt durch','≤':'kleiner oder gleich','≥':'größer oder gleich','≈':'ungefähr','≠':'ungleich','±':'plus minus','²':'quadrat','³':'hoch drei','√':'Wurzel aus','%':'Prozent','∞':'unendlich','°':' Grad','∈':'in','→':'nach','−':'-' },
+  es: { 'α':'alfa','β':'beta','γ':'gamma','δ':'delta','ε':'épsilon','ζ':'zeta','η':'eta','θ':'theta','ι':'iota','κ':'kappa','λ':'lambda','μ':'mu','ν':'nu','ξ':'xi','π':'pi','ρ':'rho','σ':'sigma','τ':'tau','υ':'ípsilon','φ':'phi','χ':'chi','ψ':'psi','ω':'omega','Γ':'Gamma','Δ':'Delta','Θ':'Theta','Λ':'Lambda','Π':'Pi','Σ':'Sigma','Φ':'Phi','Ω':'Omega',
+    '∑':'suma','∏':'producto','×':'por','÷':'entre','≤':'menor o igual que','≥':'mayor o igual que','≈':'aproximadamente','≠':'distinto de','±':'más o menos','²':'al cuadrado','³':'al cubo','√':'raíz cuadrada de','%':'por ciento','∞':'infinito','°':' grados','∈':'en','→':'a','−':'-' },
+  ar: { 'α':'ألفا','β':'بيتا','γ':'جاما','δ':'دلتا','ε':'إبسيلون','ζ':'زيتا','η':'إيتا','θ':'ثيتا','ι':'يوتا','κ':'كابا','λ':'لامدا','μ':'ميو','ν':'نيو','ξ':'كسي','π':'باي','ρ':'رو','σ':'سيجما','τ':'تاو','υ':'أبسيلون','φ':'فاي','χ':'كاي','ψ':'بسي','ω':'أوميغا','Γ':'جاما','Δ':'دلتا','Θ':'ثيتا','Λ':'لامدا','Π':'باي','Σ':'سيجما','Φ':'فاي','Ω':'أوميغا',
+    '∑':'مجموع','∏':'جداء','×':'ضرب','÷':'مقسوما على','≤':'أصغر من أو يساوي','≥':'أكبر من أو يساوي','≈':'تقريبا','≠':'لا يساوي','±':'زائد أو ناقص','²':'تربيع','³':'تكعيب','√':'الجذر التربيعي لـ','%':'في المئة','∞':'اللانهاية','°':' درجة','∈':'ينتمي إلى','→':'إلى','−':'-' },
+  zh: { 'α':'阿尔法','β':'贝塔','γ':'伽马','δ':'德尔塔','ε':'伊普西龙','ζ':'泽塔','η':'伊塔','θ':'西塔','ι':'约塔','κ':'卡帕','λ':'兰姆达','μ':'缪','ν':'纽','ξ':'克西','π':'派','ρ':'柔','σ':'西格玛','τ':'陶','υ':'宇普西龙','φ':'斐','χ':'凯','ψ':'普赛','ω':'欧米伽','Γ':'伽马','Δ':'德尔塔','Θ':'西塔','Λ':'兰姆达','Π':'派','Σ':'西格玛','Φ':'斐','Ω':'欧米伽',
+    '∑':'求和','∏':'乘积','×':'乘以','÷':'除以','≤':'小于等于','≥':'大于等于','≈':'约等于','≠':'不等于','±':'加减','²':'平方','³':'立方','√':'平方根','%':'百分之','∞':'无穷大','°':'度','∈':'属于','→':'到','−':'-' },
+};
+
+// Replace Greek/math symbols with spelled-out target-language words.
+// Returns { text, repaired: string[] } — repaired lists symbols that changed,
+// for logging. Symbols absent from the map pass through untouched.
+export function repairForeignSymbols(text, lang) {
+  const map = SYMBOL_WORDS[lang] || SYMBOL_WORDS.en;
+  const repaired = new Set();
+  const out = (text || '').replace(/[α-ωΑ-Ω∑∏×÷≤≥≈≠±²³√%∞°∈→\u2212]/gu, (ch) => {
+    if (!(ch in map)) return ch;
+    repaired.add(ch);
+    return ' ' + map[ch] + ' ';
+  });
+  return { text: out.replace(/ {2,}/g, ' '), repaired: [...repaired] };
+}
+
 // Returns { ok: true } or { ok: false, reason } — never throws.
 // ctx.source is the English source text: meta words are only rejected when
 // they are absent from it (a lecture about translation can say "translation").

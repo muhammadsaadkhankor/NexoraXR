@@ -3,14 +3,14 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, showLectureScript = false, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, showLectureScript = false, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, courseTitle = '', ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
   const [isPressed, setIsPressed] = useState(false);
   const currentTranscriptionRef = useRef(null);
 
-  const { tts, loading, message, activeMessage, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef } = useSpeech();
+  const { tts, loading, message, activeMessage, startRecording, stopRecording, recording, transcribeAudio, micPermissionGranted, speechSupported, isListening, audioElementRef, floorPaused } = useSpeech();
   // Transcript HISTORY — previously played lecture units only. The LIVE row
   // is rendered from activeMessage directly (never from this list).
   const [lectureLines, setLectureLines] = useState([]);
@@ -225,7 +225,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
                 <h1 className="font-semibold text-white text-lg">LeProf</h1>
                 <span className="w-2 h-2 rounded-full bg-green-500" />
               </div>
-              <p className="text-xs text-slate-400">Multimedia Course Assistant</p>
+              <p className="text-xs text-slate-400">{courseTitle ? `${courseTitle} Assistant` : 'Course Assistant'}</p>
             </div>
           </div>
 
@@ -279,7 +279,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
             </div>
           ))}
 
-          {(lectureLines.length > 0 || activeMessage?.text) && (
+          {(lectureLines.length > 0 || (activeMessage?.text && activeMessage.type === 'lecture')) && (
             <div className="flex items-end gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-700 flex-shrink-0 flex items-center justify-center text-white">
                 <Bot size={14} />
@@ -288,34 +288,58 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
                 <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
                   Live transcript
                 </div>
-                {/* One continuous narration paragraph: played segments flow
-                    into the live unit — single spaces between utterances,
-                    no per-segment blocks. HISTORY is deduped by message id
-                    and never used to render the live line. */}
-                <div className="text-slate-200 leading-relaxed">
+                {/* Per-segment blocks: each lecture unit is its own row —
+                    HISTORY is deduped by message id and never renders the
+                    live unit (the active block shows it instead). */}
+                <div className="space-y-2">
                   {(() => {
                     const seen = new Set();
                     return lectureLines
                       .filter((l) => l.id !== activeMessage?.id)
                       .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
                       .map((line) => (
-                        <span key={line.id}>
-                          {String(line.text || '').replace(/\s+/g, ' ').trim()}{' '}
-                        </span>
+                        <p key={line.id} className="rounded-lg bg-slate-900/60 px-2.5 py-2 text-slate-200">
+                          {String(line.text || '').replace(/\s+/g, ' ').trim()}
+                        </p>
                       ));
                   })()}
-                  {/* LIVE: the exact message whose audio is playing right now —
-                      SpeakingTranscript polls the same Audio element's
-                      currentTime for word highlighting, continuing inline. */}
-                  {activeMessage?.text && (
-                    <SpeakingTranscript
-                      key={activeMessage.id}
-                      text={activeMessage.text}
-                      audioRef={audioElementRef}
-                      lipsync={activeMessage.lipsync}
-                    />
+                  {/* LIVE: the exact lecture unit whose audio is playing —
+                      SpeakingTranscript highlights words off the audio clock. */}
+                  {activeMessage?.type === 'lecture' && activeMessage?.text && (
+                    <p className="rounded-lg bg-slate-900/60 px-2.5 py-2 text-slate-200 ring-1 ring-cyan-500/30">
+                      <SpeakingTranscript
+                        key={activeMessage.id}
+                        text={activeMessage.text}
+                        audioRef={audioElementRef}
+                        lipsync={activeMessage.lipsync}
+                        floorPaused={floorPaused}
+                      />
+                    </p>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Floor answer — a SEPARATE box, never merged into the lecture
+              script. Appears right after the student's question bubble while
+              the answer plays; when it finishes it archives into chat above. */}
+          {activeMessage?.text && activeMessage.type !== 'lecture' && (
+            <div className="flex items-end gap-3">
+              <div className="w-8 h-8 rounded-full bg-violet-700 flex-shrink-0 flex items-center justify-center text-white">
+                <Bot size={14} />
+              </div>
+              <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-violet-950/80 text-slate-100 ring-1 ring-violet-500/40">
+                <div className="text-[10px] mb-1 font-semibold text-violet-300 uppercase tracking-wide">
+                  LeProf — Answer
+                </div>
+                <SpeakingTranscript
+                  key={activeMessage.id}
+                  text={activeMessage.text}
+                  audioRef={audioElementRef}
+                  lipsync={activeMessage.lipsync}
+                  floorPaused={floorPaused}
+                />
               </div>
             </div>
           )}

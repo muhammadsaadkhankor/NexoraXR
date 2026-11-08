@@ -336,7 +336,13 @@ export const SpeechProvider = ({ children }) => {
           try { audio.currentTime = plan.offsetSec; } catch (e) {
             console.error('[LECTURE_RESUME] seek failed:', e);
           }
-          if (audio.paused) audio.play().catch(() => {});
+          if (audio.paused) audio.play().catch((err) => {
+            if (err?.name === 'NotAllowedError') {
+              const retry = () => audio.play().catch(() => {});
+              window.addEventListener('pointerdown', retry, { once: true });
+              window.addEventListener('keydown', retry, { once: true });
+            }
+          });
           console.log('[LECTURE_RESUME]', `messageId=${target.id}`, `serverOffset=${plan.offsetSec.toFixed(2)}s`);
         }
         break;
@@ -355,7 +361,13 @@ export const SpeechProvider = ({ children }) => {
         }
         const current = msgs[0];
         if (current?.type === 'lecture' && audio && audio.paused && !audio.ended) {
-          audio.play().catch(() => {});
+          audio.play().catch((err) => {
+            if (err?.name === 'NotAllowedError') {
+              const retry = () => audio.play().catch(() => {});
+              window.addEventListener('pointerdown', retry, { once: true });
+              window.addEventListener('keydown', retry, { once: true });
+            }
+          });
           console.log('[LECTURE_RESUME]', `messageId=${current.id}`, `currentTime=${audio.currentTime.toFixed(2)}`);
         }
         break;

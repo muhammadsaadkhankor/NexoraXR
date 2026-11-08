@@ -3,10 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 // ~words per second used until the audio element reports a real duration
 const FALLBACK_WPS = 2.6;
 
-export function SpeakingTranscript({ text, audioRef, lipsync }) {
+export function SpeakingTranscript({ text, audioRef, lipsync, floorPaused = false }) {
   const endRef = useRef(null);
   const playedSecRef = useRef(0);
   const lastNowRef = useRef(null);
+  const stallStartRef = useRef(null); // first frame the audio clock proved unusable
   const [visibleCount, setVisibleCount] = useState(0);
   const [finished, setFinished] = useState(false);
 
@@ -64,27 +65,40 @@ export function SpeakingTranscript({ text, audioRef, lipsync }) {
     setFinished(false);
     playedSecRef.current = 0;
     lastNowRef.current = null;
+    stallStartRef.current = null;
 
     let raf;
     const tick = (now) => {
       const audio = audioRef?.current;
       let frac = 0;
       const duration = audio && Number.isFinite(audio.duration) ? audio.duration : 0;
-      if (audio && duration > 0) {
+      if (audio && duration > 0 && (!audio.paused || audio.currentTime > 0)) {
+        stallStartRef.current = null;
         // progress synced to the real TTS audio; pauses/resumes naturally
         frac = audio.ended ? 1 : audio.currentTime / duration;
-      } else if (audio && lipsyncDur && audio.readyState >= 1) {
+      } else if (audio && lipsyncDur && audio.readyState >= 1 && !audio.paused) {
+        stallStartRef.current = null;
         // Duration known from baked cues before the element reports it —
         // still audio-clock driven; pauses freeze automatically.
         frac = audio.ended ? 1 : Math.min(1, audio.currentTime / lipsyncDur);
-      } else if (!audio || audio.readyState >= 2) {
-        // Duration not known yet but audio data exists — estimate by elapsed
-        // time. While the element is still fetching (readyState < 2) hold at
-        // 0 so the transcript never runs ahead of the voice.
-        if (lastNowRef.current != null && (!audio || !audio.paused)) {
-          playedSecRef.current += (now - lastNowRef.current) / 1000;
+      } else {
+        // No usable audio clock: element missing, still buffering
+        // (readyState < 2), or blocked/paused at t=0 (autoplay rejection).
+        // Hold only briefly — a stalled fetch or dead element froze the
+        // transcript while the avatar kept gesturing; after the stall
+        // window, fall back to elapsed-time reveal so text never lags a
+        // whole segment behind. A REAL floor pause (floorPaused) still
+        // freezes the transcript as it should.
+        if (!floorPaused) {
+          if (stallStartRef.current == null) stallStartRef.current = now;
+          const stalled = now - stallStartRef.current > 3000;
+          if (!audio || stalled) {
+            if (lastNowRef.current != null) {
+              playedSecRef.current += (now - lastNowRef.current) / 1000;
+            }
+            frac = Math.min(1, (playedSecRef.current * FALLBACK_WPS) / Math.max(words.length, 1));
+          }
         }
-        frac = Math.min(1, (playedSecRef.current * FALLBACK_WPS) / Math.max(words.length, 1));
       }
       lastNowRef.current = now;
 

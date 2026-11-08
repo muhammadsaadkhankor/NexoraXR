@@ -319,6 +319,7 @@ export const Scenario = ({
       </group>
       <AuraZone ringY={ringY} />
       <UserAvatar
+        key={userAvatarPath}
         ref={userAvatarRef}
         modelPath={userAvatarPath}
         visible={showUserAvatar}

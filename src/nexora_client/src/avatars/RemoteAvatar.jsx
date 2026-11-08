@@ -217,15 +217,18 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
     // on whatever surface is below (floor, steps, raised platform). Falls back
     // to the sender's reported Y only when no surface is hit.
     if (floorScene) {
-      // Cast from just above the avatar (not pos.y+4) and take the first hit
-      // AT/BELOW the avatar — otherwise a ceiling/roof surface wins and the
-      // avatar teleports up, then visibly falls back to the floor.
-      floorRay.current.set(new THREE.Vector3(pos.x, pos.y + 0.8, pos.z), new THREE.Vector3(0, -1, 0));
+      // Cast from above the REPORTED position — never from pos.y, which the
+      // clamp may already have sunk below the floor (a sunken origin only
+      // sees the slab and stays sunk forever). The first hit below the head
+      // IS the surface under the feet; filtering by pos.y is what trapped
+      // refreshed avatars under the floor.
+      const rayTop = Math.max(pos.y, cur.targetPos.y) + 2.0;
+      floorRay.current.set(new THREE.Vector3(pos.x, rayTop, pos.z), new THREE.Vector3(0, -1, 0));
       let hits = floorRay.current.intersectObject(floorScene, true);
-      let hit = hits.find((h) => h.point.y <= pos.y + 0.4);
+      let hit = hits[0];
       if (!hit) {
-        // Spawned below the floor — look up for the nearest surface.
-        floorRay.current.set(new THREE.Vector3(pos.x, pos.y - 1, pos.z), new THREE.Vector3(0, 1, 0));
+        // Below all geometry — look up for the nearest surface.
+        floorRay.current.set(new THREE.Vector3(pos.x, pos.y - 0.5, pos.z), new THREE.Vector3(0, 1, 0));
         hits = floorRay.current.intersectObject(floorScene, true);
         hit = hits[0];
       }
@@ -335,7 +338,7 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
         <primitive object={scene} />
       </group>
       <Html position={[0, 1.9, 0]} center className='pointer-events-none'>
-        <div className='rounded-full bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-cyan-300 ring-1 ring-cyan-500/50'>
+        <div className='whitespace-nowrap rounded-full bg-slate-900/80 px-3 py-0.5 text-xs font-semibold text-cyan-300 ring-1 ring-cyan-500/50'>
           {handRaised ? '✋ ' : ''}{state?.name || 'User'}
         </div>
       </Html>

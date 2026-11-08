@@ -4,12 +4,12 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { User, UserX, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages, Lock, Copy } from 'lucide-react';
+import { User, UserX, Users, Play, RotateCcw, MessageSquare, Loader2, AlertCircle, ChevronDown, Hand, Globe, X, Mic, MicOff, Languages, Lock, Copy, Pause } from 'lucide-react';
 import { Scenario } from './components/Scenario';
 import { ChatInterface } from './components/ChatInterface';
 import { Joystick } from './components/Joystick';
 import SettingsPanel from './components/SettingsPanel';
-import ContinuousRecorder from './components/ContinuousRecorder';
+// ContinuousRecorder removed — no recording/download-video feature.
 
 import { SCENE_CONFIG } from './sceneConfig';
 import { useSpeech } from './hooks/useSpeech';
@@ -80,6 +80,7 @@ function ClassroomPanel({
   course,
   lectureId,
   lectureTitle,
+  classTitle = '',
   state,
   error,
   onStart,
@@ -108,6 +109,10 @@ function ClassroomPanel({
   isPrivateRoom = false,
   isRoomHost = false,
   roomMembers = [],
+  avatars = [],
+  currentAvatar = '',
+  onSelectAvatar,
+  onRename,
   onKick,
   pauseReason = null,
   onCopyInvite,
@@ -125,17 +130,26 @@ function ClassroomPanel({
   const langReadyMap = langReadiness?.langs || null;
   const allLangsReady = !langReadyMap || Object.values(langReadyMap).every((r) => r?.ready);
   const canStart = (state === 'idle' || state === 'completed' || state === 'error') && allLangsReady;
-  const [handMenuOpen, setHandMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
 
   const LANGUAGES = CLASSROOM_LANGUAGES;
   const currentLangLabel = LANGUAGES.find((l) => l.code === language)?.label || 'English';
 
+  // For owners/instructors/admins the class button toggles pause/resume:
+  // LECTURING -> 'Pause Class', host-PAUSED -> 'Continue Class' (resumes
+  // from the canonical checkpoint). Everyone else sees a passive label.
+  const isHostPaused = state === 'teaching' && professorStatus === 'PAUSED' && pauseReason === 'host';
+  const canPauseResume = canEndLecture && (professorStatus === 'LECTURING' || isHostPaused);
   let buttonLabel = 'Start Class';
   let ButtonIcon = Play;
   if (state === 'loading') { buttonLabel = 'Loading Lecture...'; ButtonIcon = Loader2; }
-  else if (state === 'teaching') { buttonLabel = 'Class in Progress'; ButtonIcon = Play; }
+  else if (state === 'teaching') {
+    if (isHostPaused && canEndLecture) { buttonLabel = 'Continue Class'; ButtonIcon = Play; }
+    else if (canEndLecture && professorStatus === 'LECTURING') { buttonLabel = 'Pause Class'; ButtonIcon = Pause; }
+    else { buttonLabel = 'Class in Progress'; ButtonIcon = Play; }
+  }
   else if (state === 'completed') { buttonLabel = 'Replay Lecture'; ButtonIcon = RotateCcw; }
   else if (state === 'error') { buttonLabel = 'Retry Class'; ButtonIcon = RotateCcw; }
   if (!allLangsReady && state !== 'teaching') {
@@ -146,169 +160,73 @@ function ClassroomPanel({
   const handLabel = isActiveSpeaker ? 'Release Floor' : handRaised ? 'Lower Hand' : 'Raise Hand';
 
   const pillBase =
-    'flex items-center gap-2.5 rounded-full px-4 py-2 text-left transition hover:bg-slate-800/80';
+    'flex items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1 text-left transition hover:bg-slate-800/80 sm:px-2';
 
   return (
     <>
-      {(handMenuOpen || langMenuOpen || membersOpen) && (
+      {(langMenuOpen || membersOpen || avatarMenuOpen) && (
         <div
           className='fixed inset-0 z-40'
           onClick={() => {
-            setHandMenuOpen(false);
             setLangMenuOpen(false);
             setMembersOpen(false);
+            setAvatarMenuOpen(false);
           }}
         />
       )}
 
-      <div className='fixed left-1/2 top-4 z-50 -translate-x-1/2'>
-        <div className='flex items-center gap-1 rounded-full border border-slate-700/50 bg-slate-900/85 px-2 py-1.5 text-white shadow-2xl backdrop-blur'>
-          <div className={`${pillBase} cursor-default`} title={lectureTitle || `Lecture ${number}`}>
-            <Globe size={20} className='text-slate-300' />
-            <div className='leading-tight'>
-              <p className='text-xs font-semibold'>{course?.title || course?.category || 'Class'}</p>
-              <p className='text-[11px] text-slate-400'>{displayName || lectureTitle || `Lecture ${number}`}</p>
-            </div>
-          </div>
+      <div className='fixed inset-x-0 top-0 z-50'>
+        <div className='flex w-full items-center gap-1 overflow-x-auto border-b border-slate-700/50 bg-slate-900/85 px-1.5 py-1 text-white shadow-2xl backdrop-blur sm:px-3'>
 
-          <div className='h-8 w-px bg-slate-700/60' />
-
-          <div className='relative'>
-            <button
-              onClick={() => setHandMenuOpen((v) => !v)}
-              className={`${pillBase} border ${
-                handMenuOpen || handRaised || isActiveSpeaker
-                  ? 'border-cyan-400/60 bg-slate-800/60'
-                  : 'border-cyan-500/30'
-              }`}
-            >
-              <Hand
-                size={20}
-                className={isActiveSpeaker ? 'text-emerald-300' : handRaised ? 'text-amber-300' : 'text-cyan-300'}
-              />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>{handLabel}</p>
-                <p className='text-[11px] text-slate-400'>
-                  {isActiveSpeaker ? 'You have the floor' : handRaised ? 'Hand is raised' : 'Let the instructor know'}
-                </p>
-              </div>
-              <ChevronDown size={14} className={`text-slate-400 transition ${handMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {handMenuOpen && (
-              <div className='absolute right-0 top-full mt-2 w-72 rounded-2xl border border-slate-700/50 bg-slate-900/95 p-2 shadow-2xl backdrop-blur'>
-                {isGuest && (
-                  <div className='px-3 py-3 text-xs text-slate-400'>
-                    <p className='font-semibold text-slate-200'>Signed in as a guest</p>
-                    <p className='mt-1'>Raising your hand and asking the professor require a NexoraXR account.</p>
-                  </div>
-                )}
-                {!isGuest && (<>
-                <button
-                  onClick={() => {
-                    if (!handRaised && !isActiveSpeaker) onToggleHand();
-                    setHandMenuOpen(false);
-                  }}
-                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
-                >
-                  <Hand size={18} className='text-cyan-300' />
-                  <div className='flex-1 leading-tight'>
-                    <p className='text-sm font-semibold'>Raise Hand</p>
-                    <p className='text-[11px] text-slate-400'>Let the instructor know</p>
-                  </div>
-                  <span
-                    className={`h-4 w-4 rounded-full border-2 ${
-                      handRaised && !isActiveSpeaker ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
-                    }`}
-                  />
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (!handRaised && !isActiveSpeaker) onToggleHand();
-                    setHandMenuOpen(false);
-                  }}
-                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
-                >
-                  <MessageSquare size={18} className='text-slate-300' />
-                  <div className='flex-1 leading-tight'>
-                    <p className='text-sm font-semibold'>Request to Speak</p>
-                    <p className='text-[11px] text-slate-400'>Add to speaking queue</p>
-                  </div>
-                  <span
-                    className={`h-4 w-4 rounded-full border-2 ${
-                      handRaised ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
-                    }`}
-                  />
-                </button>
-
-                {canCatchUp && (
-                  <button
-                    onClick={() => {
-                      onCatchUp?.();
-                      setHandMenuOpen(false);
-                    }}
-                    className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
-                  >
-                    <RotateCcw size={18} className='text-violet-300' />
-                    <div className='flex-1 leading-tight'>
-                      <p className='text-sm font-semibold'>Catch Me Up</p>
-                      <p className='text-[11px] text-slate-400'>Recap what you missed since joining</p>
-                    </div>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    if (handRaised || isActiveSpeaker) onToggleHand();
-                    setHandMenuOpen(false);
-                  }}
-                  className='flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-800'
-                >
-                  <Hand size={18} className='rotate-180 text-slate-300' />
-                  <div className='flex-1 leading-tight'>
-                    <p className='text-sm font-semibold'>{isActiveSpeaker ? 'Release Floor' : 'Lower Hand'}</p>
-                    <p className='text-[11px] text-slate-400'>
-                      {isActiveSpeaker ? 'Give up the floor' : 'Cancel your request'}
-                    </p>
-                  </div>
-                  <span
-                    className={`h-4 w-4 rounded-full border-2 ${
-                      !handRaised && !isActiveSpeaker ? 'border-cyan-400 bg-cyan-400' : 'border-slate-500'
-                    }`}
-                  />
-                </button>
-                </>)}
-
-                <div className='mt-1 border-t border-slate-700/50 px-3 py-2'>
-                  <p className='text-[11px] font-semibold uppercase tracking-wide text-slate-500'>Active Speaker</p>
-                  <p className={`mt-0.5 text-xs font-medium ${activeSpeaker ? 'text-emerald-300' : 'text-slate-500'}`}>
-                    {activeSpeaker ? activeSpeaker.name : 'None'}
-                  </p>
-                  {floorQueue.length > 0 && (
-                    <ol className='mt-1 space-y-0.5 text-xs text-slate-300'>
-                      {floorQueue.map((p, i) => (
-                        <li key={p.userId}>
-                          {i + 1}. {p.name}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    Professor: <span className="font-medium text-slate-300">{professorStatus}</span>
-                  </p>
-                </div>
-              </div>
+          {/* Brand + current class — navbar left side. */}
+          <div className='mr-auto flex items-center gap-2 pr-3'>
+            <span className='text-sm font-bold tracking-tight text-cyan-400'>WuFlux</span>
+            {(classTitle || lectureTitle) && (
+              <span className='hidden max-w-[40vw] truncate text-[10px] text-slate-400 sm:block'>
+                {classTitle || lectureTitle}
+              </span>
             )}
           </div>
 
-          <button onClick={onChat} className={`${pillBase} ${chatOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}>
-            <MessageSquare size={20} className='text-slate-300' />
-            <div className='leading-tight'>
-              <p className='text-xs font-semibold'>Chat</p>
-              <p className='text-[11px] text-slate-400'>{chatOpen ? 'Open' : 'Closed'}</p>
-            </div>
-          </button>
+          <div className='relative'>
+            <button
+              onClick={() => { if (!isGuest) onToggleHand(); }}
+              disabled={isGuest}
+              title={isGuest ? 'Sign in to raise your hand' : undefined}
+              className={`${pillBase} border ${
+                handRaised || isActiveSpeaker
+                  ? 'border-cyan-400/60 bg-slate-800/60'
+                  : 'border-cyan-500/30'
+              } ${isGuest ? 'cursor-not-allowed opacity-60' : ''}`}
+            >
+              <Hand
+                size={16}
+                className={isActiveSpeaker ? 'text-emerald-300' : handRaised ? 'text-amber-300' : 'text-cyan-300'}
+              />
+              <div className='leading-tight'>
+                <p className='text-[11px] font-semibold'>{handLabel}</p>
+                <p className='hidden text-[10px] text-slate-400 sm:block'>
+                  {isActiveSpeaker ? 'You have the floor' : handRaised ? 'Hand is raised' : 'Let the instructor know'}
+                </p>
+              </div>
+            </button>
+
+            {/* Recap shortcut — only appears for late joiners with a valid
+                recap anchor (server-authoritative via canCatchUp). */}
+            {canCatchUp && (
+              <button
+                onClick={() => onCatchUp?.()}
+                title='Recap what you missed since joining'
+                className={`${pillBase} mt-1 w-full border border-violet-500/40`}
+              >
+                <RotateCcw size={16} className='text-violet-300' />
+                <div className='leading-tight'>
+                  <p className='text-[11px] font-semibold'>Catch Me Up</p>
+                  <p className='hidden text-[10px] text-slate-400 sm:block'>Recap what you missed</p>
+                </div>
+              </button>
+            )}
+          </div>
 
           <button
             onClick={onVoice}
@@ -316,23 +234,83 @@ function ClassroomPanel({
             className={`${pillBase} ${voiceOn ? 'bg-slate-800/80 ring-1 ring-emerald-400/50' : ''}`}
           >
             {voiceOn
-              ? <Mic size={20} className='text-emerald-300' />
+              ? <Mic size={16} className='text-emerald-300' />
               : micState === 'pending'
-                ? <Mic size={20} className='text-amber-300' />
-                : <MicOff size={20} className='text-slate-300' />}
+                ? <Mic size={16} className='text-amber-300' />
+                : <MicOff size={16} className='text-slate-300' />}
             <div className='leading-tight'>
-              <p className='text-xs font-semibold'>Voice</p>
-              <p className='text-[11px] text-slate-400'>{voiceOn ? 'On' : micState === 'pending' ? 'Requested…' : 'Off'}</p>
+              <p className='text-[11px] font-semibold'>Voice</p>
+              <p className='hidden text-[10px] text-slate-400 sm:block'>{voiceOn ? 'On' : micState === 'pending' ? 'Requested…' : 'Off'}</p>
             </div>
           </button>
+
+          {/* Avatar picker — swaps the local GLB and broadcasts the new path
+              to the room so remote views update live. */}
+          {avatars.length > 0 && (
+            <div className='relative'>
+              <button
+                onClick={() => setAvatarMenuOpen((v) => !v)}
+                title='Change your avatar'
+                className={`${pillBase} ${avatarMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
+              >
+                <User size={16} className='text-slate-300' />
+                <div className='leading-tight'>
+                  <p className='text-[11px] font-semibold'>Avatar</p>
+                  <p className='hidden text-[10px] text-slate-400 sm:block'>Change look</p>
+                </div>
+                <ChevronDown size={14} className={`text-slate-500 transition ${avatarMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {avatarMenuOpen && (
+                <div className='absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-slate-700/50 bg-slate-900/95 p-1.5 text-xs shadow-2xl backdrop-blur'>
+                  {/* Live rename — broadcasts the new name to the room. */}
+                  <form
+                    className='mb-1 border-b border-slate-700/50 pb-1.5'
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const v = e.currentTarget.elements.rename.value.trim();
+                      if (v && v !== displayName) onRename?.(v);
+                      setAvatarMenuOpen(false);
+                    }}
+                  >
+                    <label className='px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500'>
+                      Your name
+                    </label>
+                    <div className='mt-1 flex gap-1 px-1'>
+                      <input
+                        name='rename'
+                        defaultValue={displayName}
+                        maxLength={32}
+                        className='min-w-0 flex-1 rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-white outline-none focus:border-cyan-500'
+                      />
+                      <button type='submit' className='rounded-md bg-cyan-500 px-2 text-[10px] font-semibold text-slate-950 hover:bg-cyan-400'>
+                        Save
+                      </button>
+                    </div>
+                  </form>
+                  {avatars.map((a) => (
+                    <button
+                      key={a.path}
+                      onClick={() => { onSelectAvatar?.(a.path); setAvatarMenuOpen(false); }}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-slate-800 ${
+                        a.path === currentAvatar ? 'text-cyan-300' : 'text-slate-200'
+                      }`}
+                    >
+                      <span>{a.name}</span>
+                      {a.path === currentAvatar && <span className='text-[10px]'>●</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {isPrivateRoom && (
             <div className='relative'>
               <button onClick={() => setMembersOpen((v) => !v)} className={pillBase}>
-                <Users size={20} className='text-slate-300' />
+                <Users size={16} className='text-slate-300' />
                 <div className='leading-tight'>
-                  <p className='text-xs font-semibold'>Participants</p>
-                  <p className='text-[11px] text-slate-400'>{roomMembers.length} in this class</p>
+                  <p className='text-[11px] font-semibold'>Participants</p>
+                  <p className='hidden text-[10px] text-slate-400 sm:block'>{roomMembers.length} in this class</p>
                 </div>
                 <ChevronDown size={14} className={`text-slate-500 transition ${membersOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -388,10 +366,10 @@ function ClassroomPanel({
               title='Generate a fresh single-use invite link'
               className={pillBase}
             >
-              <Copy size={20} className={inviteCopied ? 'text-emerald-300' : 'text-violet-300'} />
+              <Copy size={16} className={inviteCopied ? 'text-emerald-300' : 'text-violet-300'} />
               <div className='leading-tight'>
-                <p className='text-xs font-semibold'>{inviteCopied ? 'Copied!' : 'New Invite'}</p>
-                <p className='text-[11px] text-slate-400'>One-time link</p>
+                <p className='text-[11px] font-semibold'>{inviteCopied ? 'Copied!' : 'New Invite'}</p>
+                <p className='hidden text-[10px] text-slate-400 sm:block'>One-time link</p>
               </div>
             </button>
           )}
@@ -404,10 +382,10 @@ function ClassroomPanel({
                 : `Lecture language — ${currentLangLabel} (only the host can change)`}
               className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''} ${canChangeLanguage ? '' : 'cursor-default'}`}
             >
-              <Languages size={20} className='text-slate-300' />
+              <Languages size={16} className='text-slate-300' />
               <div className='leading-tight'>
-                <p className='text-xs font-semibold'>Language</p>
-                <p className='text-[11px] text-slate-400'>{currentLangLabel}</p>
+                <p className='text-[11px] font-semibold'>Language</p>
+                <p className='hidden text-[10px] text-slate-400 sm:block'>{currentLangLabel}</p>
               </div>
               {canChangeLanguage && (
                 <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
@@ -440,17 +418,19 @@ function ClassroomPanel({
             )}
           </div>
 
-          {(!isPrivateRoom || isRoomHost) && (
+          {(!isPrivateRoom || isRoomHost || canEndLecture) && (
             <button
-              onClick={onStart}
-              disabled={!canStart}
+              onClick={canPauseResume ? (isHostPaused ? onHostResume : onHostPause) : onStart}
+              disabled={!canStart && !canPauseResume}
               title={!allLangsReady && langReadiness?.missing?.length
                 ? `Still preparing: ${langReadiness.missing.join('; ')}`
                 : undefined}
-              className={`flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
-                state === 'teaching' || state === 'loading'
-                  ? 'cursor-not-allowed bg-slate-700 text-slate-300'
-                  : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                canPauseResume
+                  ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                  : state === 'teaching' || state === 'loading'
+                    ? 'cursor-not-allowed bg-slate-700 text-slate-300'
+                    : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
               }`}
             >
               <ButtonIcon size={16} className={state === 'loading' || !allLangsReady ? 'animate-spin' : ''} />
@@ -502,45 +482,14 @@ function ClassroomPanel({
             </div>
           )}
 
-          {/* Host lecture lifecycle — private rooms only (server-enforced). */}
-          {isPrivateRoom && isRoomHost && professorStatus === 'LECTURING' && (
-            <button
-              onClick={onHostPause}
-              title='Pause the lecture for discussion'
-              className={`${pillBase} border border-amber-500/40`}
-            >
-              <Hand size={18} className='text-amber-300' />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>Pause</p>
-                <p className='text-[11px] text-slate-400'>Discussion break</p>
-              </div>
-            </button>
-          )}
-          {isPrivateRoom && isRoomHost && professorStatus === 'PAUSED' && pauseReason === 'host' && (
-            <button
-              onClick={onHostResume}
-              title='Resume the lecture from the pause point'
-              className={`${pillBase} border border-emerald-500/40`}
-            >
-              <Play size={18} className='text-emerald-300' />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>Resume</p>
-                <p className='text-[11px] text-slate-400'>Continue lecture</p>
-              </div>
-            </button>
-          )}
           {canEndLecture &&
             ['LECTURING', 'PAUSED', 'THINKING', 'ANSWERING', 'RESUMING'].includes(professorStatus) && (
             <button
-              onClick={() => { if (window.confirm('End the lecture? Playback resets to the start for everyone.')) onHostEnd(); }}
-              title='End the lecture for everyone'
-              className={`${pillBase} border border-rose-500/40`}
+              onClick={onHostEnd}
+              title='Stop the lecture and reset to the beginning'
+              className='flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500'
             >
-              <X size={18} className='text-rose-300' />
-              <div className='leading-tight'>
-                <p className='text-xs font-semibold'>End Class</p>
-                <p className='text-[11px] text-slate-400'>Stop lecture</p>
-              </div>
+              <X size={16} /> Stop Lecture
             </button>
           )}
         </div>
@@ -615,10 +564,10 @@ export default function Scene() {
       : <LoadingOverlay visible />;
   }
 
-  return <SceneRoom sceneName={sceneKey} baseConfig={SCENE_CONFIG[sceneKey]} />;
+  return <SceneRoom sceneName={sceneKey} baseConfig={SCENE_CONFIG[sceneKey]} classTitle={classTitle} />;
 }
 
-function SceneRoom({ sceneName, baseConfig }) {
+function SceneRoom({ sceneName, baseConfig, classTitle }) {
   const navigate = useNavigate();
   // URL path segment (a cosmetic classroom slug or a bare scene key) — the
   // resolved sceneName prop is the authoritative scene config key.
@@ -699,14 +648,23 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   const [currentAvatarPath] = useState('/assets/avatar/ProfAbed_suit.glb');
   const [userAvatarPath, setUserAvatarPath] = useState(() => {
+    const stored = sessionStorage.getItem('nxr_avatar');
+    if (stored && USER_AVATARS.some((a) => a.path === stored)) return stored;
     const i = Math.floor(Math.random() * USER_AVATARS.length);
     return USER_AVATARS[i].path;
   });
+  const selectAvatar = useCallback((path) => {
+    if (!USER_AVATARS.some((a) => a.path === path)) return;
+    sessionStorage.setItem('nxr_avatar', path);
+    setUserAvatarPath(path);
+    socketRef.current?.emit('state-update', { avatar: path });
+  }, []);
   const [cameraPreset, setCameraPreset] = useState('third-person');
   const [inRange, setInRange] = useState(false);
-  // Chat/transcript panel starts open and stays open — proximity to the
-  // avatar no longer controls it; the user can still minimize via the pill.
-  const [chatOpen, setChatOpen] = useState(true);
+  // Chat/transcript panel follows the class lifecycle — open while a class
+  // is live, closed before start and after end. A late joiner lands on
+  // 'teaching' via the snapshot and the panel opens for them too.
+  const [chatOpen, setChatOpen] = useState(false);
   const [lectureLang, setLectureLang] = useState('en');
   const [camHint, setCamHint] = useState(false);
   const [showUserAvatar] = useState(true);
@@ -719,23 +677,48 @@ function SceneRoom({ sceneName, baseConfig }) {
     return stored && stored.trim() ? stored.trim() : null;
   });
 
-  // No name prompt: signed-in users join under their account name; guests get
-  // a random session identity (persisted per tab so refreshes keep it).
+  // Name resolution: signed-in users join under their account name (first +
+  // last, set at registration). Guests are PROMPTED for a name before joining
+  // — the suggestion is a friendly random one they can keep or replace.
+  const [guestNameNeeded, setGuestNameNeeded] = useState(false);
   useEffect(() => {
     if (displayName) return;
     getMe().then((r) => {
-      const name = (r.ok && r.data.user?.displayName) || randomGuestName();
-      sessionStorage.setItem(DISPLAY_NAME_KEY, name);
-      setDisplayName(name);
-    }).catch(() => {
-      const name = randomGuestName();
-      sessionStorage.setItem(DISPLAY_NAME_KEY, name);
-      setDisplayName(name);
-    });
+      const name = r.ok && r.data.user?.displayName;
+      if (name) {
+        sessionStorage.setItem(DISPLAY_NAME_KEY, name);
+        setDisplayName(name);
+      } else {
+        setGuestNameNeeded(true);
+      }
+    }).catch(() => setGuestNameNeeded(true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitGuestName = useCallback((name) => {
+    const n = String(name || '').trim().slice(0, 32);
+    if (!n) return;
+    sessionStorage.setItem(DISPLAY_NAME_KEY, n);
+    setDisplayName(n);
+    setGuestNameNeeded(false);
+  }, []);
+
+  // Live rename (avatar menu): updates the nameplate + broadcasts the new
+  // name so remote nameplates and the floor queue follow immediately.
+  const renameTo = useCallback((name) => {
+    const n = String(name || '').trim().slice(0, 32);
+    if (!n) return;
+    sessionStorage.setItem(DISPLAY_NAME_KEY, n);
+    setDisplayName(n);
+    socketRef.current?.emit('state-update', { name: n });
+  }, []);
   const [remotePlayers, setRemotePlayers] = useState({});
   const [floorQueue, setFloorQueue] = useState([]);
   const [activeSpeaker, setActiveSpeaker] = useState(null);
+  // Previous floor holder — lets the toast fire only on HOLDER CHANGES, not
+  // every floor-state broadcast (queue joins, professor flips, etc).
+  const floorHolderRef = useRef(null);
+  const [floorNotice, setFloorNotice] = useState(null); // "<name> is asking" toast
+  const floorNoticeTimer = useRef(null);
   const [professorStatus, setProfessorStatus] = useState('IDLE');
   const [floorAnswering, setFloorAnswering] = useState(false);
   const [floorError, setFloorError] = useState(null);
@@ -753,6 +736,7 @@ function SceneRoom({ sceneName, baseConfig }) {
   // Private-room flow: access errors replace the scene; created invite links
   // are shown to the host for sharing.
   const [accessError, setAccessError] = useState(null);
+  const [accessErrorTitle, setAccessErrorTitle] = useState('Private room');
   const [inviteCopied, setInviteCopied] = useState(false);
   const lectureManifestRef = useRef([]); // last fetched segments (any lang)
   const maxSegRef = useRef(0);           // highest segment index reached
@@ -767,9 +751,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   // Host identity must use the SERVER-resolved participant id (self-info),
   // never the locally generated one — a client can't mint host authority.
   const isRoomHost = isPrivateRoom && roomMeta?.hostId === myId;
-  // Lecture End works in both room types: owner, or SUPER_ADMIN anywhere.
+  // Lecture End works in both room types: owner, INSTRUCTOR, or SUPER_ADMIN.
   const isRoomOwner = roomMeta?.hostId === myId;
-  const canEndLecture = isRoomOwner || selfInfo?.user?.role === 'SUPER_ADMIN';
+  const canEndLecture = isRoomOwner
+    || selfInfo?.user?.role === 'INSTRUCTOR' || selfInfo?.user?.role === 'SUPER_ADMIN';
   // Room language is host/instructor-only — mirrors the server check in the
   // language.change handler (students/guests see a read-only pill).
   const canChangeLanguage = isRoomOwner
@@ -846,6 +831,12 @@ function SceneRoom({ sceneName, baseConfig }) {
   const [showJoystick, setShowJoystick] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lectureStatus, setLectureStatus] = useState('idle');
+  // Authoritative open/close: 'teaching' keeps the transcript visible; any
+  // other status (idle/loading/completed/error) closes it. Manual minimize
+  // still works — the effect only fires on status CHANGE, not every render.
+  useEffect(() => {
+    setChatOpen(lectureStatus === 'teaching');
+  }, [lectureStatus]);
 
   const [lectureError, setLectureError] = useState(null);
   const [lectureTitle, setLectureTitle] = useState(null);
@@ -853,7 +844,7 @@ function SceneRoom({ sceneName, baseConfig }) {
 
   const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, audioErrorRef, setRecognitionLang } = useSpeech();
   const speechCtlRef = useRef({});
-  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages, audioErrorRef };
+  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, clearMessages, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages, audioErrorRef };
 
   // Slide follows the current lecture segment's slidePage. The head during
   // Q&A is an answer, so resolveSlidePage anchors on the first lecture
@@ -911,6 +902,10 @@ function SceneRoom({ sceneName, baseConfig }) {
   // re-enter playback. Cleared on 'lecture-started' (explicit Replay is a
   // fresh run and legitimately reuses ids).
   const deliveredUnitsRef = useRef(new Set());
+  // Host End / lecture-complete: status resets to 'idle' (which still accepts
+  // units pre-start) — this latch drops any professor-speak that arrives
+  // AFTER the end broadcast until the next 'lecture-started' clears it.
+  const lectureEndedRef = useRef(false);
   // NCIP Slice 2: version of the newest authoritative state this client has
   // applied. -1 = no baseline yet (fresh connect / before first snapshot).
   const lastAppliedVersionRef = useRef(-1);
@@ -1320,7 +1315,16 @@ function SceneRoom({ sceneName, baseConfig }) {
     socket.on('floor-state', (data) => applyNcip(data, () => {
       console.log('[client] floor-state received:', data);
       setFloorQueue(data?.floorQueue || []);
-      setActiveSpeaker(data?.activeSpeaker || null);
+      const newHolder = data?.activeSpeaker || null;
+      if (newHolder?.userId !== floorHolderRef.current) {
+        floorHolderRef.current = newHolder?.userId || null;
+        if (newHolder && newHolder.userId !== myIdRef.current) {
+          clearTimeout(floorNoticeTimer.current);
+          setFloorNotice(`${newHolder.name || 'A student'} is asking a question`);
+          floorNoticeTimer.current = setTimeout(() => setFloorNotice(null), 6000);
+        }
+      }
+      setActiveSpeaker(newHolder);
       if (data?.professorStatus) setProfessorStatus(data.professorStatus);
       if (data?.activeSpeaker?.userId !== myIdRef.current) {
         floorReadyRef.current = false;
@@ -1355,6 +1359,7 @@ function SceneRoom({ sceneName, baseConfig }) {
     socket.on('session-taken-over', () => {
       speechCtlRef.current?.stopAudio?.();
       setJoinPending(false);
+      setAccessErrorTitle('Disconnected');
       setAccessError('This classroom was opened in another tab — this window was disconnected.');
     });
 
@@ -1363,6 +1368,7 @@ function SceneRoom({ sceneName, baseConfig }) {
       speechCtlRef.current?.stopAudio?.();
       speechCtlRef.current?.clearMessages?.();
       setJoinPending(false);
+      setAccessErrorTitle('Removed');
       setAccessError('The host removed you from this room.');
     });
 
@@ -1373,11 +1379,13 @@ function SceneRoom({ sceneName, baseConfig }) {
         // Private-room rejection: show the access error, don't bounce the user
         // back to the name prompt (a name can't fix a bad invite).
         setJoinPending(false);
+        setAccessErrorTitle('Private room');
         setAccessError(data.error || 'Invalid or expired invite link.');
         return;
       }
       sessionStorage.removeItem(DISPLAY_NAME_KEY);
       setDisplayName(null);
+      setGuestNameNeeded(true); // cleared name → re-prompt before retry
     });
 
     socket.on('disconnect', () => {
@@ -1395,6 +1403,12 @@ function SceneRoom({ sceneName, baseConfig }) {
 
     socket.on('professor-speak', (data) => applyNcip(data, () => {
       console.log('[client] professor-speak received:', data?.text);
+      // Ended room: a unit in flight when the owner ended class must never
+      // re-enter the queue — 'lecture-started' is the only thing that opens it.
+      if (lectureEndedRef.current && data?.type === 'lecture') {
+        console.log('[client] ignoring lecture unit after end:', data?.id);
+        return;
+      }
       // Completed: drop stale echoes of a finished playthrough — a real
       // restart resets status via 'lecture-started' before units arrive.
       if (!shouldAcceptLectureUnit(data, lectureStatusRef.current)) {
@@ -1442,11 +1456,13 @@ function SceneRoom({ sceneName, baseConfig }) {
     socket.on('lecture-started', (data) => applyNcip(data, () => {
       clearTimeout(startWatchdogRef.current);
       speechCtlRef.current.clearMessages();
+      setChatOpen(true); // transcript opens with the class
       setLectureStatus('teaching');
       setLectureError(null);
       setFloorAnswering(false);
       maxSegRef.current = -1;
       deliveredUnitsRef.current.clear();
+      lectureEndedRef.current = false;
       setScriptSeed([]);
       setTranscriptEpoch((e) => e + 1);
     }));
@@ -1455,6 +1471,8 @@ function SceneRoom({ sceneName, baseConfig }) {
     // authoritative for completion, not an empty local queue.
     socket.on('lecture-complete', (data) => applyNcip(data, () => {
       console.log('[client] lecture-complete:', data?.reason);
+      lectureEndedRef.current = true;
+      setChatOpen(false); // transcript closes with the class
       speechCtlRef.current.floorPausedRef.current = false;
       speechCtlRef.current.setFloorPaused(false);
       speechCtlRef.current.clearMessages();
@@ -1483,9 +1501,12 @@ function SceneRoom({ sceneName, baseConfig }) {
       } else if (data?.action === 'end') {
         // Owner ended the class: stop and clear local playback, reset slide
         // to the first segment's so the next start opens on slide 1.
+        lectureEndedRef.current = true;
         speechCtlRef.current.floorPausedRef.current = false;
         speechCtlRef.current.setFloorPaused(false);
         speechCtlRef.current.clearMessages();
+        setChatOpen(false); // transcript closes with the class
+        setTranscriptEpoch((e) => e + 1); // next start re-seeds the script fresh
         const first = lectureManifestRef.current?.[0];
         if (first?.slidePage != null) slidePageRef.current = first.slidePage;
         if (first?.slideDoc != null) slideDocRef.current = first.slideDoc;
@@ -1684,10 +1705,13 @@ function SceneRoom({ sceneName, baseConfig }) {
     setSceneReady(true);
   }, []);
 
-  // One-time controls intro on scene entry; auto-dismisses, and hides as soon
-  // as the user starts moving or toggles the camera.
+  // Controls intro on scene entry — FIRST visit only. The 'seen' flag lives in
+  // localStorage (survives refresh and new sessions) and is set the moment the
+  // hint is shown, so a refresh during the animation can't replay it either.
   useEffect(() => {
     if (!sceneReady) return;
+    if (localStorage.getItem('nxr_seen_controls_intro') === '1') return;
+    localStorage.setItem('nxr_seen_controls_intro', '1');
     setCamHint(true);
     const t = setTimeout(() => setCamHint(false), 15000);
     const onKey = (e) => {
@@ -1794,7 +1818,7 @@ function SceneRoom({ sceneName, baseConfig }) {
     return (
       <div className='flex h-screen w-screen flex-col items-center justify-center bg-slate-950 text-slate-100'>
         <Lock size={40} className='mb-4 text-violet-400' />
-        <h2 className='text-xl font-bold'>Private room</h2>
+        <h2 className='text-xl font-bold'>{accessErrorTitle}</h2>
         <p className='mt-2 max-w-sm text-center text-sm text-slate-400'>{accessError}</p>
         <a href='/' className='mt-6 rounded-lg border border-slate-700 px-4 py-2 text-sm hover:bg-slate-800'>
           Back to courses
@@ -1824,7 +1848,7 @@ function SceneRoom({ sceneName, baseConfig }) {
               <User size={18} className='shrink-0 text-violet-300' />
               <div className='min-w-0 flex-1'>
                 <p className='truncate text-sm font-semibold text-white'>{r.name || 'Guest'}</p>
-                <p className='text-[11px] text-slate-400'>wants to join this private room</p>
+                <p className='hidden text-[10px] text-slate-400 sm:block'>wants to join this private room</p>
               </div>
               <button
                 className='rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500'
@@ -1849,8 +1873,35 @@ function SceneRoom({ sceneName, baseConfig }) {
         </div>
       )}
 
-      {/* Identity is auto-resolved (account name, or a random guest name) —
-          the old name prompt is intentionally gone. */}
+      {/* Guest name prompt — registered users skip it (account name resolves
+          via getMe); guests must enter a name before joining. */}
+      {guestNameNeeded && !displayName && (
+        <div className='fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 backdrop-blur'>
+          <form
+            className='w-80 rounded-2xl border border-slate-700/50 bg-slate-900 p-6 shadow-2xl'
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitGuestName(e.currentTarget.elements.guestName.value);
+            }}
+          >
+            <h2 className='text-lg font-bold text-white'>Enter your name</h2>
+            <p className='mt-1 text-xs text-slate-400'>Your avatar will show this name in the classroom.</p>
+            <input
+              name='guestName'
+              defaultValue={randomGuestName()}
+              maxLength={32}
+              autoFocus
+              className='mt-4 w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white outline-none focus:border-cyan-500'
+            />
+            <button
+              type='submit'
+              className='mt-4 w-full rounded-lg bg-cyan-500 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400'
+            >
+              Join class
+            </button>
+          </form>
+        </div>
+      )}
 
       {sceneReady && camHint && (
         <div
@@ -1884,6 +1935,7 @@ function SceneRoom({ sceneName, baseConfig }) {
             course={config}
             lectureId={lectureId}
             lectureTitle={lectureTitle}
+            classTitle={classTitle}
             state={lectureStatus}
             error={lectureError}
             onStart={handleStartClass}
@@ -1912,6 +1964,11 @@ function SceneRoom({ sceneName, baseConfig }) {
             isPrivateRoom={isPrivateRoom}
             isRoomHost={isRoomHost}
             roomMembers={roomMembers}
+            avatars={USER_AVATARS}
+            currentAvatar={userAvatarPath}
+            onSelectAvatar={selectAvatar}
+            displayName={displayName}
+            onRename={renameTo}
             onKick={(userId) => socketRef.current?.emit('room.kick', { userId })}
             pauseReason={pauseReason}
             onCopyInvite={isRoomHost ? copyInvite : null}
@@ -1930,10 +1987,17 @@ function SceneRoom({ sceneName, baseConfig }) {
             </div>
           )}
 
+          {floorNotice && (
+            <div className='fixed left-1/2 top-20 z-50 -translate-x-1/2 rounded-xl border border-cyan-500/40 bg-slate-900/95 px-4 py-2.5 text-xs text-cyan-200 shadow-2xl backdrop-blur'>
+              {floorNotice}
+            </div>
+          )}
+
           <ChatInterface
             hidden={!chatOpen}
             onMinimize={() => setChatOpen(false)}
             lectureId={lectureId}
+            courseTitle={lectureTitle || config?.title || 'Class'}
             lectureScript={lectureScript}
             showLectureScript={canChangeLanguage}
             scriptSeed={scriptSeed}
@@ -1962,7 +2026,6 @@ function SceneRoom({ sceneName, baseConfig }) {
 
           <div className='relative z-20'>
             <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
-            <ContinuousRecorder />
           </div>
         </>
       )}

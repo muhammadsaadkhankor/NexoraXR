@@ -16,6 +16,11 @@ const EXTRA_ANIMATIONS_URL = '/models/animations.glb';
 // reset each frame before applying the active one.
 const ALL_VISEME_TARGETS = morphTargets.filter((t) => t.startsWith('viseme_'));
 
+// ?lipsync=a2f|spectral — A/B switch. 'a2f' plays the precomputed
+// Audio2Face-3D ARKit track when the message carries one; 'spectral' forces
+// the analyser path; absent/other → A2F when available, spectral otherwise.
+const LIPSYNC_MODE = new URLSearchParams(window.location.search).get('lipsync');
+
 const ANIMATION_MAP = {
   explain: 'TalkingOne',
   explain2: 'TalkingTwo',
@@ -80,6 +85,8 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   const [audio, setAudio] = useState();
   const [audioPlaying, setAudioPlaying] = useState(false);
   const analyserRef = useRef(null);
+  const a2fTrackRef = useRef(null);
+  const a2fSeqRef = useRef(0);
 
   const lerpMorphTarget = (target, value, speed = 0.1) => {
     group.current.traverse((child) => {
@@ -111,6 +118,24 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     const resolved = resolveAnimation(message.animation, actions);
     setFacialExpression(message.facialExpression);
     setLipsync(message.lipsync);
+    // Offline Audio2Face track: fetch meta + Float32 bin once per message.
+    // a2fSeq guards against a slow fetch landing after the next message
+    // already owns the track slot.
+    a2fTrackRef.current = null;
+    const a2fSeq = ++a2fSeqRef.current;
+    if (message.a2fUrl && LIPSYNC_MODE !== 'spectral') {
+      fetch(message.a2fUrl)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then(async (meta) => {
+          const buf = await fetch(meta.binUrl).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)));
+          const n = meta.names?.length || 0;
+          if (!n || buf.byteLength !== meta.frames * n * 4) throw new Error('bad a2f bin size');
+          if (a2fSeq === a2fSeqRef.current) {
+            a2fTrackRef.current = { fps: meta.fps, names: meta.names, frames: meta.frames, data: new Float32Array(buf) };
+          }
+        })
+        .catch((e) => console.warn('[a2f] track load failed:', e));
+    }
     const audioSrc = message.audio
       ? "data:audio/mp3;base64," + message.audio
       : message.audioUrl || null;
@@ -209,7 +234,21 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       if (message.type === 'lecture' && floorPausedRef?.current) {
         nextAudio.pause();
       } else {
-        nextAudio.play().catch((err) => console.error('[Avatar] audio play error:', err));
+        nextAudio.play().catch((err) => {
+          if (err?.name === 'NotAllowedError') {
+            // Autoplay blocked — the page has seen no user gesture yet (auto
+            // -joined tab, refreshed mid-lecture). Without a retry the queue
+            // head stalls FOREVER: transcript text renders, avatar idles,
+            // and every later message queues behind it. Retry on the first
+            // interaction anywhere; the sync timer snaps position on start.
+            console.warn('[Avatar] autoplay blocked — will resume on first click/tap');
+            const retry = () => nextAudio.play().catch(() => {});
+            window.addEventListener('pointerdown', retry, { once: true });
+            window.addEventListener('keydown', retry, { once: true });
+          } else {
+            console.error('[Avatar] audio play error:', err);
+          }
+        });
       }
       setAnimation('Idle'); // hold idle until 'playing' fires
     } else {
@@ -311,7 +350,11 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   useFrame(() => {
     const target = resolveAnimation(activeAnimation, actions);
     if (target && actions[target]) actions[target].play().setEffectiveWeight(1);
-    morphTargets.forEach((key) => {
+    // A2F owns the whole face while its track drives — the expression map
+    // targets the same ARKit names and would fight every frame.
+    const a2fActive = !!(a2fTrackRef.current && audio && !pausedLecture
+      && !audio.paused && LIPSYNC_MODE !== 'spectral');
+    if (!a2fActive) morphTargets.forEach((key) => {
         const mapping = facialExpressions[facialExpression];
         if (key === "eyeBlinkLeft" || key === "eyeBlinkRight") {
           return;
@@ -321,17 +364,30 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
         } else {
           lerpMorphTarget(key, 0, 0.1);
         }
-      });
+      });  // end expression loop (skipped while A2F drives)
 
       lerpMorphTarget("eyeBlinkLeft", blink ? 1 : 0, 0.5);
       lerpMorphTarget("eyeBlinkRight", blink ? 1 : 0, 0.5);
 
-      // Lipsync: prefer the real-time analyser (always in lock-step with the
-      // audible output); fall back to legacy Rhubarb mouthCues when the
-      // element could not be tapped (e.g. no Web Audio support).
+      // Lipsync: prefer the precomputed Audio2Face ARKit track (baked
+      // offline, sample-locked to this audio), then the real-time analyser,
+      // then legacy Rhubarb mouthCues.
       const appliedMorphTargets = [];
       const analyser = analyserRef.current;
-      if (message && audio && analyser && !pausedLecture && !audio.paused) {
+      const a2f = a2fTrackRef.current;
+      if (a2fActive && a2f) {
+        // Frame-lock to the audio clock — same anchor the drift-corrector
+        // and mouthCues use, so seeks/pauses stay aligned.
+        const f = Math.min(a2f.frames - 1, Math.max(0, Math.floor(audio.currentTime * a2f.fps)));
+        const row = f * a2f.names.length;
+        for (let n = 0; n < a2f.names.length; n++) {
+          const name = a2f.names[n];
+          // Random blink timer wins over baked eyelid weights.
+          if (name === 'eyeBlinkLeft' || name === 'eyeBlinkRight') continue;
+          lerpMorphTarget(name, a2f.data[row + n], 0.85);
+        }
+        appliedMorphTargets.push('a2f');
+      } else if (message && audio && analyser && !pausedLecture && !audio.paused) {
         const { viseme, level } = analyseViseme(analyser);
         if (viseme && level > 0) {
           appliedMorphTargets.push(viseme);

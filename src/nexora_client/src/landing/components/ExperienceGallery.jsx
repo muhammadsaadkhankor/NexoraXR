@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Plus, Users, Globe, Lock, ArrowRight,
+  Plus, Globe, Lock, ArrowRight,
   Clapperboard, ScanEye, BrainCircuit, TerminalSquare, MousePointerClick, Scale,
 } from 'lucide-react'
 import { API_URL, CLASSROOM_LANGUAGES } from '../../shared/config'
@@ -186,15 +186,6 @@ export default function ExperienceGallery({ onCourse }) {
     )
   }
 
-  const EmptyState = ({ icon: Icon, title, children, action }) => (
-    <div className="rooms-empty">
-      <span className="rooms-empty__icon"><Icon size={22} strokeWidth={1.5} /></span>
-      <p className="rooms-empty__title">{title}</p>
-      <p className="rooms-empty__desc">{children}</p>
-      {action}
-    </div>
-  )
-
   return (
     <section id="explore" className="gallery">
       <div className="container">
@@ -219,7 +210,9 @@ export default function ExperienceGallery({ onCourse }) {
           )}
         </div>
 
-        {/* Public classrooms — discoverable live rooms for everyone. */}
+        {/* Public classrooms — discoverable live rooms for everyone. The
+            whole section hides when none are live. */}
+        {otherLiveRooms.length > 0 && (
         <div className="rooms-block">
           <div className="rooms-block__head">
             <span className="rooms-block__icon rooms-block__icon--public"><Globe size={15} /></span>
@@ -228,30 +221,15 @@ export default function ExperienceGallery({ onCourse }) {
               <span className="rooms-block__count">{otherLiveRooms.length} live</span>
             )}
           </div>
-          {otherLiveRooms.length > 0 ? (
-            <div className="rooms-block__grid">
-              {otherLiveRooms.map((r) => <RoomCard key={r.roomId} room={r} live />)}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Users}
-              title="No public classrooms are live right now"
-              action={canCreate && (
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowCreate(true)}>
-                  <Plus size={15} /> Start the first one
-                </button>
-              )}
-            >
-              {canCreate
-                ? 'Create a classroom and it appears here for anyone to join.'
-                : 'New rooms appear here when a host opens one.'}
-            </EmptyState>
-          )}
+          <div className="rooms-block__grid">
+            {otherLiveRooms.map((r) => <RoomCard key={r.roomId} room={r} live />)}
+          </div>
         </div>
+        )}
 
-        {/* Private classrooms — only the caller's authorised rooms. Guests
-            and students never see this section or its invite tokens. */}
-        {canCreate && (
+        {/* Private classrooms — only the caller's authorised rooms. Hidden
+            entirely when the user has none (section appears on creation). */}
+        {canCreate && myRooms.length > 0 && (
           <div className="rooms-block rooms-block--private">
             <div className="rooms-block__head">
               <span className="rooms-block__icon rooms-block__icon--private"><Lock size={15} /></span>
@@ -260,24 +238,9 @@ export default function ExperienceGallery({ onCourse }) {
                 <span className="rooms-block__count">{myRooms.length}</span>
               )}
             </div>
-            {myRooms.length > 0 ? (
-              <div className="rooms-block__grid">
-                {myRooms.map((r) => <RoomCard key={r.roomId} room={r} />)}
-              </div>
-            ) : (
-              <EmptyState
-                icon={Lock}
-                title="No private classrooms yet"
-                action={
-                  <button className="btn btn-secondary btn-sm" onClick={() => setShowCreate(true)}>
-                    <Plus size={15} /> Create a private room
-                  </button>
-                }
-              >
-                Private rooms are invite-only. Create one and share the link
-                with your students.
-              </EmptyState>
-            )}
+            <div className="rooms-block__grid">
+              {myRooms.map((r) => <RoomCard key={r.roomId} room={r} />)}
+            </div>
           </div>
         )}
       </div>

@@ -1485,6 +1485,8 @@ async function refreshLectureManifest(roomId) {
     if (ncipRooms[roomId]?.lectureRun === run) run.manifest = manifest;
   } catch (err) {
     console.error(`[agent] manifest refresh failed for ${run.lectureId} in '${roomId}':`, err);
+  } finally {
+    run.manifestSwap = null;
   }
 }
 
@@ -1581,6 +1583,10 @@ async function emitNextLectureUnit(roomId) {
   const run = ncip?.lectureRun;
   if (!run || run.generating) return;
   run.generating = true;
+  // A language.switch is asynchronous — never let the next unit emit from a
+  // stale-language manifest. Wait for the pending swap (bounded: the
+  // manifest load is local disk I/O) before deciding.
+  if (run.manifestSwap) await run.manifestSwap.catch(() => {});
   try {
     // The loop only iterates on a dynamic-utterance fallback — each failure
     // marks the action applied (applyLectureAction) so decide() can't repeat it.
@@ -1642,6 +1648,7 @@ async function emitNextLectureUnit(roomId) {
           title: run.manifest.title,
           text: seg.text,
           audioUrl: seg.audioUrl,
+          a2fUrl: seg.a2fUrl || null,
           animation: seg.animation,
           facialExpression: seg.facialExpression,
           lipsync: seg.lipsync,
@@ -1707,6 +1714,7 @@ async function emitNextLectureUnit(roomId) {
           title: run.manifest.title,
           text: msg.text,
           audioUrl: msg.audioUrl,
+          a2fUrl: msg.a2fUrl || null,
           animation: msg.animation,
           facialExpression: msg.facialExpression,
           lipsync: msg.lipsync,
@@ -2292,8 +2300,10 @@ io.on('connection', (socket) => {
     }
     applyEffects(ctx.roomId, result.effects);
     // V2: the next agent-emitted segment must be in the new room language —
-    // swap the run's manifest asynchronously (index space is unchanged).
-    refreshLectureManifest(ctx.roomId);
+    // swap the run's manifest. The promise is pinned on the run so
+    // emitNextLectureUnit waits for it instead of racing ahead in English.
+    const swapRun = ncip.lectureRun;
+    if (swapRun) swapRun.manifestSwap = refreshLectureManifest(ctx.roomId);
   });
 
   // NCIP floor.request: dedupe; auto-grant when the floor is free, else FIFO queue.
@@ -2432,6 +2442,7 @@ io.on('connection', (socket) => {
         animation: msg.animation,
         facialExpression: msg.facialExpression,
         audioUrl: msg.audioUrl || null,
+        a2fUrl: msg.a2fUrl || null,
         lipsync: msg.lipsync
       }, durationMs));
       if (data?.kind === 'recap') {
@@ -2448,7 +2459,7 @@ io.on('connection', (socket) => {
       // V2.2: record the interaction + run the clarification classifier in the
       // background; the agent's decide() sees the flag on next advancement.
       if (data?.kind !== 'recap') {
-        maybeRecordClarification(roomId, question, message?.text, ctx.participantId).catch(() => {});
+        maybeRecordClarification(roomId, question, msg?.text, ctx.participantId).catch(() => {});
       }
     } catch (err) {
       console.error('[server] ask-floor-question failed:', err);
@@ -2473,9 +2484,15 @@ io.on('connection', (socket) => {
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
 
     const user = rooms[ctx.roomId][ctx.participantId];
-    user.position = data.position;
-    user.rotation = data.rotation;
-    user.animation = data.animation;
+    // Partial updates are allowed (e.g. an avatar-only change): patch only
+    // the fields the client sent so a sparse emit can't wipe presence state.
+    if (data.position) user.position = data.position;
+    if (data.rotation) user.rotation = data.rotation;
+    if (data.animation) user.animation = data.animation;
+    if (data.avatar) user.avatar = data.avatar;
+    if (typeof data.name === 'string' && data.name.trim()) {
+      user.name = data.name.trim().slice(0, 64);
+    }
     user.timestamp = Date.now();
 
     socket.broadcast.to(ctx.roomId).emit('state-update', user);
@@ -2528,17 +2545,15 @@ io.on('connection', (socket) => {
     if (!ctx) return;
     const meta = roomRegistry.get(ctx.roomId);
     if (!meta) return;
-    // End is available to the room owner in BOTH room types + SUPER_ADMIN.
-    // pause/resume stay private-host-only (public behavior unchanged).
+    // End/pause/resume: room owner, INSTRUCTOR, or SUPER_ADMIN — all room
+    // types. The ncip side enforces lecture-state correctness (hostPause only
+    // acts from a clean LECTURING state), so permission is the only gate here.
     const isOwner = meta.hostId === ctx.participantId;
     const isAdmin = socket.data?.user?.role === 'SUPER_ADMIN';
-    if (data?.action === 'end') {
-      if (!isOwner && !isAdmin) {
-        socket.emit('lecture-control', { action: 'control-error', error: 'Only the classroom owner can end the lecture.' });
-        return;
-      }
-    } else if (meta.roomType !== 'private' || !isRoomHost(ctx.roomId, ctx.participantId)) {
-      socket.emit('lecture-control', { action: 'control-error', error: 'Only the host can control the lecture.' });
+    const isInstructor = socket.data?.user?.role === 'INSTRUCTOR';
+    if (!isOwner && !isAdmin && !isInstructor) {
+      socket.emit('lecture-control', { action: 'control-error',
+        error: 'Only the classroom owner, an instructor, or a super admin can control the lecture.' });
       return;
     }
     const ncip = getNcipRoom(ctx.roomId);
@@ -2546,6 +2561,7 @@ io.on('connection', (socket) => {
     if (data?.action === 'pause') result = ncip.hostPause(ctx.participantId);
     else if (data?.action === 'resume') result = ncip.hostResume(ctx.participantId);
     else if (data?.action === 'end') {
+      console.log(`[server] ${ctx.participantId} ended the lecture in '${ctx.roomId}'`);
       ncip.lectureRun = null;
       applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
       // Tell every client to stop and clear its local lecture queue — unlike
