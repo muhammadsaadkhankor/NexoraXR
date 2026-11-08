@@ -36,10 +36,11 @@ const lipsyncPath = (lecId, i, lang = 'en') =>
 
 // Fail fast when the TTS service is down instead of 3-retry-per-segment.
 async function ttsReachable() {
-  const base = (process.env.VOXCPM_BASE_URL || 'http://localhost:8010').replace(/\/$/, '');
+  const base = (process.env.TTS_URL || 'http://localhost:8000').replace(/\/$/, '');
   try {
-    const r = await fetch(base, { signal: AbortSignal.timeout(3000) });
-    return r.status > 0;
+    const r = await fetch(`${base}/ready`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return false;
+    return Boolean((await r.json()).ready);
   } catch { return false; }
 }
 
@@ -211,7 +212,7 @@ const BAKE_LANGS = (process.env.COURSE_BAKE_LANGS || LANGUAGE_CODES.join(','))
 export async function verifyCourseAudio(courseId, langs = null, onProgress = null) {
   const langList = Array.isArray(langs) && langs.length ? langs : BAKE_LANGS;
   if (!(await ttsReachable())) {
-    throw new Error(`TTS service unreachable at ${process.env.VOXCPM_BASE_URL || 'http://localhost:8010'} — start VoxCPM2 and rebuild`);
+    throw new Error(`TTS service unreachable at ${process.env.TTS_URL || 'http://localhost:8000'} — start stream-tts and rebuild`);
   }
   const { rows } = await getPool().query(
     `SELECT idx, lecture_id, title FROM course_lectures

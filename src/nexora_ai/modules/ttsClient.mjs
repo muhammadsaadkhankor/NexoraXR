@@ -1,20 +1,31 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { pcm16ToWav } from './audioUtils.mjs';
 
-// VoxCPM2 TTS client — talks to the vLLM-Omni serving instance
-// (`vllm serve openbmb/VoxCPM2 --omni`) via the OpenAI-compatible
-// POST /v1/audio/speech endpoint. Voice cloning uses the ref_audio
-// file:// URI resolved from the local voice registry.
+// stream-tts (nano-vllm VoxCPM2) client — talks to the FastAPI engine on
+// :8000 (stream-tts/server/voxcpm_server.py). POST /generate streams raw
+// s16le PCM @48 kHz; this client buffers it and wraps it in a WAV header
+// so every downstream consumer sees the same complete-WAV contract the
+// old vLLM-Omni client exposed.
+//
+// Voice cloning: reference clips are encoded ONCE via /encode_latents and
+// the returned base64 latents are cached in memory and on disk under
+// <registry dir>/.latents/<voice_id>.json (gitignored), keyed by the
+// sha256 of the source prompt.wav so a changed clip re-encodes.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const VOXCPM_BASE_URL = (process.env.VOXCPM_BASE_URL || 'http://localhost:8010').replace(/\/$/, '');
-const VOXCPM_VOICE_ID = process.env.VOXCPM_VOICE_ID || 'abed101';
-const VOXCPM_MODEL = process.env.VOXCPM_MODEL || 'openbmb/VoxCPM2';
+const TTS_URL = (process.env.TTS_URL || 'http://localhost:8000').replace(/\/$/, '');
+const TTS_VOICE_ID = process.env.TTS_VOICE_ID || 'abed101';
+const OUTPUT_SR = 48000; // engine native sample rate (VoxCPM2)
 
-const REGISTRY_FILE = process.env.VOXCPM_VOICE_REGISTRY
-  || path.join(__dirname, '..', '..', '..', 'voxcpm_data', 'voice_registry.json');
+const REGISTRY_FILE = process.env.TTS_VOICE_REGISTRY
+  || path.join(__dirname, '..', '..', '..', 'tts_voices', 'registry.json');
+const REGISTRY_DIR = path.dirname(REGISTRY_FILE);
+const LATENTS_DIR = path.join(REGISTRY_DIR, '.latents');
 
 function loadRegistry() {
   try {
@@ -24,23 +35,68 @@ function loadRegistry() {
   }
 }
 
-// Resolve the reference pair for a voice, preferring a per-language entry
+const _latentsMem = new Map();    // cacheKey -> base64 latents
+const _latentPending = new Map(); // cacheKey -> Promise (dedupe concurrent encodes)
+
+// Resolve the reference entry for a voice, preferring a per-language entry
 // (`<voiceId>_<lang>`, e.g. abed101_ar) when one is registered — a reference
-// clip in the target language is the strongest conditioning VoxCPM2 offers,
-// since the adapter ignores the request-level `language` field.
+// clip in the target language is the strongest conditioning available.
 function refForVoice(voiceId, lang) {
   const registry = loadRegistry();
-  const base = voiceId || VOXCPM_VOICE_ID;
-  const entry = (lang && registry[`${base}_${lang}`])
-    || registry[base]
-    || registry[VOXCPM_VOICE_ID]
-    || Object.values(registry)[0];
-  let ref_audio = entry?.prompt_wav && fs.existsSync(entry.prompt_wav)
-    ? `file://${entry.prompt_wav}`
+  const base = voiceId || TTS_VOICE_ID;
+  const [key, entry] =
+    (lang && registry[`${base}_${lang}`] && [`${base}_${lang}`, registry[`${base}_${lang}`]])
+    || (registry[base] && [base, registry[base]])
+    || (registry[TTS_VOICE_ID] && [TTS_VOICE_ID, registry[TTS_VOICE_ID]])
+    || Object.entries(registry)[0]
+    || [];
+  let wavPath = entry?.prompt_wav
+    ? (path.isAbsolute(entry.prompt_wav)
+        ? entry.prompt_wav
+        : path.join(REGISTRY_DIR, entry.prompt_wav))
     : null;
-  if (!ref_audio && process.env.VOXCPM_REF_WAV) ref_audio = `file://${process.env.VOXCPM_REF_WAV}`;
-  const ref_text = entry?.prompt_text || process.env.VOXCPM_REF_TEXT || null;
-  return { ref_audio, ref_text };
+  if (wavPath && !fs.existsSync(wavPath)) wavPath = null;
+  if (!wavPath && process.env.TTS_REF_WAV) wavPath = process.env.TTS_REF_WAV;
+  const promptText = entry?.prompt_text || process.env.TTS_REF_TEXT || '';
+  if (!wavPath) return null;
+  return { key: key || '_envref', wavPath, promptText };
+}
+
+// Encode a voice's prompt.wav into engine latents (once per wav content).
+async function latentsFor(key, wavPath) {
+  if (_latentsMem.has(key)) return _latentsMem.get(key);
+  if (_latentPending.has(key)) return _latentPending.get(key);
+  const p = (async () => {
+    const wavBuf = await fsp.readFile(wavPath);
+    const sha = createHash('sha256').update(wavBuf).digest('hex');
+    const cacheFile = path.join(LATENTS_DIR, `${key}.json`);
+    try {
+      const cached = JSON.parse(await fsp.readFile(cacheFile, 'utf-8'));
+      if (cached.sha256 === sha && cached.latents) {
+        _latentsMem.set(key, cached.latents);
+        return cached.latents;
+      }
+    } catch { /* absent or stale — re-encode */ }
+    const res = await fetch(`${TTS_URL}/encode_latents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wav_base64: wavBuf.toString('base64'), wav_format: 'wav' }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`TTS encode_latents error for '${key}': ${res.status} ${errText}`);
+    }
+    const { prompt_latents_base64: latents, sample_rate } = await res.json();
+    await fsp.mkdir(LATENTS_DIR, { recursive: true });
+    await fsp.writeFile(cacheFile, JSON.stringify({
+      voice_id: key, sha256: sha, sample_rate,
+      latents, encoded_at: new Date().toISOString(),
+    }));
+    _latentsMem.set(key, latents);
+    return latents;
+  })().finally(() => _latentPending.delete(key));
+  _latentPending.set(key, p);
+  return p;
 }
 
 export async function listVoices() {
@@ -48,55 +104,47 @@ export async function listVoices() {
   return Object.keys(registry).map((voice_id) => ({ voice_id }));
 }
 
-export async function getDefaultVoice(preferred = VOXCPM_VOICE_ID) {
+export async function getDefaultVoice(preferred = TTS_VOICE_ID) {
   const voices = await listVoices();
   if (!voices.length) return null;
   const prof = voices.find((v) => v.voice_id === preferred);
   return prof ? prof.voice_id : voices[0].voice_id;
 }
 
-// lang selects a per-language reference voice when registered and is included
-// in the request body (`language` field — accepted by the OpenAI speech
-// schema; the deployed VoxCPM2 adapter ignores it, but sending it is harmless
-// and forward-compatible). Conditioning comes from ref_audio + ref_text.
+// lang selects a per-language reference voice when registered. The engine
+// has no `language` parameter — output language is conditioned by the
+// target_text and the chosen voice latents.
 export async function synthesize(text, voiceId, lang = null, opts = {}) {
-  const body = {
-    model: VOXCPM_MODEL,
-    input: text,
-    voice: 'default',
-    response_format: 'wav',
-    stream: false,
-  };
-  const { ref_audio, ref_text } = opts.noRef
-    ? { ref_audio: null, ref_text: null }
-    : refForVoice(voiceId || VOXCPM_VOICE_ID, lang);
-  if (ref_audio) body.ref_audio = ref_audio;
-  if (ref_text) body.ref_text = ref_text;
-  if (lang) body.language = lang;
-  // The backend is Qwen3-TTS — without an explicit accent instruction it
-  // sometimes drifts at clip starts (verified: es text rendered as Italian
-  // "e l'apprendissage"; with the instruction it reads correct Spanish).
-  const LANG_NAME = { en: 'English', ar: 'Arabic', fr: 'French',
-    de: 'German', es: 'Spanish', zh: 'Chinese' };
-  if (lang && lang !== 'en' && LANG_NAME[lang]) {
-    body.instructions = `Speak only in ${LANG_NAME[lang]}.`;
+  const body = { target_text: text, cfg_value: 2.0 };
+  if (!opts.noRef) {
+    const ref = refForVoice(voiceId || TTS_VOICE_ID, lang);
+    if (ref) {
+      const latents = await latentsFor(ref.key, ref.wavPath);
+      // Same latents in both roles: prompt_latents+prompt_text give the
+      // strongest same-voice conditioning; ref_audio covers the
+      // cross-language conditioning path.
+      body.prompt_latents_base64 = latents;
+      body.prompt_text = ref.promptText;
+      body.ref_audio_latents_base64 = latents;
+    }
   }
-
-  const res = await fetch(`${VOXCPM_BASE_URL}/v1/audio/speech`, {
+  const res = await fetch(`${TTS_URL}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error(`VoxCPM error: ${res.status} ${errText}`);
+    throw new Error(`TTS error: ${res.status} ${errText}`);
   }
-  const wav = Buffer.from(await res.arrayBuffer());
-  if (wav.length === 0) throw new Error('VoxCPM returned empty audio');
-  return wav;
+  const chunks = [];
+  for await (const chunk of res.body) chunks.push(Buffer.from(chunk));
+  const pcm = Buffer.concat(chunks);
+  if (pcm.length === 0) throw new Error('TTS returned empty audio');
+  return Buffer.from(pcm16ToWav(pcm, OUTPUT_SR, 1));
 }
 
-// Verified synthesis: VoxCPM2 language selection is implicit and stochastic,
+// Verified synthesis: TTS language selection is implicit and stochastic,
 // so non-English output is Whisper-checked against the expected language and
 // retried. English is verified empirically stable — detection is skipped to
 // avoid the extra latency. `opts.synthesize`/`opts.detect` are injectable for

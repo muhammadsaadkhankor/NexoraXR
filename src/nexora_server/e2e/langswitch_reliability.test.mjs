@@ -43,7 +43,7 @@ const server = spawn(process.execPath, ['server.js'], {
     NXR_UTTERANCE_STUB: '1',
     DATABASE_URL,
     OLLAMA_BASE_URL: 'http://127.0.0.1:9',
-    VOXCPM_BASE_URL: 'http://127.0.0.1:9',
+    TTS_URL: 'http://127.0.0.1:9',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });

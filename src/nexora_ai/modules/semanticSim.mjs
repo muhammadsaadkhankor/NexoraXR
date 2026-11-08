@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PY_SCRIPT = path.join(__dirname, '..', 'scripts', 'e5_similarity.py');
 const PY_BIN = process.env.SEMANTIC_PYTHON
-  || `${process.env.HOME}/anaconda3/envs/voxcpm/bin/python`;
+  || `${process.env.HOME}/anaconda3/envs/tts/bin/python`;
 const TIMEOUT_MS = Number(process.env.SEMANTIC_TIMEOUT_MS) || 300_000;
 
 // Minimum cosine similarity source↔translation. Calibrated 2026-11 on every

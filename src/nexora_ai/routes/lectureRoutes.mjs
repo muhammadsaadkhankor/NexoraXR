@@ -1,11 +1,11 @@
 import express from 'express';
 import fs from 'fs/promises';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { createHash } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { generate as generateOllama } from '../modules/ollamaClient.mjs';
-import { getDefaultVoice, synthesize as synthesizeTTS, synthesizeVerified } from '../modules/voxcpmClient.mjs';
+import { getDefaultVoice, synthesize as synthesizeTTS, synthesizeVerified } from '../modules/ttsClient.mjs';
 import { wavDurationMs } from '../modules/audioUtils.mjs';
 import { execCommand } from '../utils/files.mjs';
 
@@ -424,6 +424,17 @@ async function loadSlideMap(lectureId) {
   }
 }
 
+// Strip a leading course-code prefix from catalog-style course fields —
+// "ELG 5255 — Applied Machine Learning" → "Applied Machine Learning" so the
+// professor says the course name students enrolled in, never the code.
+// Plain names ("Multimedia Computing", "Applied Machine Learning") are
+// untouched: the pattern needs 2-6 consecutive capitals + digits + separator.
+function cleanCourseName(name) {
+  if (!name) return name;
+  const stripped = name.replace(/^[A-Z]{2,6}\s?\d{3,5}[A-Z]?\s*[—–\-:]?\s+/, '').trim();
+  return stripped || name;
+}
+
 export async function loadLectureManifest(lectureId, lang = 'en') {
   const summaryPath = path.join(PROFBRAIN_DIR, lectureId, 'summary.json');
   if (!existsSync(summaryPath)) {
@@ -517,7 +528,7 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
   return {
     lectureId,
     title: summary.title,
-    course: segDoc?.course || null,
+    course: cleanCourseName(segDoc?.course) || null,
     language: lang,
     segments,
   };
@@ -710,7 +721,11 @@ router.get('/lecture/pdf_image/:lectureId', async (req, res) => {
   const outBase = path.join(CACHE_DIR, `${course}_${lectureId}${docKey}_slide${suffix}`);
   const outPng = `${outBase}.png`;
 
-  if (!existsSync(outPng)) {
+  // A cached PNG is only valid while it is newer than the resolved PDF —
+  // swapping the deck must re-render, not serve the old course's slide.
+  const stale = existsSync(outPng)
+    && statSync(outPng).mtimeMs < statSync(pdfPath).mtimeMs;
+  if (!existsSync(outPng) || stale) {
     try {
       await execCommand({
         command: `pdftoppm -png -f ${page} -l ${page} -r 96 -singlefile "${pdfPath}" "${outBase}"`,

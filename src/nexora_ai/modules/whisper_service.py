@@ -1,4 +1,4 @@
-# Persistent Whisper language-detection service. Runs inside the `voxcpm`
+# Persistent Whisper language-detection service. Runs inside the `tts`
 # conda env; loads the model ONCE and answers JSON-line requests on stdin
 # so per-clip detection no longer pays the model-load cost every time.
 #

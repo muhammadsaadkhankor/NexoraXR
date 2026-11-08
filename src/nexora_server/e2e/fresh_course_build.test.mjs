@@ -34,7 +34,7 @@ const server = spawn(process.execPath, ['server.js'], {
   env: {
     ...process.env, PORT: String(PORT), DATABASE_URL,
     // Real services — never inherit stubbed endpoints from a test shell.
-    VOXCPM_BASE_URL: 'http://localhost:8010',
+    TTS_URL: 'http://localhost:8000',
     OLLAMA_BASE_URL: 'http://localhost:11434',
     NXR_DEV_UNAUTH_PROTOCOL: '1',
     NXR_REPAIR_ON_BOOT: '0', // time the build, not the backfill

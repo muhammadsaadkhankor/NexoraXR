@@ -13,7 +13,7 @@
     "db:local": "node scripts/db-local.mjs",
     "db:local:stop": "node scripts/db-local-stop.mjs",
     "start": "node server.js",
-    "dev": "VOXCPM_BASE_URL=http://localhost:8010 nodemon server.js --ext js,mjs --ignore ../profbrain/ --ignore uploads/ --ignore ../nexora_ai/lecture_cache/ --ignore ../nexora_ai/segments/ --ignore .env",
+    "dev": "TTS_URL=http://localhost:8000 nodemon server.js --ext js,mjs --ignore ../profbrain/ --ignore uploads/ --ignore ../nexora_ai/lecture_cache/ --ignore ../nexora_ai/segments/ --ignore .env",
     "test": "node --test db/migrate.test.mjs auth/passwordless.test.mjs auth/delivery.test.mjs protocol/ncipRoom.test.mjs protocol/roomRegistry.test.mjs agent/lecturePlan.test.mjs agent/professorAgent.test.mjs agent/professorMemory.test.mjs agent/userLearningMemory.test.mjs persistence/userMemoryDb.test.mjs courses/pipeline.test.mjs courses/drafts.test.mjs courses/plan.test.mjs courses/generator2.test.mjs courses/generator3.test.mjs courses/generator4.test.mjs",
     "test:e2e": "node --test e2e/privateSocial.test.mjs e2e/agentProgression.test.mjs e2e/agentDynamic.test.mjs e2e/authz.test.mjs --test-timeout=90000",
     "test:pg": "node --test auth/passwordless.pg.test.mjs"

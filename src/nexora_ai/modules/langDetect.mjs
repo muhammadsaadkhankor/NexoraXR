@@ -1,5 +1,5 @@
 // Whisper-based language verification for synthesized TTS audio. Runs the
-// openai-whisper install in the `voxcpm` conda env; detection result is used
+// openai-whisper install in the `tts` conda env; detection result is used
 // ONLY to accept/reject the WAV — it never feeds back into room language.
 //
 // The model is loaded ONCE by a persistent helper process
@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WHISPER_PYTHON =
-  process.env.WHISPER_PYTHON || `${process.env.HOME}/anaconda3/envs/voxcpm/bin/python`;
+  process.env.WHISPER_PYTHON || `${process.env.HOME}/anaconda3/envs/tts/bin/python`;
 const WHISPER_MODEL = process.env.WHISPER_MODEL || 'base';
 const DETECT_TIMEOUT_MS = Number(process.env.WHISPER_DETECT_TIMEOUT_MS) || 90_000;
 const SERVICE_SCRIPT = path.join(

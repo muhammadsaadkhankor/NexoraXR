@@ -6,6 +6,8 @@ node_modules/
 /.run_pids
 /logs/
 /Course_content/
+/stream-tts/
+/tts_voices/.latents/
 
 # Large external / model / audio data — kept locally, hosted separately
 /profbrain/

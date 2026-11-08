@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Starts the dtalk backend (Express, port 3000) and frontend (Vite, port 5173).
+# For the full stack including the TTS engine, use start_all.sh instead.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,6 +9,11 @@ cd "$ROOT_DIR"
 if ! command -v node >/dev/null 2>&1; then
   echo "node is not installed or not on PATH" >&2
   exit 1
+fi
+
+if ! curl -sf -m 2 http://localhost:8000/ready 2>/dev/null | grep -q '"ready": *true'; then
+  echo "Warning: stream-tts engine not ready on :8000 — TTS calls will fail." >&2
+  echo "         Start it with: bash start_all.sh   (or stream-tts/scripts/start_server.sh)" >&2
 fi
 
 if [ ! -f src/nexora_server/.env ]; then

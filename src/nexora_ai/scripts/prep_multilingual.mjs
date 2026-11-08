@@ -3,7 +3,7 @@
 // language switching is instant (the same job the bionic professor
 // does with pre-authored topic packages).
 //
-// Requires: backend (:3000) + vLLM-Omni (:8010) + Ollama (:11434) running.
+// Requires: backend (:3000) + stream-tts (:8000) + Ollama (:11434) running.
 // Usage:  node scripts/prep_multilingual.mjs            (all langs)
 //         PREP_LANGS=ar node scripts/prep_multilingual.mjs
 

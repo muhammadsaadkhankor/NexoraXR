@@ -2,7 +2,7 @@
 # Reads {"pairs": [[source_text, candidate_text], ...]} from stdin and prints
 # a JSON array of cosine similarities to stdout. Model: intfloat/
 # multilingual-e5-small (query:/passage: prefixes required by the model).
-# Run with the conda env that has transformers+torch (e.g. voxcpm env).
+# Run with the conda env that has transformers+torch (e.g. tts env).
 import sys, json, warnings
 
 warnings.filterwarnings('ignore')

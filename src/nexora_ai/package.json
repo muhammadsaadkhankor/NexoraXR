@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "prep:langs": "node scripts/prep_multilingual.mjs",
-    "test": "node --test routes/recap.test.mjs routes/utterance.test.mjs modules/voxcpmClient.test.mjs modules/textLangCheck.test.mjs routes/translateRetry.test.mjs"
+    "test": "node --test routes/recap.test.mjs routes/utterance.test.mjs modules/ttsClient.test.mjs modules/textLangCheck.test.mjs routes/translateRetry.test.mjs"
   },
   "dependencies": {
     "@langchain/openai": "^0.0.12",
