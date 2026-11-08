@@ -34,6 +34,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
   const [lectureMinutes, setLectureMinutes] = useState(10); // narration duration target
   const [planAmbiguous, setPlanAmbiguous] = useState(false);
   const [drafts, setDrafts] = useState(null);
+  const [langTab, setLangTab] = useState('ar'); // active translation tab on the review-translations stage
   const [audioLangs] = useState([...CLASSROOM_LANGUAGE_CODES]);
   const [approveBlocked, setApproveBlocked] = useState(null);
   const [approving, setApproving] = useState(false);
@@ -186,7 +187,15 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
       .then((r) => r.json()).catch(() => null);
     setDrafts((dr?.drafts || []).map((d) => {
       const text = d.segments.map((s) => s.text).join('\n\n');
-      return { ...d, fullText: text, origText: text };
+      // Per-language translation drafts — editable full-text per lang, with
+      // origText so only reviewer changes are persisted on approval.
+      const langTexts = {};
+      for (const [lang, l] of Object.entries(d.langs || {})) {
+        if (lang === 'en') continue;
+        const t = (l.segments || []).map((s) => s.text).join('\n\n');
+        langTexts[lang] = { text: t, orig: t, outdated: l.outdated };
+      }
+      return { ...d, fullText: text, origText: text, langTexts };
     }));
   };
 
@@ -205,6 +214,13 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
     await loadReviewDrafts(cid);
     setStage('review');
     const outcome = await pollUntilGate(cid);
+    if (outcome === 'translations') {
+      await loadReviewDrafts(cid);
+      setLangTab('ar');
+      setStage('review-translations');
+      setStatus(null);
+      return true;
+    }
     if (outcome === 'ready') {
       // Find the classroom this course belongs to (room wasn't in memory
       // after a refresh) and go straight in.
@@ -253,12 +269,11 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
     r.readAsDataURL(file);
   });
 
-  // Approve Scripts and Generate Audio — saves the reviewed English text,
-  // then atomically starts the audio stage: the server translates the
-  // approved scripts into every supported language and bakes TTS for all
-  // lectures. A second click while running is rejected; a failure keeps
-  // scripts + baked audio and retries only the missing work.
-  const approveAudio = async () => {
+  // Step 1 — Approve Scripts & Translate: persists the reviewed English
+  // drafts, then flips the build to the translation stage. The server
+  // translates every supported language and parks at the translations
+  // review gate — audio is a SEPARATE approval step.
+  const approveScriptsAndTranslate = async () => {
     const ctx = reviewRef.current;
     if (!ctx || approving) return;
     setApproving(true);
@@ -279,6 +294,68 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
         });
         const pd = await pr.json().catch(() => ({}));
         if (!pr.ok) throw new Error(pd.error || 'Failed to save reviewed scripts');
+      }
+      const ar = await fetch(`${API_URL}/api/courses/${ctx.courseId}/approve-scripts`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const ad = await ar.json().catch(() => ({}));
+      if (!ar.ok) throw new Error(ad.error || 'Failed to start translation');
+      setStatus('Translating scripts · AR · FR · DE · ES · ZH…');
+      const outcome = await pollUntilGate(ctx.courseId);
+      if (outcome === 'translations') {
+        await loadReviewDrafts(ctx.courseId);
+        setLangTab('ar');
+        setStage('review-translations');
+        setStatus(null);
+        return;
+      }
+      if (outcome === 'ready') {
+        ctx.room.generatedLectureId = ctx.firstLecture || null;
+        onCreated(ctx.room);
+        return;
+      }
+      if (outcome !== 'failed') {
+        await loadReviewDrafts(ctx.courseId);
+        setError((prev) => prev || 'Translation did not complete. Review the scripts and approve again.');
+        setStatus(null);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  // Step 2 — Generate Audio: persists edited translation drafts, then
+  // atomically starts the audio stage — TTS bakes for ALL languages. A
+  // second click while running is rejected; a failure keeps scripts +
+  // baked audio and retries only the missing work.
+  const approveAudio = async () => {
+    const ctx = reviewRef.current;
+    if (!ctx || approving) return;
+    setApproving(true);
+    setError(null);
+    try {
+      // Persist only the translation drafts the reviewer changed — same
+      // PUT endpoint with {lang, fullText}; unchanged texts are skipped.
+      const edited = [];
+      for (const d of drafts || []) {
+        for (const [lang, lt] of Object.entries(d.langTexts || {})) {
+          if (lt.text !== lt.orig) {
+            edited.push({ lectureId: d.lectureId, lang, fullText: lt.text });
+          }
+        }
+      }
+      if (edited.length) {
+        const pr = await fetch(`${API_URL}/api/courses/${ctx.courseId}/drafts`, {
+          method: 'PUT', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lectures: edited }),
+        });
+        const pd = await pr.json().catch(() => ({}));
+        if (!pr.ok) throw new Error(pd.error || 'Failed to save reviewed translations');
       }
       const ar = await fetch(`${API_URL}/api/courses/${ctx.courseId}/approve-audio`, {
         method: 'POST', credentials: 'include',
@@ -324,6 +401,11 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
 
   const updateDraftText = (li, text) => {
     setDrafts((ds) => ds.map((d, i) => i !== li ? d : { ...d, fullText: text }));
+  };
+  const updateLangDraftText = (li, lang, text) => {
+    setDrafts((ds) => ds.map((d, i) => i !== li ? d : {
+      ...d, langTexts: { ...d.langTexts, [lang]: { ...d.langTexts?.[lang], text } },
+    }));
   };
 
   // POST build → scripts → review. `plan` may be null → server derives the
@@ -574,8 +656,8 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
               <label style={{ fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 6 }}>
                 Minutes per lecture
                 <input
-                  type="number" min={5} max={15} value={lectureMinutes}
-                  onChange={(e) => setLectureMinutes(Math.min(15, Math.max(5, +e.target.value || 10)))}
+                  type="number" min={5} max={30} value={lectureMinutes}
+                  onChange={(e) => setLectureMinutes(Math.min(30, Math.max(5, +e.target.value || 10)))}
                   style={{ width: 52, background: '#0f172a', border: '1px solid #334155', borderRadius: 6,
                     color: '#e2e8f0', padding: '3px 6px', fontSize: 12 }}
                 />
@@ -592,9 +674,9 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
           <div className="ccmodal__review">
             <p className="ccmodal__review-hint">
               Review each lecture's script: edit freely, or paste an improved
-              version (e.g. from ChatGPT). One click approves the scripts,
-              translates them into AR · FR · DE · ES · ZH, and generates
-              narrated audio in all six languages for every lecture.
+              version (e.g. from ChatGPT). Approving translates them into
+              AR · FR · DE · ES · ZH — you review the translations next,
+              then generate audio for all six languages.
             </p>
             <div className="ccmodal__review-list">
               {(drafts || []).map((d, li) => (
@@ -691,6 +773,75 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                 type="button"
                 className="btn btn-primary"
                 disabled={approving || processing}
+                onClick={approveScriptsAndTranslate}
+              >
+                {processing
+                  ? `Translating…${buildState?.progress ? ` (${buildState.progress})` : ''}`
+                  : approving
+                    ? (status || 'Translating…')
+                    : `Approve Scripts & Translate (AR · FR · DE · ES · ZH)`}
+              </button>
+            </div>
+          </div>
+        ) : stage === 'review-translations' ? (
+          /* ---- Translation review — per-language editable drafts, then
+             a single click generates audio for ALL languages ---- */
+          <div className="ccmodal__review">
+            <p className="ccmodal__review-hint">
+              English scripts approved — translations are saved in the course
+              JSON. Review each language below, fix anything that looks off,
+              then generate narrated audio for all six languages.
+            </p>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '4px 0 10px' }}>
+              {['ar', 'fr', 'de', 'es', 'zh'].map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLangTab(l)}
+                  className={`btn btn-sm ${langTab === l ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ textTransform: 'uppercase', fontSize: 11 }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+            <div className="ccmodal__review-list">
+              {(drafts || []).map((d, li) => {
+                const lt = d.langTexts?.[langTab] || { text: '' };
+                return (
+                  <div key={d.lectureId} className="ccmodal__review-lec">
+                    <div className="ccmodal__review-lechead">
+                      <strong>{d.title || `Lecture ${li + 1}`}</strong>
+                      <span className="ccmodal__review-count">
+                        {langTab.toUpperCase()}{lt.outdated ? ' · outdated — regenerated at approval' : ''}
+                      </span>
+                    </div>
+                    <textarea
+                      className="ccmodal__review-full"
+                      rows={10}
+                      value={lt.text}
+                      onChange={(e) => updateLangDraftText(li, langTab, e.target.value)}
+                      spellCheck={false}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {approveBlocked?.list?.length ? (
+              <div className="ccmodal__error" style={{ textAlign: 'left' }}>
+                <p style={{ margin: '0 0 4px' }}>Approval blocked:</p>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {approveBlocked.list.slice(0, 6).map((b, i) => <li key={i}>{b}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            {error && <p className="ccmodal__error">{error}</p>}
+            <div className="ccmodal__actions">
+              <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={approving || processing}
                 onClick={approveAudio}
               >
                 {processing
@@ -701,7 +852,7 @@ export default function CreateClassroomModal({ onClose, onCreated }) {
                       ? 'Retry Missing Audio'
                       : approveBlocked?.uncertain
                         ? 'Confirm flagged alignments and Generate Audio'
-                        : `Approve Scripts and Generate Audio (${audioLangs.join(', ').toUpperCase()})`}
+                        : `Generate Audio (${audioLangs.join(', ').toUpperCase()})`}
               </button>
             </div>
           </div>

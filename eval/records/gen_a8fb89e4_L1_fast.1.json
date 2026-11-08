@@ -1,0 +1,239 @@
+{
+  "at": "2026-11-08T06:57:49.320Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "2443e37931d45e673658830003b448421e58a3a4fd174cd2df883046dacb3674",
+  "courseId": "a8fb89e4-2829-4b3a-85ec-baeaf00a3848",
+  "lecture": "MSensing auction",
+  "wordCount": 689,
+  "estimatedMinutes": 9.569444444444445,
+  "llmCalls": 15,
+  "llmUsage": {
+    "promptTokens": 8706,
+    "genTokens": 3957,
+    "loadDurationMs": 31544,
+    "promptEvalMs": 2659,
+    "evalMs": 128194,
+    "totalMs": 162781
+  },
+  "promptChars": 32159,
+  "approxPromptTokens": 9188,
+  "revisionCycles": null,
+  "elapsedMs": 175362,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "core concept \"MSensing auction\" has <30 words — named, not explained",
+      "core concept \"Trustworthy Sensing for Crowd Management A\" has <30 words — named, not explained",
+      "core concept \"Trustworthy Sensing for Crowd Management |\" has <30 words — named, not explained",
+      "core concept \"joe]\" has <30 words — named, not explained",
+      "core concept \"Trustworthy Sensing for Crowd Management l=\" has <30 words — named, not explained",
+      "core concept \"Trustworthy Sensing for Crowd Management ul\" has <30 words — named, not explained",
+      "core concept \"Trustworthy Sensing for Crowd Management ul\" has <30 words — named, not explained",
+      "repetition across 6 segments",
+      "instructional coverage 17% — no narration on: \"MSensing auction\" p.3, \"Trustworthy Sensing for Crowd Management il\" p.6, \"Trustworthy Sensing for Crowd Management\" p.7, \"Trustworthy Sensing for Crowd Management A\" p.8, \"joe]\" p.9 (+10 more)"
+    ],
+    "warnings": [
+      "segment -1: page 2 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 3 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 4 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 5 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 6 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 7 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 8 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 9 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 10 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 11 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "segment -1: page 12 → 1 (outside Week-4MobileCrowdsensing.pdf p.1–1)",
+      "undershoot: 689w vs ~1300w target (informational)",
+      "full topic coverage needs ~13 min; target is 10 — omitted: Trustworthy Sensing for Crowd Management |; joe]; joe]; Trustworthy Sensing for Crowd Management l=; Trustworthy Sensing for Crowd Management ul; Trustworthy Sensing for Crowd Management ul; uOttawa; Decentralized Management of User Lu; joe]; Decentralized Management of User yy; Decentralized Management of User yy; Decentralized Management of User"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "MSensing auction",
+    "objective": "MSensing auction",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "MSensing auction",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"MSensing auction\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "MSensing auction",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"MSensing auction\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "Trustworthy Sensing for Crowd Management il",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management il\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Trustworthy Sensing for Crowd Management",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "Trustworthy Sensing for Crowd Management A",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management A\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c6",
+        "title": "joe]",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"joe]\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c7",
+        "title": "Trustworthy Sensing for Crowd Management |",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management |\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c8",
+        "title": "joe]",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"joe]\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c9",
+        "title": "joe]",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"joe]\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c10",
+        "title": "Trustworthy Sensing for Crowd Management l=",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management l=\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c11",
+        "title": "Trustworthy Sensing for Crowd Management ul",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management ul\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c12",
+        "title": "Trustworthy Sensing for Crowd Management ul",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Trustworthy Sensing for Crowd Management ul\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-4MobileCrowdsensing.pdf"
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Trustworthy Sensing for Crowd Management |",
+      "joe]",
+      "joe]",
+      "Trustworthy Sensing for Crowd Management l=",
+      "Trustworthy Sensing for Crowd Management ul",
+      "Trustworthy Sensing for Crowd Management ul",
+      "uOttawa",
+      "Decentralized Management of User Lu",
+      "joe]",
+      "Decentralized Management of User yy",
+      "Decentralized Management of User yy",
+      "Decentralized Management of User"
+    ],
+    "degraded": true,
+    "recommendedMinutes": 13
+  },
+  "provenance": {
+    "total": 15,
+    "withDoc": 15,
+    "withPage": 15
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 6
+}

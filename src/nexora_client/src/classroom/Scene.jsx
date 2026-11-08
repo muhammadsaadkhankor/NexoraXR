@@ -176,7 +176,7 @@ function ClassroomPanel({
       )}
 
       <div className='fixed inset-x-0 top-0 z-50'>
-        <div className='flex w-full items-center gap-1 overflow-x-auto border-b border-slate-700/50 bg-slate-900/85 px-1.5 py-1 text-white shadow-2xl backdrop-blur sm:px-3'>
+        <div className='flex w-full items-center gap-1 border-b border-slate-700/50 bg-slate-900/85 px-1.5 py-1 text-white shadow-2xl backdrop-blur sm:px-3'>
 
           {/* Brand + current class — navbar left side. */}
           <div className='mr-auto flex items-center gap-2 pr-3'>

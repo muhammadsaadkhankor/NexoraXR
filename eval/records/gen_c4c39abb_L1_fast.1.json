@@ -1,0 +1,79 @@
+{
+  "at": "2026-11-08T06:47:08.777Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "c333d098fc40e97f480acc12d4da305a0c6ad678aee6bc1d41f3660b056333d9",
+  "courseId": "c4c39abb-3be1-4b8e-9cce-8f9a799753b5",
+  "lecture": "uOttawa",
+  "wordCount": 585,
+  "estimatedMinutes": 8.125,
+  "llmCalls": 5,
+  "llmUsage": {
+    "promptTokens": 2706,
+    "genTokens": 1692,
+    "loadDurationMs": 12834,
+    "promptEvalMs": 1018,
+    "evalMs": 40023,
+    "totalMs": 53923
+  },
+  "promptChars": 11802,
+  "approxPromptTokens": 3372,
+  "revisionCycles": null,
+  "elapsedMs": 61013,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "instructional coverage 20% — no narration on: \"uOttawa\" p.1, \"Mobile Crowdsensing / Sensing as a Service —\" p.2, \"bil dsensing: le> fm\" p.3, \"Mobile Crowdsensing: What do non-dedicated i\" p.5, \"Detection instead of estimation —-\" p.9 (+7 more)"
+    ],
+    "warnings": [
+      "segment -1: page 5 → 7 (outside Week-3MobileCrowdsensing.pdf p.7–7)",
+      "segment -1: document \"Week-3MobileCrowdssensing.pdf\" clamped to \"Week-3MobileCrowdsensing.pdf\"",
+      "segment -1: page 9 → 7 (outside Week-3MobileCrowdsensing.pdf p.7–7)",
+      "undershoot: 585w vs ~1300w target (informational)",
+      "topics omitted from narration: Discussion oe; Crowdsensing system model — Platform Centric -; Crowdsensing system model- User Centric J; Crowdsensing system Requirements |; Local Search-based (LSB) auction; Local Search-based (LSB) auction ="
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Understand the core principles and challenges of mobile crowdsensing and its connection to sensing fundamentals.",
+    "objective": "Understand the core principles and challenges of mobile crowdsensing and its connection to sensing fundamentals.",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Connection to Sensing Fundamentals",
+        "role": "core",
+        "budget": 1200,
+        "teachingObjective": "Mobile crowdsensing builds on fundamental sensing techniques like averaging and weighted least squares.",
+        "examples": [
+          "Mobile crowdsensing is linked to fundamental sensing techniques like averaging and weighted least squares."
+        ],
+        "sources": [
+          {
+            "filename": "Week-3MobileCrowdsensing.pdf",
+            "pageStart": 7,
+            "pageEnd": 7
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Group Work Re",
+      "Discussion oe",
+      "Crowdsensing system model — Platform Centric -",
+      "Crowdsensing system model- User Centric J",
+      "Crowdsensing system Requirements |",
+      "Local Search-based (LSB) auction",
+      "Local Search-based (LSB) auction ="
+    ],
+    "degraded": false,
+    "recommendedMinutes": 2
+  },
+  "provenance": {
+    "total": 4,
+    "withDoc": 4,
+    "withPage": 4
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 1
+}

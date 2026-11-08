@@ -1,0 +1,242 @@
+{
+  "at": "2026-11-08T07:03:33.973Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "d3a40995801d986d6118d2a4c036d729d87f20722fb566f3285cddd57312257a",
+  "courseId": "4e58f715-e090-42e0-ac3a-cf6e3cdcf94b",
+  "lecture": "uOttawa",
+  "wordCount": 1337,
+  "estimatedMinutes": 18.569444444444443,
+  "llmCalls": 8,
+  "llmUsage": {
+    "promptTokens": 5747,
+    "genTokens": 4353,
+    "loadDurationMs": 15732,
+    "promptEvalMs": 1495,
+    "evalMs": 114370,
+    "totalMs": 132037
+  },
+  "promptChars": 20679,
+  "approxPromptTokens": 5908,
+  "revisionCycles": null,
+  "elapsedMs": 141994,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "core concept \"uOttawa\" has <30 words — named, not explained",
+      "instructional coverage 11% — no narration on: \"0000 Smart Connected Vehicles —\" p.5, \"Sources\" p.6, \"jung\" p.7, \"Topics to be covered SE\" p.8, \"Topics to be covered (Cont'd)\" p.9 (+20 more)"
+    ],
+    "warnings": [
+      "segment -1: page 2 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 3 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 4 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 5 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 6 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 7 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 8 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 9 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 10 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 11 → 1 (outside Week-1_.pdf p.1–1)",
+      "segment -1: page 12 → 1 (outside Week-1_.pdf p.1–1)",
+      "length note: 1337 words (reference band 576–720 — informational only)",
+      "topics omitted from narration: Topics to be covered (Cont'd); Self-introduction EE; Smart Cities; Al as a native component of B5G / 6G networks [; Mathematical foundations im; Sensors as Random Variables -; Noise models -; Noise models -; Noise models -; Noise models aT; Noise models aT; Noise models os; Bayesian Inference Fundamentals on; Bayesian Inference Fundamentals Re; Bayesian Inf Fund; Multi-sensor Fusion ‘Ih; Multi-sensor Fusion -; Multi-sensor Fusion a -; Multi-sensor Fusion Re; Multi-sensor Fusion —; Multi-sensor Fusion; Sensing and Maximum Likelihood Estimation oe"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "uOttawa",
+    "objective": "uOttawa",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "uOttawa",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"uOttawa\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "uOttawa",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"uOttawa\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "0000 Smart Connected Vehicles —",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"0000 Smart Connected Vehicles —\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": "Sources",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Sources\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "jung",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"jung\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c6",
+        "title": "Topics to be covered SE",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Topics to be covered SE\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c7",
+        "title": "Topics to be covered (Cont'd)",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Topics to be covered (Cont'd)\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c8",
+        "title": "Self-introduction EE",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Self-introduction EE\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c9",
+        "title": "Smart Cities",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Smart Cities\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c10",
+        "title": "Al as a native component of B5G / 6G networks [",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Al as a native component of B5G / 6G networks [\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c11",
+        "title": "Mathematical foundations im",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Mathematical foundations im\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c12",
+        "title": "Sensors as Random Variables -",
+        "role": "core",
+        "budget": 133,
+        "teachingObjective": "Source section \"Sensors as Random Variables -\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "Week-1_.pdf"
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Topics to be covered (Cont'd)",
+      "Self-introduction EE",
+      "Smart Cities",
+      "Al as a native component of B5G / 6G networks [",
+      "Mathematical foundations im",
+      "Sensors as Random Variables -",
+      "Noise models -",
+      "Noise models -",
+      "Noise models -",
+      "Noise models aT",
+      "Noise models aT",
+      "Noise models os",
+      "Bayesian Inference Fundamentals on",
+      "Bayesian Inference Fundamentals Re",
+      "Bayesian Inf Fund",
+      "Multi-sensor Fusion ‘Ih",
+      "Multi-sensor Fusion -",
+      "Multi-sensor Fusion a -",
+      "Multi-sensor Fusion Re",
+      "Multi-sensor Fusion —",
+      "Multi-sensor Fusion",
+      "Sensing and Maximum Likelihood Estimation oe"
+    ],
+    "degraded": true,
+    "recommendedMinutes": 13
+  },
+  "provenance": {
+    "total": 14,
+    "withDoc": 14,
+    "withPage": 14
+  },
+  "adminLeakSegments": 3,
+  "repetitionFindings": 2
+}

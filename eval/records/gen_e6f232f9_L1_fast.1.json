@@ -1,0 +1,255 @@
+{
+  "at": "2026-11-08T06:32:01.431Z",
+  "generatorVersion": "fast.1",
+  "promptVersion": "fast-2call-2026-10-26",
+  "model": "qwen3:8b",
+  "docSha256": "9fc7b62e71ea874a0dd6e1e962750d4f5f08509525b71f81a914ebab3f55111e",
+  "courseId": "e6f232f9-8374-47a5-b56a-28a11a5b3120",
+  "lecture": "Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",
+  "wordCount": 925,
+  "estimatedMinutes": 12.847222222222221,
+  "llmCalls": 14,
+  "llmUsage": {
+    "promptTokens": 8858,
+    "genTokens": 3603,
+    "loadDurationMs": 243571,
+    "promptEvalMs": 4009,
+    "evalMs": 83134,
+    "totalMs": 330784
+  },
+  "promptChars": 41171,
+  "approxPromptTokens": 11763,
+  "revisionCycles": null,
+  "elapsedMs": 2141600,
+  "validation": {
+    "ok": false,
+    "problems": [
+      "core concept \"Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1\" has <30 words — named, not explained",
+      "core concept \", a n ) |  a i      {0,1}} Let  a=(a 1 , a 2 , ...\" has <30 words — named, not explained",
+      "core concept \"a a = a + ...\" has <30 words — named, not explained",
+      "core concept \"distributivity  [14] :   X • Y + X • Y'   =   X • (Y + Y') 2.\" has <30 words — named, not explained",
+      "core concept \"CEG 2136 Computer Architecture I a + b =  a   .\" has <30 words — named, not explained",
+      "repetition across 4 segments",
+      "instructional coverage 17% — no narration on: \"Page 2\" p.2, \"truth tables,  2.\" p.3, \"a a = a + ...\" p.6, \"distributivity  [14] :   X • Y + X • Y'   =   X • (Y + Y') 2.\" p.7, \"Page 8\" p.8 (+25 more)"
+    ],
+    "warnings": [
+      "segment -1: page 2 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 3 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 4 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 5 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 6 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 7 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 8 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 9 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 10 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 11 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "segment -1: page 12 → 1 (outside CEG2136_1LogicCirc-Part_1.pdf p.1–1)",
+      "length note: 925 words (reference band 576–720 — informational only)",
+      "full topic coverage needs ~13 min; target is 10 — omitted: Page 8; CEG 2136 Computer Architecture I AND   rules (identities)   0 .; Z =  (X+Y)  .; CEG 2136 Computer Architecture I a + b =  a   .; Page 12; Page 13; Page 14; CEG 2136 Computer Architecture I A B C A B C A B C A  .; ▪   Karnaugh map   => graphical representation of  a truth table of a logic function.; CEG 2136 Computer Architecture I A  B   C    D    F ( 0 )      0    0    0    0   ...; ◼ Manual procedures: 1.; C F A  .; Page 20; Page 21; Page 22; There  is no such RPI in this example.; CEG 2136 Computer Architecture I ◼ K - map “rules” 1.; Find the PI set of the function F 2.; 3) Remove all EPIs and the 1 - cells they cover.; (any power of 2) 1’s ( )  = 7 , 5 , 3 , 2 F; Page 28; more looping F = BD + BD + ...; Page 30; CEG 2136 Computer Architecture I A B A+B A  .; Page 32; EPI* AD dc   →   x =  don’t care ...; ➔   There are 2 minimum  SoP’s : 34; F   can be represented by  •   logic expression •   truth table  •   K - map   z; Define   the   problem 2 .; Page 37"
+    ]
+  },
+  "criticFindings": [],
+  "plan": {
+    "subject": "Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",
+    "objective": "Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",
+    "blocks": [
+      {
+        "id": "c1",
+        "title": "Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Computer  Architecture I CEG2136 1:  Digital Logic Circuits   Review  - Part 1\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c2",
+        "title": "Page 2",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Page 2\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c3",
+        "title": "truth tables,  2.",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"truth tables,  2.\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c4",
+        "title": ", a n ) |  a i      {0,1}} Let  a=(a 1 , a 2 , ...",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \", a n ) |  a i      {0,1}} Let  a=(a 1 , a 2 , ...\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c5",
+        "title": "a a = a + ...",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"a a = a + ...\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c6",
+        "title": "distributivity  [14] :   X • Y + X • Y'   =   X • (Y + Y') 2.",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"distributivity  [14] :   X • Y + X • Y'   =   X • (Y + Y') 2.\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c7",
+        "title": "Page 8",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Page 8\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c8",
+        "title": "CEG 2136 Computer Architecture I AND   rules (identities)   0 .",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"CEG 2136 Computer Architecture I AND   rules (identities)   0 .\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c9",
+        "title": "Z =  (X+Y)  .",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Z =  (X+Y)  .\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c10",
+        "title": "CEG 2136 Computer Architecture I a + b =  a   .",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"CEG 2136 Computer Architecture I a + b =  a   .\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c11",
+        "title": "Page 12",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Page 12\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      },
+      {
+        "id": "c12",
+        "title": "Page 13",
+        "role": "core",
+        "budget": 100,
+        "teachingObjective": "Source section \"Page 13\"",
+        "examples": [],
+        "sources": [
+          {
+            "filename": "CEG2136_1LogicCirc-Part_1.pdf"
+          }
+        ]
+      }
+    ],
+    "omitted": [
+      "Page 8",
+      "CEG 2136 Computer Architecture I AND   rules (identities)   0 .",
+      "Z =  (X+Y)  .",
+      "CEG 2136 Computer Architecture I a + b =  a   .",
+      "Page 12",
+      "Page 13",
+      "Page 14",
+      "CEG 2136 Computer Architecture I A B C A B C A B C A  .",
+      "▪   Karnaugh map   => graphical representation of  a truth table of a logic function.",
+      "CEG 2136 Computer Architecture I A  B   C    D    F ( 0 )      0    0    0    0   ...",
+      "◼ Manual procedures: 1.",
+      "C F A  .",
+      "Page 20",
+      "Page 21",
+      "Page 22",
+      "There  is no such RPI in this example.",
+      "CEG 2136 Computer Architecture I ◼ K - map “rules” 1.",
+      "Find the PI set of the function F 2.",
+      "3) Remove all EPIs and the 1 - cells they cover.",
+      "(any power of 2) 1’s ( )  = 7 , 5 , 3 , 2 F",
+      "Page 28",
+      "more looping F = BD + BD + ...",
+      "Page 30",
+      "CEG 2136 Computer Architecture I A B A+B A  .",
+      "Page 32",
+      "EPI* AD dc   →   x =  don’t care ...",
+      "➔   There are 2 minimum  SoP’s : 34",
+      "F   can be represented by  •   logic expression •   truth table  •   K - map   z",
+      "Define   the   problem 2 .",
+      "Page 37"
+    ],
+    "degraded": true,
+    "recommendedMinutes": 13
+  },
+  "provenance": {
+    "total": 14,
+    "withDoc": 14,
+    "withPage": 14
+  },
+  "adminLeakSegments": 0,
+  "repetitionFindings": 4
+}

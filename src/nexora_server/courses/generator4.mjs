@@ -25,6 +25,12 @@ import {
 import { isAdminTopic } from './admin.mjs';
 
 export const GENERATOR_VERSION = 'fast.1';
+// Paraphrase-duplication floor — e5 cosine at which two segments on the SAME
+// concept are considered redundant restatements rather than explain/example
+// pairs. Deliberately high: 0.85 keeps "concept + worked example" pairs
+// (semantically related but materially different) while catching the
+// paired-restatement failure observed in generated drafts.
+export const SEMANTIC_DUP_MIN = Number(process.env.GEN_DUP_SIM_MIN) || 0.85;
 export const PROMPT_VERSION = 'fast-2call-2026-10-26';
 
 // Planning word budget — PLAN_WPM is the words the script should contain
@@ -32,15 +38,16 @@ export const PROMPT_VERSION = 'fast-2call-2026-10-26';
 // stays 72 for AUDIO-duration estimates (measured VoxCPM rate) — the two are
 // deliberately different: script length drives teaching depth, not playback
 // clock time, which the user reviews before baking audio.
-const FAST_MINUTES = Math.min(15, Math.max(5, Number(process.env.COURSE_FAST_MINUTES || TARGET_MINUTES)));
+const FAST_MINUTES = Math.min(30, Math.max(5, Number(process.env.COURSE_FAST_MINUTES || TARGET_MINUTES)));
 const PLAN_WPM = Math.min(160, Math.max(80, Number(process.env.COURSE_PLAN_WPM || 130)));
-// Pre-TTS draft gate (drafts.mjs: validateDraftScript) rejects scripts over
-// 1500 words — never budget beyond this ceiling or generated drafts can't
-// be approved/baked. 1450 leaves margin for reviewer edits.
-const SCRIPT_WORD_CEILING = Number(process.env.COURSE_SCRIPT_WORD_CEILING || 1450);
+// Absolute safety bound only — the minutes field is a FLOOR, and the plan's
+// recommendedMinutes can raise the real target to fit the topic inventory.
+// (The old drafts.mjs word gate no longer exists; this just protects the
+// model's output context.)
+const SCRIPT_WORD_CEILING = Number(process.env.COURSE_SCRIPT_WORD_CEILING || 4000);
 const targetWordsFor = (minutes) =>
   Math.min(SCRIPT_WORD_CEILING, Math.round(minutes * PLAN_WPM));
-const MAX_TOKENS = Number(process.env.COURSE_FAST_MAXTOK || 6000);
+const MAX_TOKENS = Number(process.env.COURSE_FAST_MAXTOK || 12000);
 const MAX_EVIDENCE_CHARS = Number(process.env.COURSE_FAST_EVIDENCE || 24000);
 // Minimum narration a concept deserves — high importance needs a worked
 // explanation, medium a solid paragraph. Drives the recommendedMinutes
@@ -101,6 +108,23 @@ export function validatePlan(raw, corpus) {
       && (files.has(c.source) || corpus.teaching.some((s) => normalizeText(s.title) === normalizeText(c.title))));
   if (!raw || typeof raw.objective !== 'string' || !concepts.length) {
     return { ok: false, reason: 'missing objective or no valid concepts' };
+  }
+  // Coverage gate — the planner must not silently drop substantive topics.
+  // A teaching section counts as covered when some concept claims the same
+  // file AND overlapping pages (title match is a fallback). If the plan
+  // leaves most of the deck untouched, reject it with the missing names —
+  // the retry prompt feeds this reason back so the next attempt includes them.
+  const srcOf = (c) => files.has(c.source) ? c.source
+    : corpus.teaching.find((s) => normalizeText(s.title) === normalizeText(c.title))?.filename;
+  const covered = (s) => concepts.some((c) => srcOf(c) === s.filename
+    && num(c.pageEnd, 0) >= (s.pageStart ?? 0) && num(c.pageStart, 0) <= (s.pageEnd ?? s.pageStart ?? 0));
+  const uncovered = corpus.teaching.filter((s) => !isAdminTopic(s.title) && !covered(s));
+  const maxDropped = Math.max(2, Math.floor(corpus.teaching.length / 3));
+  if (uncovered.length > maxDropped) {
+    return { ok: false, reason:
+      `plan drops ${uncovered.length} teaching topics — must include: ` +
+      uncovered.slice(0, 4).map((s) => `"${s.title}"`).join(', ') +
+      (uncovered.length > 4 ? ` (+${uncovered.length - 4} more)` : '') };
   }
   return { ok: true, plan: {
     objective: raw.objective.trim(),
@@ -169,6 +193,19 @@ export function narrationPrompt(outlineEntry, plan, corpus, fix = '', opts = {})
       `"x superscript i", "sum over n", "the derivative of J with respect to w") — ` +
       `never output raw symbols like f(x), w₀, J(w₁), ∂, or ∑ alone. ` +
       `– Connect concepts: each new idea should clearly follow from the previous one (brief natural transitions, no robotic "now let's discuss"). ` +
+      `– PROGRESSIVE TEACHING: each segment must teach something the earlier ` +
+      `segments did NOT — a new concept, mechanism, worked example, or ` +
+      `application. Never paraphrase, recap, or restate an earlier point in ` +
+      `different words — two segments on the same idea is a failure. ` +
+      `– WORKED EXAMPLES: when the evidence contains a concrete example, ` +
+      `theorem, or procedure, demonstrate it — walk through the steps in ` +
+      `words (e.g. simplify F = AB + AB' to A step by step, or apply De ` +
+      `Morgan's theorem to a specific expression). A segment that only ` +
+      `describes a concept abstractly when the source shows an example ` +
+      `is a failure. ` +
+      `– COVER THE EVIDENCE: name the specific definitions, theorems, ` +
+      `forms, and procedures the evidence introduces — do not produce a ` +
+      `generic overview that skips the material the slides actually teach. ` +
       `– No repeated definitions, no restating the same idea in different words. ` +
       `– NO filler: never write "an example illustrates…", "this concept is important…", "these components work together…" without actual explanation. ` +
       `– No course logistics (grading, schedule, contacts), no greetings. ` +
@@ -238,6 +275,18 @@ export function validateFast(parsed, allowedDocs, plan, opts = {}) {
   }
   const filler = detectFiller(parsed.segments);
   if (filler.length) problems.push(`${filler.length} filler segment(s) (e.g. segment ${filler[0].segment})`);
+
+  // Concept-count floor — the plan picked N concepts; the narration must
+  // deliver at least one real segment per concept (intro/recap excluded).
+  // A 4-segment lecture for a 7-concept deck is a skipped-topics failure,
+  // not a stylistic choice.
+  const contentSegs = parsed.segments.filter((s) =>
+    s.blockId !== '__intro' && s.blockId !== '__recap');
+  const minSegs = Math.ceil((plan.concepts?.length || 0) * 0.75);
+  if (plan.concepts?.length && contentSegs.length < minSegs) {
+    problems.push(`only ${contentSegs.length} content segment(s) for ` +
+      `${plan.concepts.length} planned concepts — concepts were skipped, not merged`);
+  }
 
   // Independent coverage check against the ORIGINAL instructional inventory —
   // a teaching section (non-admin) with no narration page inside its range was
@@ -377,8 +426,8 @@ export function assignConcepts(parsed, plan) {
 export async function generateLectureFast(courseId, outlineEntry, deps = {}, opts = {}) {
   // Narration duration target — per-call option (instructor build setting)
   // overrides env defaults. 5–15 min band.
-  const minutes = Math.min(15, Math.max(5, Number(opts.minutes ?? deps.minutes ?? FAST_MINUTES)));
-  const targetWords = targetWordsFor(minutes);
+  const minutes = Math.min(30, Math.max(5, Number(opts.minutes ?? deps.minutes ?? FAST_MINUTES)));
+  let targetWords = targetWordsFor(minutes);
   const meta = {
     minutes, targetWords,
     generator: GENERATOR_VERSION, promptVersion: PROMPT_VERSION,
@@ -437,8 +486,13 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
   const neededWords = 120 + plan.concepts.reduce((n, c) =>
     n + (c.importance === 'medium' ? MIN_WORDS_PER_CONCEPT.medium : MIN_WORDS_PER_CONCEPT.high), 0);
   plan.recommendedMinutes = Math.ceil(neededWords / PLAN_WPM);
-  if (plan.recommendedMinutes > minutes) {
-    console.warn(`[fast] lecture ${outlineEntry.idx}: ${plan.concepts.length} concepts need ~${plan.recommendedMinutes} min, target ${minutes} — reviewer sees coverage warning`);
+  // Coverage-driven duration — the requested minutes are a floor, not a
+  // bound: when the topic inventory needs more narration, the target
+  // expands to fit (capped at 30 min for context sanity).
+  const effMinutes = Math.min(30, Math.max(minutes, plan.recommendedMinutes || 0));
+  if (effMinutes > minutes) {
+    targetWords = targetWordsFor(effMinutes);
+    console.log(`[fast] lecture ${outlineEntry.idx}: ${plan.concepts.length} concepts need ~${plan.recommendedMinutes} min — expanding target beyond requested ${minutes} min`);
   }
 
   // Shape concepts into plan.blocks (shared V3 contract for gates/repairs).
@@ -461,7 +515,7 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
   for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
     const { sys, usr } = narrationPrompt(outlineEntry, plan, corpus,
       attempt ? `\n\nPrevious reply rejected: ${reason}. Return ONLY the JSON — segments must each contain ≥15 spoken words.` : '',
-      { targetWords, minutes });
+      { targetWords, minutes: effMinutes });
     let raw = null;
     try { raw = await countedChat([{ role: 'system', content: sys }, { role: 'user', content: usr }], { json: true, maxTokens: MAX_TOKENS }); }
     catch (e) { reason = `transport error: ${String(e.message || e).slice(0, 100)}`; }
@@ -489,6 +543,18 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
     if (removedIds.length) {
       parsed.segments = dd;
       console.log(`[fast] lecture ${outlineEntry.idx}: removed ${removedIds.length} duplicate segment(s)`);
+    }
+  }
+  // Semantic dedup — n-gram dedup catches verbatim copies but not the
+  // common LLM failure of writing the SAME idea twice in different words
+  // (paired restatements per concept). e5 cosine on same-concept pairs:
+  // ≥ SEMANTIC_DUP_MIN → keep the longer text, drop the paraphrase.
+  {
+    const removed = await semanticDedupeSegments(parsed.segments);
+    if (removed) {
+      parsed.segments = removed.segments;
+      console.log(`[fast] lecture ${outlineEntry.idx}: removed ${removed.removedIds.length} paraphrased duplicate segment(s) ` +
+        `(pairs: ${removed.pairs.map((p) => `${p[0]}~${p[1]}`).join(', ')})`);
     }
   }
   const gaps = blockGaps(parsed, plan);
@@ -534,7 +600,7 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
   for (const c of plan.concepts) {
     if (MATH_EVIDENCE_RE.test(conceptEvidence(c, corpus))) mathByBlock[c.blockId] = c.title;
   }
-  const gateOpts = { targetWords, minutes, mathByBlock, teaching: corpus.teaching };
+  const gateOpts = { targetWords, minutes: effMinutes, mathByBlock, teaching: corpus.teaching };
   let final = validateFast(parsed, allowedDocs, plan, gateOpts);
   if (!final.ok && final.problems.some((p) => p.startsWith('too long'))) {
     parsed = await compressOvershootV3(parsed, plan, myDeps);
@@ -572,6 +638,44 @@ export async function generateLectureFast(courseId, outlineEntry, deps = {}, opt
   meta.elapsedMs = Date.now() - meta.startedAt;
   parsed.genMeta = meta;
   return parsed;
+}
+
+// Paraphrase dedup — n-gram dedupeSegments only catches verbatim copies,
+// not the common small-LLM failure of writing the same idea twice in
+// different words (paired restatements per concept). Candidate pairs are
+// same-concept segments or adjacent ones; e5 cosine ≥ SEMANTIC_DUP_MIN
+// flags a redundant restatement — the LONGER text is kept (more substance).
+// The checker itself is non-fatal: no model, no dedup.
+export async function semanticDedupeSegments(segments) {
+  if (!segments?.length || process.env.GEN_SEMANTIC_DEDUP === 'off') return null;
+  const pairs = [], meta = [];
+  for (let i = 0; i < segments.length; i++) {
+    for (let j = i + 1; j < segments.length; j++) {
+      const a = segments[i], b = segments[j];
+      // Same concept always compared; different concepts only when adjacent
+      // (boundary restatement) — unrelated distant pairs can't be dupes.
+      if (a.blockId && b.blockId && a.blockId !== b.blockId && j - i > 1) continue;
+      pairs.push([a.text, b.text]);
+      meta.push([i, j]);
+    }
+  }
+  if (!pairs.length) return null;
+  const { scorePairs } = await import('../../nexora_ai/modules/semanticSim.mjs');
+  const scores = await scorePairs(pairs);
+  if (!Array.isArray(scores)) return null;
+  const drop = new Set();
+  const dupPairs = [];
+  for (let k = 0; k < scores.length; k++) {
+    if (scores[k] < SEMANTIC_DUP_MIN) continue;
+    const [i, j] = meta[k];
+    drop.add(segments[i].text.length >= segments[j].text.length ? j : i);
+    dupPairs.push([segments[i].id, segments[j].id]);
+  }
+  if (!drop.size) return null;
+  const removedIds = segments.filter((_, i) => drop.has(i)).map((s) => s.id);
+  const kept = segments.filter((_, i) => !drop.has(i));
+  kept.forEach((s, i) => { s.id = i; });
+  return { segments: kept, removedIds, pairs: dupPairs };
 }
 
 export { generateLectureFast as generateLecture };
