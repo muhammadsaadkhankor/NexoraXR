@@ -278,3 +278,46 @@ test('a public room flipped private is no longer listed or joinable openly', () 
   assert.equal(reg.listPublic().length, 0);
   assert.equal(reg.admit(room.roomId, null).ok, false); // needs a token now
 });
+
+// ---------------------------------------------------------------------------
+// Lecture-bound child rooms (per-lecture classrooms)
+// ---------------------------------------------------------------------------
+
+test('joining an unbound course room with a lecture routes to a dedicated child room', () => {
+  const reg = new RoomRegistry();
+  const { room: parent } = reg.createPublic({
+    className: 'Multimedia', courseId: 'Multimedia', hostId: 'h', scene: 'Multimedia',
+  });
+  const { room: child } = reg.findOrCreateLectureRoom(parent.roomId, 'multimedia_L2');
+  assert.equal(child.lectureId, 'multimedia_L2');
+  assert.equal(child.parentRoomId, parent.roomId);
+  assert.equal(child.roomId, `${parent.roomId}__multimedia_L2`);
+  assert.equal(child.roomType, 'public');
+  assert.equal(child.courseId, parent.courseId);
+});
+
+test('lecture-room resolution is idempotent — repeat joins share one room', () => {
+  const reg = new RoomRegistry();
+  const { room: parent } = reg.createPublic({ className: 'C', hostId: 'h' });
+  const a = reg.findOrCreateLectureRoom(parent.roomId, 'multimedia_L4').room;
+  const b = reg.findOrCreateLectureRoom(parent.roomId, 'multimedia_L4').room;
+  const c = reg.findOrCreateLectureRoom(parent.roomId, 'multimedia_L1').room;
+  assert.equal(a.roomId, b.roomId);               // same lecture → same room
+  assert.notEqual(a.roomId, c.roomId);            // different lecture → separate room
+});
+
+test('bound rooms reject a different lecture', () => {
+  const reg = new RoomRegistry();
+  const { room: parent } = reg.createPublic({ className: 'C', hostId: 'h', lectureId: 'Lecture_1' });
+  assert.equal(reg.findOrCreateLectureRoom(parent.roomId, 'Lecture_1').room.roomId, parent.roomId);
+  assert.ok(reg.findOrCreateLectureRoom(parent.roomId, 'Lecture_4').error);
+});
+
+test('private child rooms inherit the parent invite token', () => {
+  const reg = new RoomRegistry();
+  const { room: parent } = reg.createPrivate({ className: 'C', hostId: 'h' });
+  const { room: child } = reg.findOrCreateLectureRoom(parent.roomId, 'multimedia_L2');
+  assert.equal(child.inviteToken, parent.inviteToken);
+  assert.equal(reg.admit(child.roomId, parent.inviteToken).ok, true);
+  assert.equal(reg.admit(child.roomId, 'wrong').ok, false);
+});

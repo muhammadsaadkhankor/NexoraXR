@@ -781,6 +781,31 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         const res = await fetch(`${API_URL}/api/rooms/${privateRoomId}`);
         if (!res.ok) return;
         const meta = await res.json();
+        const inviteQs = inviteToken ? `&invite=${inviteToken}` : '';
+        if (meta?.lectureId && meta.lectureId !== lectureId) {
+          // Bound room: it teaches its own lecture — a stale/mismatched
+          // ?lecture= is corrected to the room's binding, never honored.
+          if (!cancelled) {
+            navigate(`${classroomPath(meta)}${inviteQs}`, { replace: true });
+          }
+          return;
+        }
+        if (meta && !meta.lectureId) {
+          // Unbound course room: the chosen lecture lives in its own
+          // dedicated room — reroute so different lectures never share
+          // the same classroom.
+          const jr = await fetch(`${API_URL}/api/rooms/${privateRoomId}/join-lecture`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lectureId, invite: inviteToken || null }),
+          });
+          const jd = await jr.json().catch(() => ({}));
+          if (!cancelled && jr.ok && jd.joinUrl) {
+            navigate(`${jd.joinUrl}${inviteQs}`, { replace: true });
+          }
+          return;
+        }
         const canonical = meta ? classroomSlug(meta) : null;
         if (!cancelled && canonical && canonical !== urlSlug) {
           const q = new URLSearchParams({

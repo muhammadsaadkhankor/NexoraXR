@@ -65,7 +65,30 @@ export default function CoursePage() {
     })().catch((err) => { setError(err.message); setLoading(false); });
   }, []);
 
-  const handleSelect = (lecture) => {
+  const handleSelect = async (lecture) => {
+    // Room-bound pick: resolve the chosen lecture to its dedicated room so
+    // attendees of different lectures never share a classroom. Falls back
+    // to the legacy same-room URL if the endpoint is unreachable.
+    const roomId = searchParams.get('room');
+    if (roomId) {
+      try {
+        const res = await fetch(`${API_URL}/api/rooms/${roomId}/join-lecture`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lectureId: lecture.lecture_id,
+            invite: searchParams.get('invite') || null,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.joinUrl) {
+          const invite = searchParams.get('invite');
+          navigate(`${data.joinUrl}${invite ? `&invite=${invite}` : ''}`);
+          return;
+        }
+      } catch { /* fall through to legacy join */ }
+    }
     navigate(`/classroom/${encodeURIComponent(courseId)}?lecture=${lecture.lecture_id}${roomQuery ? `&${roomQuery}` : ''}`);
   };
 

@@ -1125,6 +1125,25 @@ app.get('/api/rooms/:roomId', (req, res) => {
   res.json({ roomId, roomType, className, courseId, courseName, lectureId, language, scene });
 });
 
+// Lecture-scoped join: an unbound course classroom is an entry point —
+// picking a lecture resolves to ONE dedicated room per (room, lecture).
+// Admission mirrors normal room entry: public rooms admit everyone,
+// private rooms require a valid ?invite token (never returned here — the
+// client already carries it). Idempotent: deterministic child room id.
+app.post('/api/rooms/:roomId/join-lecture', (req, res) => {
+  const room = roomRegistry.get(req.params.roomId);
+  if (!room) return res.status(404).json({ error: 'Not found' });
+  const admit = roomRegistry.admit(req.params.roomId, req.body?.invite);
+  if (!admit.ok) return res.status(403).json({ error: admit.error });
+  const { room: target, error } =
+    roomRegistry.findOrCreateLectureRoom(req.params.roomId, req.body?.lectureId);
+  if (error) return res.status(409).json({ error });
+  res.json({
+    roomId: target.roomId, className: target.className,
+    lectureId: target.lectureId, joinUrl: classroomPath(target),
+  });
+});
+
 // Lectures for the room's bound course. Unlike the public course endpoint
 // (ready-only), joiners see every lecture — including drafts under review —
 // because room admission is the gate and the host teaches from this list.
@@ -2734,6 +2753,14 @@ io.on('connection', (socket) => {
     }
     const lectureId = data?.lectureId;
     if (typeof lectureId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(lectureId)) return;
+    // A room bound to a lecture can only ever teach that lecture — a client
+    // carrying a different ?lecture= cannot hijack the room's content.
+    const boundMeta = roomRegistry.get(roomId);
+    if (boundMeta?.lectureId && boundMeta.lectureId !== lectureId) {
+      socket.emit('lecture-control', { action: 'control-error',
+        error: `This classroom is bound to lecture '${boundMeta.lectureId}'.` });
+      return;
+    }
     // A class may only start when the lecture is fully ready in EVERY
     // supported language — otherwise a mid-lecture switch can hit an
     // unbaked language and students hear the wrong language or nothing.

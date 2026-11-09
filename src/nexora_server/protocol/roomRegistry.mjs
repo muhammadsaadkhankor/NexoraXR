@@ -55,7 +55,7 @@ export class RoomRegistry {
 
   setPool(pool) { this._pool = pool; }
 
-  create({ roomType, className, courseId, courseName, lectureId, language, hostId, scene, lectureCount }) {
+  create({ roomType, className, courseId, courseName, lectureId, language, hostId, scene, lectureCount, roomId: explicitRoomId }) {
     if (roomType !== 'public' && roomType !== 'private') {
       return { error: "roomType must be 'public' or 'private'" };
     }
@@ -73,7 +73,9 @@ export class RoomRegistry {
     if (language != null && !SUPPORTED_LANGUAGES.includes(language)) {
       return { error: `Unsupported language '${language}'` };
     }
-    const roomId = `${roomType === 'private' ? 'priv' : 'pub'}_${randomBytes(9).toString('hex')}`;
+    const roomId = explicitRoomId && SAFE_ID_RE.test(explicitRoomId)
+      ? explicitRoomId
+      : `${roomType === 'private' ? 'priv' : 'pub'}_${randomBytes(9).toString('hex')}`;
     const room = {
       roomId,
       roomType,
@@ -96,6 +98,49 @@ export class RoomRegistry {
     }
     this.rooms.set(roomId, room);
     this._persist(this._pool, room);
+    return { room };
+  }
+
+  // Lecture-bound child rooms: a course classroom (lectureId null) is an
+  // ENTRY POINT, not a teaching space. Joining it with a chosen lecture
+  // routes to one dedicated room per (parent, lecture) — deterministic id
+  // `${parent}__${lectureId}` so repeat joins, restarts (DB rehydrate) and
+  // concurrent joiners all converge on the same room. Everyone attending
+  // "Lecture 2" shares it; "Lecture 4" attendees are invisible to them.
+  findOrCreateLectureRoom(parentRoomId, lectureId) {
+    const parent = this.rooms.get(parentRoomId);
+    if (!parent) return { error: 'Room not found' };
+    if (typeof lectureId !== 'string' || !SAFE_ID_RE.test(lectureId)) {
+      return { error: 'Invalid lectureId' };
+    }
+    if (parent.lectureId) {
+      return parent.lectureId === lectureId
+        ? { room: parent }
+        : { error: `This classroom is bound to lecture '${parent.lectureId}'` };
+    }
+    const roomId = `${parentRoomId}__${lectureId}`.slice(0, 96);
+    const existing = this.rooms.get(roomId);
+    if (existing) return { room: existing };
+    const { room, error } = this.create({
+      roomType: parent.roomType,
+      className: `${parent.className} — ${lectureId}`.slice(0, CLASS_NAME_MAX),
+      courseId: parent.courseId,
+      courseName: parent.courseName,
+      lectureId,
+      language: parent.language,
+      hostId: parent.hostId,
+      scene: parent.scene,
+      lectureCount: parent.lectureCount,
+      roomId,
+    });
+    if (error) return { error };
+    room.parentRoomId = parentRoomId;
+    // Private parents admit via invite link — the child shares the SAME
+    // token so the link a guest holds keeps working across the reroute.
+    if (parent.roomType === 'private' && parent.inviteToken) {
+      room.inviteToken = parent.inviteToken;
+      this._persist(this._pool, room);
+    }
     return { room };
   }
 
