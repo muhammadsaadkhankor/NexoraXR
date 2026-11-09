@@ -28,6 +28,8 @@ const FLOOR_STATE = { to: 'room', event: 'floor-state' };
 //   M1 — grant while held (exclusivity): a later request steals the holder
 //        slot without a stateVersion bump, broadcasting two owners under one
 //        version. The displaced holder stalls (rep timeout records it).
+//   M1b — same steal but WITH the normal version bump: clients stay
+//        consistent, so only owner-change causality can catch it.
 //   M2 — LIFO queue (fairness): the next holder pops from the tail.
 //   M3 — drop the queue when a holder's reconnect grace expires (liveness).
 //   M4 — illegal transition (legality): the first grant goes LECTURING ->
@@ -741,9 +743,11 @@ export class NcipRoom {
       this._mark('grant');
       return [FLOOR_STATE, pauseCtl(userId)];
     }
-    if (MUTANT === 'M1') {
-      // Steal the slot without bumping the version — same stateVersion now
-      // carries two different owners in back-to-back floor-state emits.
+    if (MUTANT === 'M1' || MUTANT === 'M1b') {
+      // Steal the holder slot. M1 skips the version bump — same stateVersion
+      // carries two owners (belief mismatch). M1b bumps normally — clients
+      // stay consistent, but the owner change has no legal cause.
+      if (MUTANT === 'M1b') this._bump();
       this.floor.holder = userId;
       return [FLOOR_STATE, pauseCtl(userId)];
     }

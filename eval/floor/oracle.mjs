@@ -8,6 +8,11 @@
 //                           differs from the server's floorOwner at v
 //   (c) fifoViolations    — grants delivered out of request arrival order
 //                           (in.request-floor event order is authoritative)
+//   (d) illegalOwnerChanges — every floorOwner change must trace to a legal
+//                           event (free-floor grant, release, answer-end
+//                           handoff, grace expiry, removal, timeout/failure,
+//                           lecture reset, or reconnect restore); a steal
+//                           hidden behind a normal version bump lands here.
 //
 // Also extracts disconnect timing for D-* scenarios:
 //   detectWall  — server ts_wall_ms of in.disconnect for the dropped pid
@@ -106,6 +111,39 @@ function checkFifo(recs) {
   return { violations, detail, requestOrder: reqOrder, grantOrder: grants.map((g) => g.pid) };
 }
 
+// (d) Owner-change causality. The first record carrying a different
+// floorOwner is the post-state record of the causing transition (ncip.*
+// records are logged after the method runs). LEGAL_CAUSES enumerates every
+// transition that may move the floor. A requestFloor grant is only legal
+// from a free floor — an owner change while the floor is held means a
+// steal (M1 hides it inside one version; M1b bumps but still violates).
+const LEGAL_OWNER_CAUSES = new Set([
+  'ncip.releaseFloor',
+  'ncip.answerEnded', 'ncip.answerTimeExpired', // answer-end handoff
+  'ncip.answerFailed',                           // generation failure handoff
+  'ncip.floorTimeoutExpired', 'ncip.thinkingTimeoutExpired',
+  'ncip.disconnect', 'ncip.leave', 'ncip.expireGrace', // removal paths
+  'ncip.endLecture', 'ncip.startLecture',              // lecture reset
+  'in.join',                                          // reconnect restore
+]);
+function checkOwnerChanges(recs) {
+  const violations = [];
+  let prev;
+  for (const r of recs) {
+    if (r.floorOwner === undefined) continue;
+    const owner = r.floorOwner ?? null;
+    if (prev !== undefined && owner !== prev) {
+      const legal = LEGAL_OWNER_CAUSES.has(r.event)
+        || (r.event === 'ncip.requestFloor' && prev === null);
+      if (!legal) {
+        violations.push({ event: r.event, from: prev, to: owner, eventId: r.eventId });
+      }
+    }
+    prev = owner;
+  }
+  return violations;
+}
+
 // (b) Client belief vs authoritative owner, per stateVersion. Built from
 // emit.floor-state records (broadcast only — the join-time targeted emit
 // isn't in applyEffects and simply stays unverifiable).
@@ -180,12 +218,13 @@ export function oracleReport(serverLogFile, repRecords = []) {
   const perRoom = {};
   const totals = {
     transitionViolations: 0, ownerMismatches: 0, fifoViolations: 0,
-    compared: 0, rooms: rooms.size,
+    illegalOwnerChanges: 0, compared: 0, rooms: rooms.size,
   };
   for (const [roomId, recs] of rooms) {
     const tv = checkTransitions(recs);
     const fifo = checkFifo(recs);
     const beliefs = checkBeliefs(recs, repByRoom.get(roomId));
+    const ownerCh = checkOwnerChanges(recs);
     const disc = disconnectInfo(recs);
     perRoom[roomId] = {
       transitionViolations: tv,
@@ -196,11 +235,13 @@ export function oracleReport(serverLogFile, repRecords = []) {
       ownerMismatches: beliefs.mismatches,
       compared: beliefs.compared,
       beliefDetail: beliefs.detail,
+      illegalOwnerChanges: ownerCh,
       disconnects: disc,
     };
     totals.transitionViolations += tv.length;
     totals.ownerMismatches += beliefs.mismatches;
     totals.fifoViolations += fifo.violations;
+    totals.illegalOwnerChanges += ownerCh.length;
     totals.compared += beliefs.compared;
   }
   return { perRoom, totals };
@@ -224,7 +265,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   const { perRoom, totals } = oracleReport(path.resolve(log), reps);
   for (const [room, o] of Object.entries(perRoom)) {
-    const bad = o.transitionViolations.length + o.ownerMismatches + o.fifoViolations;
+    const bad = o.transitionViolations.length + o.ownerMismatches
+      + o.fifoViolations + o.illegalOwnerChanges.length;
     if (!bad) continue;
     console.log(room, JSON.stringify({
       transitionViolations: o.transitionViolations,
@@ -232,6 +274,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       fifoViolations: o.fifoViolations,
       fifoDetail: o.fifoDetail,
       beliefDetail: o.beliefDetail,
+      illegalOwnerChanges: o.illegalOwnerChanges,
     }));
   }
   console.log('totals:', JSON.stringify(totals));
