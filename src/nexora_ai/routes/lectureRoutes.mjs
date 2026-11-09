@@ -61,7 +61,7 @@ async function ensureCacheDir() {
   }
 }
 
-async function loadLectures() {
+export async function loadLectures() {
   if (lecturesCache) return lecturesCache;
   const raw = await fs.readFile(LECTURE_DATA, 'utf-8');
   const data = JSON.parse(raw);

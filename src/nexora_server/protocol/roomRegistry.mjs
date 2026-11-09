@@ -144,6 +144,31 @@ export class RoomRegistry {
     return { room };
   }
 
+  // Standalone lecture classroom: one public room per lecture, created on
+  // first join. Deterministic id `pub_lecture__<lectureId>` — every visitor
+  // picking "Lecture 2" lands in the same dedicated room; different
+  // lectures never share a classroom. No parent room, no host: public
+  // admission, any participant may start (V1 parity).
+  findOrCreateStandaloneLectureRoom({ lectureId, className, courseName, scene }) {
+    if (typeof lectureId !== 'string' || !SAFE_ID_RE.test(lectureId)) {
+      return { error: 'Invalid lectureId' };
+    }
+    const roomId = `pub_lecture__${lectureId}`.slice(0, 96);
+    const existing = this.rooms.get(roomId);
+    if (existing) return { room: existing };
+    return this.create({
+      roomType: 'public',
+      className: className || lectureId,
+      courseId: 'Multimedia',
+      courseName: courseName || null,
+      lectureId,
+      language: 'en',
+      hostId: null,
+      scene: scene && SAFE_ID_RE.test(scene) ? scene : 'Multimedia',
+      roomId,
+    });
+  }
+
   createPublic(fields) {
     return this.create({ ...fields, roomType: 'public' });
   }

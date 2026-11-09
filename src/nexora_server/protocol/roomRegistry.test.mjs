@@ -321,3 +321,16 @@ test('private child rooms inherit the parent invite token', () => {
   assert.equal(reg.admit(child.roomId, parent.inviteToken).ok, true);
   assert.equal(reg.admit(child.roomId, 'wrong').ok, false);
 });
+
+test('standalone lecture rooms: one public room per lecture, shared across joiners', () => {
+  const reg = new RoomRegistry();
+  const a = reg.findOrCreateStandaloneLectureRoom({ lectureId: 'multimedia_L2', className: 'Lecture 2', courseName: 'Multimedia' }).room;
+  const b = reg.findOrCreateStandaloneLectureRoom({ lectureId: 'multimedia_L2' }).room;
+  const c = reg.findOrCreateStandaloneLectureRoom({ lectureId: 'multimedia_L7' }).room;
+  assert.equal(a.roomId, 'pub_lecture__multimedia_L2');
+  assert.equal(a.roomId, b.roomId);
+  assert.notEqual(a.roomId, c.roomId);
+  assert.equal(a.roomType, 'public');
+  assert.equal(a.lectureId, 'multimedia_L2');
+  assert.equal(reg.admit(a.roomId, null).ok, true); // public — no invite needed
+});

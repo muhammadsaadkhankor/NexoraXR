@@ -13,7 +13,7 @@ import { sendDefaultMessages, defaultResponse } from "../nexora_ai/modules/defau
 import { voice, initializeElevenLabs } from "../nexora_ai/modules/elevenLabs.mjs";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import lectureRouter, { loadLectureManifest, generateLectureUtterance } from "../nexora_ai/routes/lectureRoutes.mjs";
+import lectureRouter, { loadLectureManifest, generateLectureUtterance, loadLectures } from "../nexora_ai/routes/lectureRoutes.mjs";
 import { NcipRoom, ProfessorStatus } from "./protocol/ncipRoom.mjs";
 import { readFileSync } from "node:fs";
 import { wavDurationMs } from "../nexora_ai/modules/audioUtils.mjs";
@@ -515,13 +515,19 @@ app.put('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER
     const { rows: [build] } = await pool.query(
       `SELECT id, status FROM course_builds WHERE course_id=$1 ORDER BY created_at DESC LIMIT 1`, [courseId]);
     if (!build) {
-      return res.status(409).json({ error: 'No build exists for this course yet — generate scripts first' });
-    }
-    if (['translating', 'audio', 'validating'].includes(build.status)) {
+      // Migrated/seeded courses (e.g. Multimedia) have lecture rows but no
+      // build record — scripts are still editable; no generation can be in
+      // flight, so only the "lectures exist" check matters.
+      const { rows: [hasLec] } = await pool.query(
+        `SELECT 1 FROM course_lectures WHERE course_id=$1 LIMIT 1`, [courseId]);
+      if (!hasLec) {
+        return res.status(409).json({ error: 'No build exists for this course yet — generate scripts first' });
+      }
+    } else if (['translating', 'audio', 'validating'].includes(build.status)) {
       return res.status(409).json({
         error: 'Audio generation is already in progress — wait for it to finish before editing scripts' });
     }
-    if (!['awaiting_review', 'ready', 'failed'].includes(build.status)) {
+    if (build && !['awaiting_review', 'ready', 'failed'].includes(build.status)) {
       return res.status(409).json({
         error: `Scripts are not editable while the build is '${build.status}'` });
     }
@@ -572,7 +578,7 @@ app.put('/api/courses/:id/drafts', requireAuth, requireRole('INSTRUCTOR', 'SUPER
     }
     // Editing after approval reopens the review gate — audio must be
     // re-approved before it counts as current.
-    if (changed.length && build.status === 'ready') {
+    if (changed.length && build?.status === 'ready') {
       await pool.query(
         `UPDATE course_builds SET status='awaiting_review',
            stats=COALESCE(stats,'{}'::jsonb) || $2::jsonb, updated_at=now()
@@ -1144,6 +1150,81 @@ app.post('/api/rooms/:roomId/join-lecture', (req, res) => {
     roomId: target.roomId, className: target.className,
     lectureId: target.lectureId, joinUrl: classroomPath(target),
   });
+});
+
+// Public course catalogue for the landing gallery: every course that has
+// at least one APPROVED (status='ready') lecture gets its own section.
+// No auth — the gallery is visible to guests.
+app.get('/api/courses/public', async (req, res) => {
+  try {
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name,
+              json_agg(json_build_object('lecture_id', l.lecture_id, 'title', l.title)
+                       ORDER BY l.idx) AS lectures
+         FROM courses c
+         JOIN course_lectures l ON l.course_id = c.id AND l.status = 'ready'
+        GROUP BY c.id, c.name
+        ORDER BY c.id`);
+    // Approved (status='ready') is the human gate; allReady means the
+    // assets are actually baked — only offer lectures that can start.
+    const courses = [];
+    for (const row of rows) {
+      const lectures = [];
+      for (const l of row.lectures) {
+        const ready = await lectureReadiness(l.lecture_id).catch(() => null);
+        if (ready?.allReady) lectures.push(l);
+      }
+      if (lectures.length) courses.push({ ...row, lectures });
+    }
+    res.json({ courses });
+  } catch {
+    res.json({ courses: [] });
+  }
+});
+
+// Standalone lecture join: the landing-page lecture gallery resolves a
+// lecture pick to ONE public room per lecture (pub_lecture__<id>), created
+// on first join — no course classroom required. Everyone attending the
+// same lecture shares it; different lectures are different classrooms.
+app.post('/api/rooms/for-lecture', async (req, res) => {
+  const lectureId = req.body?.lectureId;
+  try {
+    const data = await loadLectures();
+    let title = data?.lectures?.find((l) => l.lecture_id === lectureId)?.title;
+    let courseName = data?.title || null;
+    if (!title) {
+      // Generated-course lectures (course_lectures) — approved builds only
+      // reach this far; unapproved/draft ids are rejected below by the
+      // readiness gate or here when the id doesn't exist at all.
+      const { rows: [row] } = await getPool().query(
+        `SELECT l.title, c.name AS course_name
+           FROM course_lectures l JOIN courses c ON c.id = l.course_id
+          WHERE l.lecture_id = $1`, [lectureId]).catch(() => ({ rows: [] }));
+      if (!row) return res.status(404).json({ error: 'Unknown lectureId' });
+      title = row.title;
+      courseName = row.course_name;
+    }
+    // Only fully-prepared lectures get a room — an unbaked lecture would
+    // die at the start gate inside a dead classroom anyway.
+    const ready = await lectureReadiness(lectureId).catch(() => null);
+    if (!ready?.allReady) {
+      return res.status(409).json({ error: 'This lecture is still being prepared.' });
+    }
+    const { room, error } = roomRegistry.findOrCreateStandaloneLectureRoom({
+      lectureId,
+      className: title,
+      courseName,
+      scene: 'Multimedia',
+    });
+    if (error) return res.status(400).json({ error });
+    res.json({
+      roomId: room.roomId, className: room.className,
+      lectureId: room.lectureId, joinUrl: classroomPath(room),
+    });
+  } catch {
+    res.status(500).json({ error: 'Failed to resolve lecture room' });
+  }
 });
 
 // Lectures for the room's bound course. Unlike the public course endpoint

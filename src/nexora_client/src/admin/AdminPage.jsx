@@ -39,6 +39,11 @@ export default function AdminPage() {
   const [courses, setCourses] = useState([]);
   const [courseLectures, setCourseLectures] = useState({});
   const [expandedCourse, setExpandedCourse] = useState(null);
+  const [script, setScript] = useState(null); // {cid, lectureId, title, status, text, wordCount, loading}
+  const [scriptDraft, setScriptDraft] = useState('');
+  const [scriptEditing, setScriptEditing] = useState(false);
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [scriptMsg, setScriptMsg] = useState(null);
 
   const authJson = (p, opts = {}) =>
     fetch(`${API_URL}${p}`, { credentials: 'include', ...opts }).then((r) => r.json());
@@ -88,6 +93,33 @@ export default function AdminPage() {
     const r = await authJson(`/api/courses/${cid}/lectures/${lectureId}/approve`, { method: 'POST' });
     if (r.ok) setCourseLectures((m) => ({ ...m, [cid]: (m[cid] || []).map((l) => l.lectureId === lectureId ? { ...l, status: 'ready' } : l) }));
     else setErr(r.error || 'Approve failed');
+  };
+
+  const openScript = async (cid, lectureId) => {
+    setScript({ cid, lectureId, loading: true });
+    setScriptEditing(false); setScriptMsg(null);
+    const d = await authJson(`/api/courses/${cid}/lectures/${lectureId}/script`).catch(() => null);
+    if (!d || d.error) { setScript(null); setErr(d?.error || 'Failed to load script'); return; }
+    setScript({ cid, lectureId, ...d, loading: false });
+    setScriptDraft(d.text || '');
+  };
+
+  const saveScript = async () => {
+    setScriptBusy(true); setScriptMsg(null);
+    const r = await authJson(`/api/courses/${script.cid}/drafts`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lectures: [{ lectureId: script.lectureId, fullText: scriptDraft }] }),
+    });
+    setScriptBusy(false);
+    if (!r || r.error) { setScriptMsg(r?.error || 'Save failed'); return; }
+    setScriptMsg(r.changed?.length
+      ? 'Saved — affected audio/translations are now outdated and review is reopened.'
+      : 'Saved (no text changes).');
+    setScript((s) => (s ? { ...s, text: scriptDraft } : s));
+    setScriptEditing(false);
+    const d = await authJson(`/api/courses/${script.cid}/status`).catch(() => ({}));
+    if (d.lectures) setCourseLectures((m) => ({ ...m, [script.cid]: d.lectures }));
   };
 
   const refresh = async () => {
@@ -339,6 +371,8 @@ export default function AdminPage() {
                       {l.status === 'draft' && <span className='ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300'>DRAFT</span>}
                     </span>
                     <span className='flex items-center gap-3'>
+                      <button onClick={() => openScript(c.id, l.lectureId)}
+                        className='text-[11px] font-semibold text-cyan-300 hover:underline'>Script</button>
                       {l.status === 'draft' && (
                         <button onClick={() => approveLecture(c.id, l.lectureId)}
                           className='text-[11px] font-semibold text-emerald-300 hover:underline'>Approve</button>
@@ -355,6 +389,77 @@ export default function AdminPage() {
           </div>
         ))}
       </div>
+
+      {/* Script viewer/editor — canonical English script of any lecture */}
+      {script && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4'
+          onClick={() => !scriptBusy && setScript(null)}>
+          <div className='flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl'
+            onClick={(e) => e.stopPropagation()}>
+            <div className='flex items-center justify-between border-b border-slate-800 px-5 py-3.5'>
+              <div>
+                <h3 className='text-sm font-bold text-slate-100'>
+                  {script.loading ? 'Loading…' : script.title || script.lectureId}
+                </h3>
+                {!script.loading && (
+                  <p className='text-[11px] text-slate-500'>
+                    English (canonical) · {script.wordCount ?? 0} words · status: {script.status || '—'}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setScript(null)} disabled={scriptBusy}
+                className='rounded-md border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800'>
+                Close
+              </button>
+            </div>
+            <div className='min-h-0 flex-1 overflow-y-auto px-5 py-4'>
+              {script.loading ? (
+                <p className='text-sm text-slate-400'>Loading script…</p>
+              ) : scriptEditing ? (
+                <textarea
+                  value={scriptDraft}
+                  onChange={(e) => setScriptDraft(e.target.value)}
+                  className='h-[55vh] w-full resize-none rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs leading-relaxed text-slate-200 outline-none focus:border-cyan-500'
+                />
+              ) : (
+                <pre className='whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-300'>
+                  {script.text || 'No script text available.'}
+                </pre>
+              )}
+            </div>
+            {!script.loading && (
+              <div className='flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 px-5 py-3'>
+                <p className='text-[11px] text-amber-300/80'>
+                  {scriptEditing
+                    ? 'Editing marks affected audio + translations outdated and reopens the review gate.'
+                    : 'English only — translations and audio are regenerated downstream.'}
+                </p>
+                <div className='flex items-center gap-2'>
+                  {scriptMsg && <p className='text-xs text-slate-400'>{scriptMsg}</p>}
+                  {scriptEditing ? (
+                    <>
+                      <button onClick={() => { setScriptEditing(false); setScriptDraft(script.text || ''); }}
+                        disabled={scriptBusy}
+                        className='rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800'>
+                        Cancel
+                      </button>
+                      <button onClick={saveScript} disabled={scriptBusy}
+                        className='rounded-md bg-cyan-600 px-3 py-1.5 text-xs font-semibold hover:bg-cyan-500 disabled:opacity-50'>
+                        {scriptBusy ? 'Saving…' : 'Save script'}
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setScriptEditing(true)}
+                      className='rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold hover:bg-violet-500'>
+                      Edit script
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className='mb-4 flex items-center gap-3'>
