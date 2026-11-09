@@ -793,6 +793,10 @@ export class NcipRoom {
       lectureId: checkpoint.lectureId ?? null,
       segmentIndex: Number.isFinite(checkpoint.segmentIndex) ? checkpoint.segmentIndex : null,
       playbackOffsetMs: Number.isFinite(checkpoint.playbackOffsetMs) ? checkpoint.playbackOffsetMs : 0,
+      // Holder's sentence index inside segmentIndex — lets listeners in other
+      // languages resume at the equivalent sentence in THEIR audio (raw ms
+      // only matches the holder's own language).
+      sentenceIndex: Number.isInteger(checkpoint.sentenceIndex) ? checkpoint.sentenceIndex : null,
       // Board position at interrupt — saved so the room can restore the exact
       // document/page on resume even if the lecture queue was rebuilt.
       slidePage: Number.isFinite(checkpoint.slidePage) ? checkpoint.slidePage : null,

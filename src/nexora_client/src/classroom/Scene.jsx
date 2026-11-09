@@ -1510,6 +1510,22 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       setFloorAnswering(false);
     }));
 
+    // Cross-language resume: the canonical checkpoint's playbackOffsetMs is
+    // the HOLDER's position in THEIR language. When it carries sentenceIndex
+    // and this client's language differs, map it to our own segment's sentence
+    // start so listeners neither skip nor repeat content. Same-language (and
+    // missing-alignment) clients keep the exact raw offset.
+    const localizeCheckpoint = (cp) => {
+      if (!cp || !Number.isInteger(cp.sentenceIndex) || cp.segmentIndex == null) return cp;
+      if (!cp.language || !lectureLangRef.current
+          || cp.language === lectureLangRef.current) return cp;
+      const sents = (lectureManifestRef.current || [])
+        .find((s) => s.id === cp.segmentIndex)?.sentences;
+      const start = sents?.[Math.min(cp.sentenceIndex, sents.length - 1)]?.start;
+      if (!Number.isFinite(start)) return cp;
+      return { ...cp, playbackOffsetMs: Math.round(start * 1000) };
+    };
+
     socket.on('lecture-control', (data) => applyNcip(data, () => {
       console.log('[client] lecture-control received:', data?.action);
       if (data?.action === 'pause-for-host') {
@@ -1549,11 +1565,27 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         // as a report so the floor can proceed.
         if (data?.activeSpeaker?.userId === myIdRef.current) {
           floorReadyRef.current = false;
+          // Sentence index at the pause offset in MY language — other-language
+          // listeners map it to their own audio's sentence start on resume,
+          // so nobody skips/repeats content (raw ms is language-dependent).
+          let sentenceIndex = null;
+          if (cp?.segmentIndex != null && cp?.playbackOffsetMs > 0) {
+            const sents = (lectureManifestRef.current || [])
+              .find((s) => s.id === cp.segmentIndex)?.sentences;
+            if (sents?.length) {
+              const offSec = cp.playbackOffsetMs / 1000;
+              sentenceIndex = 0;
+              for (let k = 0; k < sents.length; k++) {
+                if ((sents[k].start ?? 0) <= offSec + 0.15) sentenceIndex = k;
+              }
+            }
+          }
           socket.emit('lecture-checkpoint', {
             lectureId: lectureIdRef.current,
             language: lectureLangRef.current,
             segmentIndex: cp?.segmentIndex ?? null,
             playbackOffsetMs: cp?.playbackOffsetMs ?? 0,
+            sentenceIndex,
             slidePage: cp?.slidePage ?? null,
             slideDoc: cp?.slideDoc ?? null,
           });
@@ -1562,7 +1594,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         setFloorAnswering(false);
         // Server-authoritative checkpoint: every client resumes from the same
         // {lectureId, segmentIndex, playbackOffsetMs}.
-        const cp = data?.checkpoint;
+        const cp = localizeCheckpoint(data?.checkpoint);
         if (cp?.language && cp.language !== lectureLangRef.current) {
           console.warn('[client] resume checkpoint language differs from local lecture language:', cp.language, 'vs', lectureLangRef.current);
         }
@@ -1666,10 +1698,10 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       }
       if (plan.action === 'resume') {
         if (floorHeld) {
-          positionLectureAtCheckpoint(plan.checkpoint, true);
+          positionLectureAtCheckpoint(localizeCheckpoint(plan.checkpoint), true);
           if (answerMsg) speechCtlRef.current.prependMessages([answerMsg]);
         } else {
-          speechCtlRef.current.resumeLecture(plan.checkpoint);
+          speechCtlRef.current.resumeLecture(localizeCheckpoint(plan.checkpoint));
         }
       } else if (plan.action === 'reload') {
         recoverLectureFromSnapshot(plan.checkpoint, floorHeld, answerMsg);
