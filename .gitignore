@@ -61,3 +61,8 @@ src/nexora_server/uploads/
 /CLASSROOM_CREATION_PIPELINE.md
 /NEXORA_TECHNICAL_ANSWERS.md
 /docs/database_roles_report.md
+
+# Floor benchmark output
+/eval/floor/results/
+/my_report.md
+/out.csv

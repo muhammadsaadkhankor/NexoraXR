@@ -9,6 +9,11 @@
 import { generate as generateOllama } from '../../nexora_ai/modules/ollamaClient.mjs';
 
 export async function classifyClarification({ question, topicTitle, segmentText }) {
+  // Evaluation harness only (EVAL_MOCK_PROFESSOR=1): deterministic non-flagged
+  // result — never re-explains, keeps floor timing independent of the LLM.
+  if (process.env.EVAL_MOCK_PROFESSOR === '1') {
+    return { needsReexplanation: false, reason: 'eval_mock' };
+  }
   try {
     const prompt = `You are classifying a student's question during a lecture.
 Topic: ${topicTitle || 'unknown'}

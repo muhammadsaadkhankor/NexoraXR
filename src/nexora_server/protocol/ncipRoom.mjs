@@ -91,7 +91,10 @@ export class NcipRoom {
     // starts a reconnect grace window; floor position is preserved until the
     // window expires.
     this.session = { participants: new Map() }; // pid -> {connected, socketId, joinedAt, disconnectedAt}
-    this.RECONNECT_GRACE_MS = 10_000;
+    // EVAL_RECONNECT_GRACE_MS is an eval-only override used by the
+    // floor-benchmark sweep; unset = the production 10 s window.
+    this.RECONNECT_GRACE_MS =
+      Math.max(0, Number(process.env.EVAL_RECONNECT_GRACE_MS) || 10_000);
     this._graceDeadlines = new Map(); // pid -> epoch ms when grace expires
     // NCIP Slice 2: monotonically increasing authoritative state version.
     // Bumped only when protocol state changes (floor / professor / lecture

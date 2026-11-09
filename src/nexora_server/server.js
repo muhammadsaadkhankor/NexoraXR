@@ -44,6 +44,7 @@ import { attachUser, socketAuth, requireAuth, requireRole } from "./auth/session
 import { resolveGuestToken, mintGuestToken } from "./auth/passwordless.mjs";
 import { RoomRegistry } from "./protocol/roomRegistry.mjs";
 import { isLanguageReady, lectureReadiness } from "./protocol/languageReady.mjs";
+import { instrumentEvalRoom, evalInbound, evalEffect } from "./eval/evalLogger.mjs";
 
 dotenv.config();
 
@@ -1419,7 +1420,8 @@ const roomTimers = {};
 const micPerms = new Map();
 
 function getNcipRoom(roomId) {
-  if (!ncipRooms[roomId]) ncipRooms[roomId] = new NcipRoom(roomId);
+  // instrumentEvalRoom is a transparent passthrough unless EVAL_LOG=1.
+  if (!ncipRooms[roomId]) ncipRooms[roomId] = instrumentEvalRoom(new NcipRoom(roomId), roomId);
   return ncipRooms[roomId];
 }
 
@@ -1956,6 +1958,7 @@ function clearThinkingTimers(roomId) {
 function applyEffects(roomId, effects) {
   const ncip = getNcipRoom(roomId);
   for (const e of effects || []) {
+    evalEffect(roomId, e, ncip);
     if (e.event === 'floor-state') {
       emitFloorState(roomId);
       continue;
@@ -2088,6 +2091,7 @@ async function finishJoin(socket, data, roomId, registryRoom = null, identity = 
     ncip.language.roomLanguage = registryRoom.language;
   }
   const joinResult = ncip.joinParticipant(pid, socket.id);
+  evalInbound(roomId, pid, 'join', { name: safeName, isNew: joinResult.isNew, reconnected: joinResult.reconnected }, ncip);
 
   // V2.3 user memory: hydrate on first touch; on joining an in-flight lecture,
   // record the session join and mark topics already taught as missed
@@ -2289,7 +2293,9 @@ io.on('connection', (socket) => {
         socketCtx.delete(sid);
       }
     }
-    applyEffects(roomId, getNcipRoom(roomId).leave(userId));
+    const ncipKick = getNcipRoom(roomId);
+    applyEffects(roomId, ncipKick.leave(userId));
+    evalInbound(roomId, ctx.participantId, 'room.kick', { userId }, ncipKick);
     cleanupAfterRemoval(roomId, userId);
   });
 
@@ -2304,7 +2310,9 @@ io.on('connection', (socket) => {
       clearTimeout(graceTimers.get(graceKey));
       graceTimers.delete(graceKey);
     }
-    applyEffects(roomId, getNcipRoom(roomId).leave(pid));
+    const ncip = getNcipRoom(roomId);
+    applyEffects(roomId, ncip.leave(pid));
+    evalInbound(roomId, pid, 'leave', null, ncip);
     cleanupAfterRemoval(roomId, pid);
   });
 
@@ -2319,6 +2327,7 @@ io.on('connection', (socket) => {
   socket.on('session.sync', () => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    evalInbound(ctx.roomId, ctx.participantId, 'session.sync', null, getNcipRoom(ctx.roomId));
     socket.emit('session.snapshot', buildSnapshotPayload(ctx.roomId, ctx.participantId));
   });
 
@@ -2363,6 +2372,7 @@ io.on('connection', (socket) => {
       }
     }
     const result = ncip.changeLanguage(ctx.participantId, language);
+    evalInbound(ctx.roomId, ctx.participantId, 'language.change', { language, ok: result.ok }, ncip);
     if (!result.ok) {
       socket.emit('lecture-control', { action: 'language-error', error: result.error });
       return;
@@ -2405,6 +2415,7 @@ io.on('connection', (socket) => {
       }
     }
     rooms[ctx.roomId][ctx.participantId].lang = override;
+    evalInbound(ctx.roomId, ctx.participantId, 'language.mine', { language, override }, ncip);
     console.log(`[server] ${ctx.participantId} set personal lecture language: ${override || '(room)'}`);
     socket.emit('lecture-control', { action: 'language-mine', language });
   });
@@ -2418,6 +2429,7 @@ io.on('connection', (socket) => {
     const ncip = getNcipRoom(ctx.roomId);
     console.log(`[server] request-floor: ${ctx.participantId} in room '${ctx.roomId}' (status: ${ncip.professor.status})`);
     applyEffects(ctx.roomId, ncip.requestFloor(ctx.participantId));
+    evalInbound(ctx.roomId, ctx.participantId, 'request-floor', null, ncip);
   });
 
   socket.on('cancel-floor-request', () => {
@@ -2425,7 +2437,9 @@ io.on('connection', (socket) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     console.log(`[server] cancel-floor-request: ${ctx.participantId} in room '${ctx.roomId}'`);
-    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).cancelRequest(ctx.participantId));
+    const ncip = getNcipRoom(ctx.roomId);
+    applyEffects(ctx.roomId, ncip.cancelRequest(ctx.participantId));
+    evalInbound(ctx.roomId, ctx.participantId, 'cancel-floor-request', null, ncip);
   });
 
   socket.on('release-floor', () => {
@@ -2433,7 +2447,9 @@ io.on('connection', (socket) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     console.log(`[server] release-floor: ${ctx.participantId} in room '${ctx.roomId}'`);
-    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).releaseFloor(ctx.participantId));
+    const ncip = getNcipRoom(ctx.roomId);
+    applyEffects(ctx.roomId, ncip.releaseFloor(ctx.participantId));
+    evalInbound(ctx.roomId, ctx.participantId, 'release-floor', null, ncip);
   });
 
   // Clients report their exact interrupted lecture position when the floor is
@@ -2442,7 +2458,9 @@ io.on('connection', (socket) => {
     if (!socketIsParticipant(socket)) return participantError(socket, 'lecture-checkpoint');
     const ctx = socketCtx.get(socket.id);
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
-    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).submitCheckpoint(ctx.participantId, data));
+    const ncip = getNcipRoom(ctx.roomId);
+    applyEffects(ctx.roomId, ncip.submitCheckpoint(ctx.participantId, data));
+    evalInbound(ctx.roomId, ctx.participantId, 'lecture-checkpoint', data, ncip);
     // Checkpoint accepted => floor is ready: arm the 30s question timeout.
     syncFloorTimer(ctx.roomId, ctx.participantId);
   });
@@ -2465,6 +2483,7 @@ io.on('connection', (socket) => {
     }
     const question = typeof data?.question === 'string' ? data.question.trim().slice(0, 500) : '';
     if (!question) return;
+    evalInbound(roomId, pid, 'ask-floor-question', { question, kind: data?.kind ?? null }, ncip);
     // Per-participant rate limit — guest floods can't spam the floor. One
     // submitted question per 4s; floor-holder restrictions still apply inside
     // ncip.submitQuestion.
@@ -2579,7 +2598,9 @@ io.on('connection', (socket) => {
   socket.on('answer-ended', (data) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
-    applyEffects(ctx.roomId, getNcipRoom(ctx.roomId).answerEnded(data?.id));
+    const ncip = getNcipRoom(ctx.roomId);
+    applyEffects(ctx.roomId, ncip.answerEnded(data?.id));
+    evalInbound(ctx.roomId, ctx.participantId, 'answer-ended', { id: data?.id }, ncip);
   });
 
   socket.on('state-update', (data) => {
@@ -2612,6 +2633,7 @@ io.on('connection', (socket) => {
     // — record it so late joiners can recover an in-progress lecture.
     const seg = /^(.+)_seg_(\d+)$/.exec(data?.id || '');
     const ncip = getNcipRoom(ctx.roomId);
+    evalInbound(ctx.roomId, ctx.participantId, 'professor-speak', { id: data?.id, type: data?.type }, ncip);
     // Agent-driven room: the SERVER emits every lecture unit itself, so a
     // client-relayed lecture message is always just an echo/position report.
     // Honor it ONLY for the current run (lectureId + runId — an explicit
@@ -2667,11 +2689,13 @@ io.on('connection', (socket) => {
       console.log(`[server] ${ctx.participantId} ended the lecture in '${ctx.roomId}'`);
       ncip.lectureRun = null;
       applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
+      evalInbound(ctx.roomId, ctx.participantId, 'lecture-control', { action: 'end' }, ncip);
       // Tell every client to stop and clear its local lecture queue — unlike
       // endLecture's implicit drain path, this is an explicit host command.
       io.to(ctx.roomId).emit('lecture-control', { action: 'end' });
       return;
     } else return;
+    evalInbound(ctx.roomId, ctx.participantId, 'lecture-control', { action: data?.action, ok: result.ok }, ncip);
     if (result.ok) applyEffects(ctx.roomId, result.effects);
     else socket.emit('lecture-control', { action: 'control-error', error: result.error });
   });
@@ -2686,6 +2710,7 @@ io.on('connection', (socket) => {
     const ncip = getNcipRoom(ctx.roomId);
     ncip.lectureRun = null;
     applyEffects(ctx.roomId, ncip.endLecture(ctx.participantId));
+    evalInbound(ctx.roomId, ctx.participantId, 'lecture-ended', null, ncip);
   });
 
   // V2: start a server-driven lecture session. Public rooms: any member may
@@ -2735,6 +2760,7 @@ io.on('connection', (socket) => {
     if (!startGate.ok) return;
     try {
       await startLectureRun(roomId, lectureId);
+      evalInbound(roomId, ctx.participantId, 'lecture.start', { lectureId }, ncip);
     } catch (err) {
       console.error(`[agent] lecture start failed for ${lectureId} in '${roomId}':`, err);
       socket.emit('lecture-control', { action: 'control-error', error: 'Failed to start the lecture.' });
@@ -2765,6 +2791,7 @@ io.on('connection', (socket) => {
     // delayed/duplicate reports are dropped, never re-advance or replay.
     if (run.completedIds?.has(claimed)) return;
     (run.completedIds ??= new Set()).add(claimed);
+    evalInbound(roomId, ctx.participantId, 'lecture-segment-ended', { messageId: claimed }, ncip);
     // Memory: a re-explanation "completes" when its unit actually finished
     // playing — mark it now so decide() can never loop it.
     if (run.currentUnit?.action?.purpose === 'group_recap') {
@@ -2794,7 +2821,9 @@ io.on('connection', (socket) => {
 
   socket.on('chat', (data) => {
     const ctx = socketCtx.get(socket.id);
-    if (ctx) socket.broadcast.to(ctx.roomId).emit('chat', { from: data.name || ctx.participantId, text: data.text });
+    if (!ctx) return;
+    evalInbound(ctx.roomId, ctx.participantId, 'chat', { text: data?.text }, ncipRooms[ctx.roomId]);
+    socket.broadcast.to(ctx.roomId).emit('chat', { from: data.name || ctx.participantId, text: data.text });
   });
 
   // WebRTC signaling relay for peer voice chat: forwards offers, answers and
@@ -2870,6 +2899,7 @@ io.on('connection', (socket) => {
     if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
     const { roomId, participantId: pid } = ctx;
     const ncip = getNcipRoom(roomId);
+    evalInbound(roomId, pid, 'disconnect', null, ncip);
     if (ncip.participantDisconnected(pid)) {
       console.log(`[server] disconnect: ${pid} offline in '${roomId}' — ${ncip.RECONNECT_GRACE_MS}ms grace`);
       emitFloorState(roomId); // participants list shows them offline

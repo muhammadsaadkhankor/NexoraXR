@@ -905,6 +905,19 @@ router.post('/ask', async (req, res) => {
   }
   const lang = normalizeLang(language);
   const segId = Number.isInteger(currentSegmentId) ? currentSegmentId : null;
+  // Evaluation harness only (EVAL_MOCK_PROFESSOR=1): no LLM/TTS — a fixed
+  // answer after a fixed delay keeps NCIP floor timing deterministic.
+  if (process.env.EVAL_MOCK_PROFESSOR === '1') {
+    await new Promise((r) => setTimeout(r, Number(process.env.EVAL_MOCK_DELAY_MS || 500)));
+    return res.json({ messages: [{
+      text: 'Mock answer for evaluation.',
+      animation: 'explain',
+      facialExpression: 'smile',
+      audioUrl: null,
+      durationMs: Number(process.env.EVAL_MOCK_DURATION_MS || 250),
+      lipsync: null,
+    }] });
+  }
   try {
     let context = '';
     let courseName = null;
@@ -1064,6 +1077,18 @@ export { resolveRecapMaterial, recapCacheKey };
 // /ask so the NCIP floor-answer pipeline broadcasts it unchanged.
 router.post('/recap', async (req, res) => {
   const { lectureId, language, fromSegment, toSegment } = req.body || {};
+  // Evaluation harness only (EVAL_MOCK_PROFESSOR=1): see /ask.
+  if (process.env.EVAL_MOCK_PROFESSOR === '1') {
+    await new Promise((r) => setTimeout(r, Number(process.env.EVAL_MOCK_DELAY_MS || 500)));
+    return res.json({ messages: [{
+      text: 'Mock recap for evaluation.',
+      animation: 'explain',
+      facialExpression: 'smile',
+      audioUrl: null,
+      durationMs: Number(process.env.EVAL_MOCK_DURATION_MS || 250),
+      lipsync: null,
+    }] });
+  }
   try {
     const resolved = await resolveRecapMaterial(lectureId, language, fromSegment, toSegment);
     if (resolved.error) {
