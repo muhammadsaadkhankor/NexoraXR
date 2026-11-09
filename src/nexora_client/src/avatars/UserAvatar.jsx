@@ -91,13 +91,15 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     }
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scene.traverse((child) => {
       if (child.isLine || child.isLineSegments || child.isLineLoop) {
         child.visible = false;
       }
     });
-    scene.visible = visible && cameraPreset !== "first-person";
+    // Stay hidden until the pose effect applies an action — the GLB mounts
+    // in bind pose and a passive useEffect would paint it for a frame.
+    scene.visible = false;
   }, [scene, cameraPreset, visible]);
 
   useEffect(() => {
@@ -155,17 +157,20 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
     };
   }, []);
 
-  useEffect(() => {
+  // useLayoutEffect so the pose + reveal happen before paint.
+  useLayoutEffect(() => {
     if (actions[animation]) {
       actions[animation]
         .reset()
         .fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5)
         .play();
+      mixer.update(0.001);
+      scene.visible = visible && cameraPreset !== "first-person";
       return () => {
         if (actions[animation]) actions[animation].fadeOut(0.5);
       };
     }
-  }, [animation, actions, mixer]);
+  }, [animation, actions, mixer, scene, visible, cameraPreset]);
 
   useLayoutEffect(() => {
     if (!group.current || !floorScene) return;

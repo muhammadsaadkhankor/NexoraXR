@@ -26,3 +26,48 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* --- Classroom loading overlay ---------------------------------------------
+   Pulsing orb + counter-rotating rings, shimmer progress bar, staged tips. */
+.loadorb { position: relative; width: 88px; height: 88px; }
+.loadorb__core {
+  position: absolute; inset: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #a78bfa, #7c3aed 55%, #22d3ee);
+  box-shadow: 0 0 40px rgba(124, 92, 252, 0.8), 0 0 90px rgba(34, 211, 238, 0.35);
+  animation: loadorb-pulse 2.2s ease-in-out infinite;
+}
+.loadorb__ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-top-color: rgba(34, 211, 238, 0.9);
+  border-right-color: rgba(124, 92, 252, 0.45);
+  animation: spin 1.7s linear infinite;
+}
+.loadorb__ring--b {
+  inset: 10px;
+  border-top-color: rgba(124, 92, 252, 0.9);
+  border-right-color: rgba(34, 211, 238, 0.4);
+  animation: spin 2.8s linear infinite reverse;
+}
+@keyframes loadorb-pulse {
+  50% { transform: scale(1.14); box-shadow: 0 0 60px rgba(124, 92, 252, 0.95), 0 0 120px rgba(34, 211, 238, 0.5); }
+}
+.loadbar {
+  height: 100%; width: 40%; border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #7c5cfc, #22d3ee, transparent);
+  animation: loadbar-slide 1.5s ease-in-out infinite;
+}
+@keyframes loadbar-slide {
+  0% { transform: translateX(-130%); }
+  100% { transform: translateX(390%); }
+}
+.loadtip { animation: loadtip-fade 2.2s ease both; }
+@keyframes loadtip-fade {
+  0% { opacity: 0; transform: translateY(6px); }
+  18% { opacity: 1; transform: translateY(0); }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loadorb__core, .loadorb__ring, .loadbar, .loadtip { animation: none; }
+}

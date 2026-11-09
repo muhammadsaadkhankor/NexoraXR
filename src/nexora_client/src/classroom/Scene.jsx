@@ -63,15 +63,28 @@ function LoadingOverlay({ visible }) {
   }, [visible]);
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/95 text-white backdrop-blur-md transition-opacity duration-500 ease-out ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#07050f]/95 text-white backdrop-blur-xl transition-opacity duration-500 ease-out ${
         visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
       }`}
     >
-      <div className='relative flex items-center justify-center'>
-        <div className='h-16 w-16 animate-spin rounded-full border-4 border-slate-800 border-t-cyan-400' />
-        <div className='absolute h-10 w-10 animate-spin rounded-full border-4 border-slate-800/40 border-b-violet-500' style={{ animationDirection: 'reverse', animationDuration: '1.4s' }} />
+      {/* Pulsing core inside two counter-rotating orbit rings */}
+      <div className='loadorb'>
+        <div className='loadorb__core' />
+        <div className='loadorb__ring loadorb__ring--a' />
+        <div className='loadorb__ring loadorb__ring--b' />
       </div>
-      <p className='mt-6 text-lg font-semibold text-slate-100'>{LOAD_TIPS[tip]}</p>
+      <div className='mt-8 flex items-baseline gap-2'>
+        <span className='text-2xl font-bold tracking-wide text-white'>
+          Wu<span className='text-violet-400'>Flux</span>
+        </span>
+      </div>
+      <p className='mt-1 text-[10px] font-semibold uppercase tracking-[0.4em] text-slate-500'>
+        Bionic Classroom
+      </p>
+      <div className='mt-9 h-[3px] w-56 overflow-hidden rounded-full bg-white/10'>
+        <div className='loadbar' />
+      </div>
+      <p key={tip} className='loadtip mt-5 text-sm font-medium text-slate-400'>{LOAD_TIPS[tip]}</p>
     </div>
   );
 }

@@ -51,6 +51,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
       useGLTF.preload(modelPath);
       useGLTF.dispose(previousModelPath.current);
       previousModelPath.current = modelPath;
+      setPosed(false); // new model — re-hide until its first pose is applied
     }
   }, [modelPath]);
 
@@ -77,6 +78,9 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
 
   const { actions, mixer } = useAnimations(animations, group);
   const { message, onMessagePlayed, audioElementRef, floorPausedRef, floorPaused, audioErrorRef } = useSpeech();
+  // Hidden until the first animation pose is evaluated — the GLB resolves
+  // in bind (T) pose and without a sync mixer tick that pose paints a frame.
+  const [posed, setPosed] = useState(false);
 
   const [lipsync, setLipsync] = useState();
   const [animation, setAnimation] = useState("Idle");
@@ -329,8 +333,12 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
     const target = resolveAnimation(activeAnimation, actions);
     if (target && actions[target]) {
       actions[target].reset().play().setEffectiveWeight(1);
+      // Force one mixer evaluation now — otherwise the pose only applies on
+      // the next useFrame and the bind pose paints first.
+      mixer.update(0.001);
+      setPosed(true);
     }
-  }, [group, actions, activeAnimation, props.position, props.rotation, props.scale]);
+  }, [group, actions, mixer, activeAnimation, props.position, props.rotation, props.scale]);
 
   useEffect(() => {
     let blinkTimeout;
@@ -419,7 +427,7 @@ export function Avatar({ modelPath = DEFAULT_AVATAR_PATH, ...props }) {
   });
 
   return (
-    <group ref={group} {...props} dispose={null}>
+    <group ref={group} visible={posed} {...props} dispose={null}>
       {scene && <primitive object={scene} />}
     </group>
   );

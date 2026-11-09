@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useGLTF, useAnimations, Html } from '@react-three/drei';
 import { useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -117,7 +117,7 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
 
   const pos = useMemo(() => new THREE.Vector3(), []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const box = new THREE.Box3().setFromObject(scene);
     const size = new THREE.Vector3();
     box.getSize(size);
@@ -129,7 +129,7 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
     }
     scene.position.set(0, 0, 0);
     scene.scale.set(1, 1, 1);
-    scene.visible = true;
+    scene.visible = false; // pose effect reveals it once an action is applied
     scene.traverse((child) => {
       if (child.isLine || child.isLineSegments || child.isLineLoop) {
         child.visible = false;
@@ -178,16 +178,20 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
   // Fall back to Idle when the remote sends an animation name this model's
   // clip set doesn't contain — otherwise the avatar stays in bind pose.
   const resolvedAnimation = actions[currentAnimation] ? currentAnimation : 'Idle';
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): runs before paint — the skeleton is
+  // posed and made visible in the same commit, so a bind-pose frame can
+  // never reach the screen.
+  useLayoutEffect(() => {
     const action = actions[resolvedAnimation];
     if (!action) return;
     action.reset().fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5).play();
     playingAnim.current = resolvedAnimation;
+    mixer.update(0.001);
+    scene.visible = true;
     if (!liftComputed.current) {
       liftComputed.current = true;
       // Pose the skeleton once, then measure the SKINNED bounds — a bind-pose
       // Box3 lies because bones reposition the vertices on the GPU.
-      mixer.update(0.001);
       scene.updateMatrixWorld(true);
       const box = new THREE.Box3();
       const tmp = new THREE.Box3();
@@ -202,7 +206,7 @@ function RemoteAvatarInner({ state, handRaised, audioStream, audioListener, floo
     return () => {
       if (actions[resolvedAnimation]) actions[resolvedAnimation].fadeOut(0.5);
     };
-  }, [resolvedAnimation, actions, mixer]);
+  }, [resolvedAnimation, actions, mixer, scene]);
 
   useFrame((_, delta) => {
     if (!group.current) return;
