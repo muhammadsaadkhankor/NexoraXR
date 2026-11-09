@@ -84,3 +84,35 @@ export function wavDurationMs(input) {
   if (!byteRate || dataSize == null) return null;
   return Math.round((dataSize / byteRate) * 1000);
 }
+
+// Spoken duration of a RIFF/WAVE buffer in ms — like wavDurationMs but the
+// trailing digital silence TTS engines append is excluded (up to the last
+// non-silent sample + a small natural-decay tail). Falls back to the full
+// duration when the format isn't scannable 16-bit PCM.
+export function wavSpeechMs(input, { threshold = 400, tailKeepMs = 250 } = {}) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+    return null;
+  }
+  let byteRate = null, bitsPerSample = null, dataOff = null, dataSize = null;
+  let pos = 12;
+  while (pos + 8 <= buf.length) {
+    const id = buf.toString('ascii', pos, pos + 4);
+    const size = buf.readUInt32LE(pos + 4);
+    if (id === 'fmt ') { byteRate = buf.readUInt32LE(pos + 12); bitsPerSample = buf.readUInt16LE(pos + 22); }
+    if (id === 'data') { dataOff = pos + 8; dataSize = size; break; }
+    pos += 8 + size + (size % 2);
+  }
+  if (!byteRate || dataSize == null) return null;
+  const fullMs = Math.round((dataSize / byteRate) * 1000);
+  if (bitsPerSample !== 16 || dataOff == null) return fullMs;
+  // Scan backwards over 16-bit samples for the last one above the silence
+  // threshold — cheap tail trim (~bytes of a few hundred KB wav).
+  let end = dataOff + dataSize - 2;
+  for (; end > dataOff; end -= 2) {
+    if (Math.abs(buf.readInt16LE(end)) > threshold) break;
+  }
+  const speechBytes = Math.max(0, end + 2 - dataOff);
+  const speechMs = Math.round((speechBytes / byteRate) * 1000);
+  return Math.min(fullMs, speechMs + tailKeepMs);
+}

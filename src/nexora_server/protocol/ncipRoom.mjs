@@ -964,17 +964,17 @@ export class NcipRoom {
     return this._finishAnswer();
   }
 
-  // Client telemetry/fallback: a report only advances the protocol if the
-  // server-measured duration has already elapsed (i.e. the timer somehow
-  // missed). A fast client can never end the answer early for the room.
+  // Playback-end report: the FIRST valid report ends the answer for the
+  // whole room — the answer is broadcast to every client, so one finished
+  // playback IS the completion signal. Absurdly-early reports (< 50% of the
+  // measured duration) are ignored as premature. Stale ids, wrong ids and
+  // repeat reports are no-ops: the first finish clears currentAnswer.
   answerEnded(answerId, now = Date.now()) {
     if (this.professor.status !== ProfessorStatus.ANSWERING) return [];
     if (!this.currentAnswer || this.currentAnswer.id !== answerId) return [];
     const { startedAt, durationMs } = this.currentAnswer;
-    if (durationMs == null || now - startedAt >= durationMs) {
-      return this._finishAnswer();
-    }
-    return [];
+    if (durationMs != null && now - startedAt < durationMs * 0.5) return [];
+    return this._finishAnswer();
   }
 
   // ---- disconnect ----------------------------------------------------------

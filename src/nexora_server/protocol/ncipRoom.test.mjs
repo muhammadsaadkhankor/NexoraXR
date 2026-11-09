@@ -241,15 +241,15 @@ test('10b. LLM/TTS failure with queue -> next student gets floor, no resume', ()
   assert.ok(!lectureCtl(fx).includes('resume'));
 });
 
-test('11a. early client answer-ended cannot end the answer for the room', () => {
+test('11a. first valid answer-ended ends the answer; absurdly-early is ignored', () => {
   const { room } = answeringRoom(5000); // answer is 5s long
   const startedAt = room.currentAnswer.startedAt;
-  // A fast client reports at t+1s — must be ignored.
+  // Report at 20% of the measured duration — absurdly early, ignored.
   assert.deepEqual(room.answerEnded('ans-1', startedAt + 1000), []);
   assert.equal(room.professor.status, S.ANSWERING);
-  // After the measured duration elapsed the same report is accepted as
-  // fallback (e.g. if the server timer were delayed).
-  const fx = room.answerEnded('ans-1', startedAt + 5000);
+  // Report just past 50% — a real playback end: accepted immediately,
+  // no need to wait out the full measured duration.
+  const fx = room.answerEnded('ans-1', startedAt + 2600);
   assert.deepEqual(lectureCtl(fx), ['resume']);
   assert.equal(room.professor.status, S.LECTURING);
 });

@@ -1738,7 +1738,13 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     // NCIP answer.end: report when this client finishes playing a floor
     // answer; the server advances the protocol on the first report.
     answerEndedRef.current = (msg) => {
-      socket.emit('answer-ended', { id: msg.id });
+      // Include this client's measured audio length — server telemetry
+      // compares it against the server-side durationMs.
+      const dur = audioElementRef.current?.duration;
+      socket.emit('answer-ended', {
+        id: msg.id,
+        audioMs: Number.isFinite(dur) ? Math.round(dur * 1000) : null,
+      });
     };
 
     // A missing/unloadable audio asset (unbaked segment, TTS down) surfaces

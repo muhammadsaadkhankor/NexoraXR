@@ -15,6 +15,8 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import lectureRouter, { loadLectureManifest, generateLectureUtterance } from "../nexora_ai/routes/lectureRoutes.mjs";
 import { NcipRoom, ProfessorStatus } from "./protocol/ncipRoom.mjs";
+import { readFileSync } from "node:fs";
+import { wavDurationMs } from "../nexora_ai/modules/audioUtils.mjs";
 import { randomUUID } from "node:crypto";
 import { getLecturePlan } from "./agent/lecturePlan.mjs";
 import { decide as professorDecide, validateAction } from "./agent/professorAgent.mjs";
@@ -1906,19 +1908,40 @@ function enrichEffectData(roomId, event, data) {
 
 // Slack added to the measured answer duration so the server-side completion
 // timer accounts for client buffering/playback-start latency.
-const ANSWER_END_SLACK_MS = 1000;
+const ANSWER_END_SLACK_MS = 2000;
+const ANSWER_END_UNKNOWN_MS = 15000;
+const ANSWER_AUDIO_DIR = path.resolve(SERVER_DIR, '..', 'nexora_ai', 'lecture_cache', 'answers');
 
-function scheduleAnswerEnd(roomId, answerId, durationMs) {
+// durationMs missing (mock/legacy answers) → measure the answer WAV via
+// its /answer_audio/<key> URL. The client 'answer-ended' report is the
+// primary completion path — this timer is only a safety net for reports
+// that never arrive.
+function answerAudioDurationMs(audioUrl) {
+  const m = /answer_audio\/([a-f0-9]{32})$/.exec(audioUrl || '');
+  if (!m) return null;
+  try {
+    return wavDurationMs(readFileSync(path.join(ANSWER_AUDIO_DIR, `${m[1]}.wav`)));
+  } catch { return null; }
+}
+
+function scheduleAnswerEnd(roomId, answerId, durationMs, audioUrl = null) {
   const ncip = ncipRooms[roomId];
   if (!ncip) return;
-  // When duration is unknown, fall back to a long safety net — client
-  // 'answer-ended' reports advance the protocol immediately in that case.
-  const wait = (durationMs ?? 60000) + ANSWER_END_SLACK_MS;
+  let wait = Number.isFinite(durationMs) ? durationMs : answerAudioDurationMs(audioUrl);
+  if (!Number.isFinite(wait)) wait = ANSWER_END_UNKNOWN_MS;
+  wait += ANSWER_END_SLACK_MS;
   const timer = setTimeout(() => {
     roomTimers[roomId]?.delete(timer);
     const room = ncipRooms[roomId];
     if (!room) return;
+    const was = room.professor.status === ProfessorStatus.ANSWERING
+      && room.currentAnswer?.id === answerId;
+    const t0 = Date.now();
     applyEffects(roomId, room.answerTimeExpired(answerId));
+    if (was && room.professor.status !== ProfessorStatus.ANSWERING) {
+      console.log(`[answer-end] ${answerId} durationMs=${durationMs ?? 'unknown'} ` +
+        `clientAudioMs=- path=fallback commitMs=${Date.now() - t0}`);
+    }
   }, wait);
   timer.unref?.();
   trackRoomTimer(roomId, timer);
@@ -2596,7 +2619,7 @@ io.on('connection', (socket) => {
       }
       clearThinkingTimers(roomId); // THINKING -> ANSWERING disarms the timeout
       console.log(`[ncip:metrics] ${roomId}: question.submit -> answer.start = ${Date.now() - submittedAt}ms`);
-      scheduleAnswerEnd(roomId, answerId, durationMs);
+      scheduleAnswerEnd(roomId, answerId, durationMs, msg.audioUrl);
       // V2.2: record the interaction + run the clarification classifier in the
       // background; the agent's decide() sees the flag on next advancement.
       if (data?.kind !== 'recap') {
@@ -2618,7 +2641,17 @@ io.on('connection', (socket) => {
     const ctx = socketCtx.get(socket.id);
     if (!ctx) return;
     const ncip = getNcipRoom(ctx.roomId);
+    // Capture answer state BEFORE the transition — _finishAnswer clears it.
+    const ans = ncip?.professor.status === ProfessorStatus.ANSWERING
+      ? ncip.currentAnswer : null;
+    const was = ans && ans.id === data?.id;
+    const t0 = Date.now();
     applyEffects(ctx.roomId, ncip.answerEnded(data?.id));
+    if (was && ncip.professor.status !== ProfessorStatus.ANSWERING) {
+      console.log(`[answer-end] ${data?.id} durationMs=${ans.durationMs ?? 'unknown'} ` +
+        `clientAudioMs=${data?.audioMs ?? '-'} reportedAfter=${Date.now() - ans.startedAt}ms ` +
+        `path=client commitMs=${Date.now() - t0}`);
+    }
     evalInbound(ctx.roomId, ctx.participantId, 'answer-ended', { id: data?.id }, ncip);
   });
 

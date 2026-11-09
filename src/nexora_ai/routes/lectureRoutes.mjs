@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { generate as generateOllama } from '../modules/ollamaClient.mjs';
 import { getDefaultVoice, synthesize as synthesizeTTS, synthesizeVerified } from '../modules/ttsClient.mjs';
-import { wavDurationMs } from '../modules/audioUtils.mjs';
+import { wavDurationMs, wavSpeechMs } from '../modules/audioUtils.mjs';
 import { execCommand } from '../utils/files.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1002,7 +1002,9 @@ router.post('/ask', async (req, res) => {
 
     let durationMs = null;
     try {
-      durationMs = wavDurationMs(await fs.readFile(audioPath));
+      // Speech duration — TTS trailing silence is excluded so the room's
+      // answer-end window matches what listeners actually hear.
+      durationMs = wavSpeechMs(await fs.readFile(audioPath)) ?? null;
     } catch (err) {
       console.error('[ask] duration parse failed:', err);
     }
@@ -1137,7 +1139,9 @@ ${material}`;
 
     let durationMs = null;
     try {
-      durationMs = wavDurationMs(await fs.readFile(audioPath));
+      // Speech duration — same trailing-silence exclusion as /api/ask so
+      // the answer-end window matches what listeners actually hear.
+      durationMs = wavSpeechMs(await fs.readFile(audioPath)) ?? null;
     } catch (err) {
       console.error('[recap] duration parse failed:', err);
     }

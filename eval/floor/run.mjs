@@ -78,7 +78,10 @@ function startServer(runId) {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  child.stdout.on('data', () => {});
+  // EVAL_SERVER_STDOUT=1 tees server stdout (e.g. [answer-end] telemetry)
+  // into the runner console; default stays silent.
+  const tee = process.env.EVAL_SERVER_STDOUT === '1';
+  child.stdout.on('data', tee ? (d) => process.stdout.write(`[server] ${d}`) : () => {});
   child.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
   return child;
 }

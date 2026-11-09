@@ -85,7 +85,7 @@ export class Student {
         this.rec.tAnswerStart = now();
         const wait = (Number.isFinite(d?.durationMs) ? d.durationMs : 250) + 60;
         this._answerTimer = setTimeout(() => {
-          this.s.emit('answer-ended', { id: d.id });
+          this.s.emit('answer-ended', { id: d.id, audioMs: d.durationMs ?? null });
           this.rec.tAnswerEnd = now();
           this.onAnswerDone?.(this);
         }, wait);
