@@ -147,7 +147,7 @@ function main() {
     '| Metric | Source | Meaning |',
     '|---|---|---|',
     '| `requestToGrantMs` | client | request-floor emit → floor-state holder=self |',
-    '| `handoffMs` | client | contested handoffs only: next request already pending when floor left the previous holder |',
+    '| `handoffMs` | client | contested handoffs only: next request already pending when floor left the previous holder — disconnect-driven transfers excluded (counted as `floorRecoveryMs`) |',
     '| `idleGapMs` | client | floor sat unowned: prev holder-end → next request arrival (excluded from handoffMs) |',
     '| `answerMs` | client | professor-speak (answering) → answer end |',
     '| `detectionMs` | server wall − client wall | socket close → server `disconnect` handling |',

@@ -294,8 +294,10 @@ async function runRep({ scenario, n, rep, seed, runId }) {
       // Contested handoff = the next grantee's request was already pending
       // when the floor left the previous holder. If the request arrived
       // later, the gap is idle time, not handoff latency. Reconnect "grants"
-      // (same pid, rejoined) are grace recoveries — a separate metric.
+      // (same pid, rejoined) are grace recoveries — a separate metric, as
+      // are transfers whose previous holder ended by disconnect.
       const kind = granted[i].isReconnect ? 'reconnect'
+        : (prev.tRelease == null && prev.tDisconnect != null) ? 'disconnect'
         : (next.tRequest != null && prevEnd != null && next.tRequest < prevEnd)
           ? 'contested' : 'idle';
       handoffs.push({

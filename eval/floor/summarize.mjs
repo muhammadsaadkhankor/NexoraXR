@@ -77,9 +77,14 @@ export function buildCells(resultsDir, logsDir, filter = isRepFile) {
         }
       }
       for (const h of rec.handoffs || []) {
-        if (h.kind === 'contested' && h.handoffMs != null) c.handoffs.push(h.handoffMs);
-        else if (h.kind == null && h.handoffMs != null) c.handoffs.push(h.handoffMs); // legacy records
+        // Disconnect-driven transfers (the previous holder dropped) are
+        // floor-recovery events, not handoff latency — they are measured
+        // once via disconnects[].floorRecoveryMs and never enter handoffMs.
+        const drivenByDisconnect = (rec.disconnects || []).some(
+          (d) => d.pid === h.prevPid && d.tDisconnect === h.prevRelease);
         if (h.kind === 'idle' && h.idleGapMs != null) c.idleGaps.push(h.idleGapMs);
+        else if ((h.kind === 'contested' || h.kind == null)
+          && h.handoffMs != null && !drivenByDisconnect) c.handoffs.push(h.handoffMs);
       }
       for (const d of rec.disconnects || []) {
         if (d.floorRecoveryMs != null) c.recoveries.push(d.floorRecoveryMs);
