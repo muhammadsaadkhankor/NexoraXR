@@ -209,6 +209,9 @@ export async function saveLectureDraft(courseId, lectureId, edits) {
     return { ok: false, error: err.message };
   }
   if (!applied.ok) return applied;
+  // No segment text changed — leave every artifact untouched (see
+  // saveLectureFullDraft for why a no-op must not rewrite files).
+  if (!applied.changedIndexes?.length) return { ok: true, changedIndexes: [] };
   parsed.segments = applied.segments;
   parsed.version = (parsed.version || 0) + 1;  // bump on every canonical edit
   await fsp.writeFile(segsPath, JSON.stringify(parsed, null, 2));
@@ -267,6 +270,13 @@ export async function saveLectureFullDraft(courseId, lectureId, fullText) {
     .map((s, i) => (oldSegments[i]?.text !== s.text ? i : -1))
     .filter((i) => i >= 0);
   const uncertainIndexes = segments.filter((s) => s.mapped === 'uncertain').map((s) => s.id);
+
+  // A re-segmented script identical to the current canonical is a no-op:
+  // rewriting artifacts would regenerate lecture_plan/slide_map and bump the
+  // version — marking translations and baked utterances stale for nothing.
+  if (!changedIndexes.length) {
+    return { ok: true, segments, changedIndexes, uncertainIndexes, validation };
+  }
 
   parsed.segments = segments;
   parsed.version = (parsed.version || 0) + 1;  // bump on every canonical edit
