@@ -21,6 +21,18 @@ export const SUPPORTED_LANGUAGES = LANGUAGE_CODES;
 
 const ev = (event, data, to = 'room') => ({ to, event, data });
 const FLOOR_STATE = { to: 'room', event: 'floor-state' };
+
+// EVAL_MUTANT — eval-only fault injection for the floor-benchmark oracle
+// (eval/floor). Never set in normal operation; every mutation below is
+// dormant unless the benchmark explicitly requests it:
+//   M1 — grant while held (exclusivity): a later request steals the holder
+//        slot without a stateVersion bump, broadcasting two owners under one
+//        version. The displaced holder stalls (rep timeout records it).
+//   M2 — LIFO queue (fairness): the next holder pops from the tail.
+//   M3 — drop the queue when a holder's reconnect grace expires (liveness).
+//   M4 — illegal transition (legality): the first grant goes LECTURING ->
+//        ANSWERING and submitQuestion then accepts ANSWERING -> THINKING.
+const MUTANT = process.env.EVAL_MUTANT || null;
 const pauseCtl = (userId) =>
   ev('lecture-control', { action: 'pause-for-floor', activeSpeaker: { userId } });
 
@@ -244,6 +256,13 @@ export class NcipRoom {
     if (!p || p.connected) return [];
     this._graceDeadlines.delete(pid);
     this.session.participants.delete(pid);
+    if (MUTANT === 'M3' && this.floor.holder === pid) {
+      // The expired holder's floor is freed AND the waiting queue is
+      // dropped — queued students starve instead of being granted.
+      this.floor.queue = [];
+      this.floor.holder = null;
+      return this._advanceFloor();
+    }
     return this.disconnect(pid);
   }
 
@@ -383,7 +402,9 @@ export class NcipRoom {
     this._bump();
     this.floorDeadline = null; // a new holder arms their own timeout at floor-ready
     if (this.floor.queue.length > 0) {
-      this.floor.holder = this.floor.queue.shift();
+      this.floor.holder = MUTANT === 'M2'
+        ? this.floor.queue.pop()    // LIFO — grants out of request order
+        : this.floor.queue.shift();
       this._mark('grant');
       this.interruption.checkpoint = null;
       this.professor.status = ProfessorStatus.PAUSED;
@@ -714,8 +735,16 @@ export class NcipRoom {
       this.floor.holder = userId;
       this.interruption.checkpoint = null;
       this.floorDeadline = null;
-      this.professor.status = ProfessorStatus.PAUSED;
+      this.professor.status = MUTANT === 'M4'
+        ? ProfessorStatus.ANSWERING   // illegal: no PAUSED/THINKING first
+        : ProfessorStatus.PAUSED;
       this._mark('grant');
+      return [FLOOR_STATE, pauseCtl(userId)];
+    }
+    if (MUTANT === 'M1') {
+      // Steal the slot without bumping the version — same stateVersion now
+      // carries two different owners in back-to-back floor-state emits.
+      this.floor.holder = userId;
       return [FLOOR_STATE, pauseCtl(userId)];
     }
     this._bump();
@@ -874,7 +903,9 @@ export class NcipRoom {
     if (this.floor.holder !== userId) {
       return { ok: false, error: 'Only the floor holder can ask a question.' };
     }
-    if (this.professor.status !== ProfessorStatus.PAUSED) {
+    if (this.professor.status !== ProfessorStatus.PAUSED
+        && !(MUTANT === 'M4' && this.professor.status === ProfessorStatus.ANSWERING)) {
+      // M4: a question during ANSWERING re-enters THINKING — illegal.
       return { ok: false, error: 'The professor is not ready for a question.' };
     }
     if (!this.interruption.checkpoint) {

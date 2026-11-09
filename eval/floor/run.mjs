@@ -48,6 +48,10 @@ const REP_SEED = process.env.EVAL_REP_SEED ? Number(process.env.EVAL_REP_SEED) :
 // kept-rate curve across grace-window sizes.
 const REJOIN_DELAY_MS = process.env.EVAL_RECONNECT_DELAY_MS
   ? Number(process.env.EVAL_RECONNECT_DELAY_MS) : 1400;
+// Per-rep drain timeout override — mutant runs (e.g. M1 exclusivity breaks)
+// deliberately stall some students; bound the wait.
+const REP_TIMEOUT_MS = process.env.EVAL_REP_TIMEOUT_MS
+  ? Number(process.env.EVAL_REP_TIMEOUT_MS) : null;
 const NS = (process.env.EVAL_NS || '2,5,10,20').split(',').map(Number);
 const SCENARIOS = (process.env.EVAL_SCENARIOS || 'A,B,C,D-release,D-disconnect,D-disconnect-reconnect,D-duplicate')
   .split(',').map((s) => s.trim()).filter(Boolean);
@@ -250,7 +254,7 @@ async function runRep({ scenario, n, rep, seed, runId }) {
   });
 
   const t0 = now();
-  const repTimeoutMs = Math.max(60_000, 20_000 + n * 5_000);
+  const repTimeoutMs = REP_TIMEOUT_MS ?? Math.max(60_000, 20_000 + n * 5_000);
 
   try {
     driver.s.emit('lecture.start', { lectureId: LECTURE_ID });
@@ -504,7 +508,8 @@ async function main() {
 
   for (const { scenario, n } of cells) {
     const runId = `floor_${scenario}_n${n}${GRACE_MS != null ? `_g${GRACE_MS}` : ''}` +
-      `${process.env.EVAL_RECONNECT_DELAY_MS ? `_d${REJOIN_DELAY_MS}` : ''}_${stamp}`;
+      `${process.env.EVAL_RECONNECT_DELAY_MS ? `_d${REJOIN_DELAY_MS}` : ''}` +
+      `${process.env.EVAL_MUTANT ? `_m${process.env.EVAL_MUTANT}` : ''}_${stamp}`;
     const server = startServer(runId);
     const resultsFile = path.join(RESULTS_DIR, `${runId}.jsonl`);
     const cellReps = [];
