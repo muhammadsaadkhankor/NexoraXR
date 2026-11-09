@@ -1,7 +1,21 @@
+import { DEFAULT_BRAND_MARK } from '../../shared/branding'
+
 const footerLinks = {
-  Platform: ['Classrooms', 'Create a room', 'WebXR'],
-  Learning: ['Courses', 'Catch Me Up', 'Multilingual lectures'],
-  Company: ['Philosophy', 'Research', 'Contact'],
+  Platform: [
+    ['Classrooms', '#explore'],
+    ['Create a room', '#explore'],
+    ['WebXR', '#platform'],
+  ],
+  Learning: [
+    ['Courses', '#explore'],
+    ['Catch Me Up', '#platform'],
+    ['Multilingual lectures', '#platform'],
+  ],
+  Company: [
+    ['Philosophy', '#philosophy'],
+    ['Research', '#platform'],
+    ['Contact', '#contact'],
+  ],
 }
 
 export default function Footer() {
@@ -11,7 +25,7 @@ export default function Footer() {
         <div className="footer__grid">
           <div className="footer__brand">
             <a href="#home" className="footer__logo">
-              <span className="navbar__seal">W</span>
+              <img src={DEFAULT_BRAND_MARK} alt="" className="navbar__seal" width="38" height="38" />
               WuFlux
             </a>
             <p className="footer__desc">
@@ -24,9 +38,9 @@ export default function Footer() {
             <div key={title} className="footer__col">
               <h4 className="footer__title">{title}</h4>
               <ul>
-                {links.map((l) => (
-                  <li key={l}>
-                    <a href="#explore">{l}</a>
+                {links.map(([label, href]) => (
+                  <li key={label}>
+                    <a href={href}>{label}</a>
                   </li>
                 ))}
               </ul>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Menu, X, LogOut, Settings2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { getMe, logout } from '../../shared/auth'
-import { getBranding } from '../../shared/branding'
+import { DEFAULT_BRAND_MARK, getBranding } from '../../shared/branding'
 import { API_URL } from '../../shared/config'
 
 export default function Navbar() {
@@ -10,7 +10,7 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const [me, setMe] = useState(null)
-  const [branding, setBranding] = useState({ appName: 'NexoraXR', logoUrl: null })
+  const [branding, setBranding] = useState({ appName: 'WuFlux', logoUrl: null })
 
   useEffect(() => { getBranding().then(setBranding) }, [])
 
@@ -29,14 +29,13 @@ export default function Navbar() {
     <header className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}>
       <div className="container navbar__inner">
         <a href="#home" className="navbar__brand">
-          {branding.logoUrl
-            ? <img src={`${API_URL}${branding.logoUrl}`} alt={branding.appName} className="navbar__seal" style={{ objectFit: 'contain' }} />
-            : <span className="navbar__seal">{(branding.appName || 'N')[0]}</span>}
+          <img src={branding.logoUrl ? `${API_URL}${branding.logoUrl}` : DEFAULT_BRAND_MARK} alt="" className="navbar__seal" width="38" height="38" />
           <span className="navbar__wordmark">{branding.appName}</span>
         </a>
         <nav className={`navbar__nav ${open ? 'navbar__nav--open' : ''}`}>
           <a href="#home" onClick={() => setOpen(false)}>Home</a>
-          <a href="#philosophy" onClick={() => setOpen(false)}>About us</a>
+          <a href="#explore" onClick={() => setOpen(false)}>Lectures</a>
+          <a href="#platform" onClick={() => setOpen(false)}>About</a>
           <a href="#contact" onClick={() => setOpen(false)}>Contact</a>
           <div className="navbar__nav-actions">
             {me?.role === 'SUPER_ADMIN' && (
@@ -83,6 +82,7 @@ export default function Navbar() {
             className="navbar__toggle"
             onClick={() => setOpen((v) => !v)}
             aria-label="Toggle menu"
+            aria-expanded={open}
           >
             {open ? <X size={24} /> : <Menu size={24} />}
           </button>

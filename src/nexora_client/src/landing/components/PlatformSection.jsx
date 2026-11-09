@@ -5,27 +5,27 @@ import { Globe2, Languages, Rewind, Users } from 'lucide-react'
 const pillars = [
   {
     icon: Globe2,
-    title: 'Any place',
-    desc: 'A full 3D classroom in the browser on desktop, laptop or headset. No installs, no campus.',
-    tag: 'without distance',
+    title: 'A classroom in your browser',
+    desc: 'Step into a shared 3D space from your desktop, or explore in VR with a compatible headset.',
+    tag: 'Browser-based learning',
   },
   {
     icon: Languages,
-    title: 'Any language',
-    desc: 'The professor lectures in English, Arabic, French, German, Spanish or Chinese, and the whole room hears it natively.',
-    tag: 'without translation walls',
+    title: 'Six languages to learn in',
+    desc: 'Follow AI-led lectures in English, Arabic, French, German, Spanish or Chinese.',
+    tag: 'Multilingual lectures',
   },
   {
     icon: Rewind,
-    title: 'Any pace',
-    desc: 'Join late and the professor recaps what you missed, then resumes from the exact point it paused.',
-    tag: 'without falling behind',
+    title: 'Room to catch up',
+    desc: 'Joining a lecture late? Get a recap of what you missed before continuing with the class.',
+    tag: 'Lecture recaps',
   },
   {
     icon: Users,
-    title: 'Anyone',
-    desc: 'Open public classrooms for everyone, or private rooms with invite links and host approval.',
-    tag: 'without gatekeepers',
+    title: 'Learn with your people',
+    desc: 'Join a public classroom or gather a private group with invite links and host approval.',
+    tag: 'Public and private rooms',
   },
 ]
 
@@ -34,14 +34,14 @@ export default function PlatformSection() {
     <section id="platform" className="platform">
       <div className="container">
         <div className="section__header" style={{ textAlign: 'left', marginBottom: 56 }}>
-          <span className="section__eyebrow">The platform · Education 5.0</span>
+          <span className="section__eyebrow">The WuFlux platform</span>
           <h2 className="section__title">
-            Every barrier,
-            <span className="grad-text"> removed.</span>
+            A shared space.
+            <span className="grad-text"> More ways to learn.</span>
           </h2>
           <p className="section__desc" style={{ margin: 0 }}>
-            WuFlux treats the eight "anys" of boundless learning as engineering
-            requirements, each one backed by a working capability.
+            From your first lecture to your next group session, WuFlux brings
+            immersive classrooms, language choice and lecture recaps together.
           </p>
         </div>
 
@@ -49,7 +49,7 @@ export default function PlatformSection() {
           {pillars.map((p) => (
             <div key={p.title} className="pillar">
               <div className="pillar__head">
-                <span className="pillar__icon"><p.icon size={22} /></span>
+                <span className="pillar__icon"><p.icon size={22} aria-hidden="true" /></span>
                 <h3>{p.title}</h3>
               </div>
               <p>{p.desc}</p>

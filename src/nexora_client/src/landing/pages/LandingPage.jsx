@@ -16,7 +16,7 @@ export default function LandingPage() {
   };
 
   return (
-    <>
+    <div className="wuflux-landing">
       <Navbar />
       <main>
         <HeroSection />
@@ -25,6 +25,6 @@ export default function LandingPage() {
         <CTASection />
       </main>
       <Footer />
-    </>
+    </div>
   )
 }
