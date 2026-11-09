@@ -44,6 +44,10 @@ const LECTURE_ID = process.env.EVAL_LECTURE || 'Lecture_1';
 const REPS = Number(process.env.EVAL_REPS || 30);
 // EVAL_REP_SEED pins every rep to one seed — replays a recorded rep.
 const REP_SEED = process.env.EVAL_REP_SEED ? Number(process.env.EVAL_REP_SEED) : null;
+// Holder re-join delay for D-disconnect-reconnect — sweepable to map the
+// kept-rate curve across grace-window sizes.
+const REJOIN_DELAY_MS = process.env.EVAL_RECONNECT_DELAY_MS
+  ? Number(process.env.EVAL_RECONNECT_DELAY_MS) : 1400;
 const NS = (process.env.EVAL_NS || '2,5,10,20').split(',').map(Number);
 const SCENARIOS = (process.env.EVAL_SCENARIOS || 'A,B,C,D-release,D-disconnect,D-disconnect-reconnect,D-duplicate')
   .split(',').map((s) => s.trim()).filter(Boolean);
@@ -158,7 +162,7 @@ function planScenario(scenario, students, rng) {
       const [owner, ...rest] = students;
       owner.onGrant = (s) => setTimeout(async () => {
         s.disconnect();
-        await sleep(1400); // reconnect < 2 s, inside the 10 s grace window
+        await sleep(REJOIN_DELAY_MS); // default 1400 ms — inside the 10 s grace window
         try {
           const re = new Student({
             base: BASE, roomId: s.roomId, pid: s.pid, lectureId: s.lectureId,
@@ -499,7 +503,8 @@ async function main() {
   const allReps = [];
 
   for (const { scenario, n } of cells) {
-    const runId = `floor_${scenario}_n${n}${GRACE_MS != null ? `_g${GRACE_MS}` : ''}_${stamp}`;
+    const runId = `floor_${scenario}_n${n}${GRACE_MS != null ? `_g${GRACE_MS}` : ''}` +
+      `${process.env.EVAL_RECONNECT_DELAY_MS ? `_d${REJOIN_DELAY_MS}` : ''}_${stamp}`;
     const server = startServer(runId);
     const resultsFile = path.join(RESULTS_DIR, `${runId}.jsonl`);
     const cellReps = [];
