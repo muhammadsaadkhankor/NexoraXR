@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="surface" x1="6" y1="4" x2="59" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#29234B"/>
+      <stop offset="1" stop-color="#10243A"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="6" y1="4" x2="59" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#AA8CFF" stop-opacity=".65"/>
+      <stop offset="1" stop-color="#72E1EB" stop-opacity=".35"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="12" y1="22" x2="53" y2="43" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B39AFF"/>
+      <stop offset=".48" stop-color="#91B8FF"/>
+      <stop offset="1" stop-color="#72E1EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="17" fill="url(#surface)" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M13 21L21 43C21.8 45.2 24.2 45.2 25 43L32 25L39 43C39.8 45.2 42.2 45.2 43 43L51 21" stroke="url(#flow)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 16H48" stroke="#C3B3FF" stroke-width="2.5" stroke-linecap="round" opacity=".7"/>
+</svg>
