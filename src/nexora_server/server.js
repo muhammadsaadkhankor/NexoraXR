@@ -865,7 +865,7 @@ const PROFBRAIN_LECTURES = path.resolve(SERVER_DIR, '../../profbrain/lectures');
 const REPO_ROOT = path.resolve(SERVER_DIR, '..', '..');
 
 // Display names for user-facing language readiness errors.
-import { LANGUAGE_NAMES } from '../shared/languages.mjs';
+import { LANGUAGE_NAMES, LANGUAGE_CODES } from '../shared/languages.mjs';
 const LECTURE_LANG_LABELS = LANGUAGE_NAMES;
 const MATERIALS_DIR = path.join(SERVER_DIR, 'uploads', 'materials');
 const PDF_MAX = 25 * 1024 * 1024;
@@ -1428,6 +1428,44 @@ function socketFor(roomId, pid) {
   return ncipRooms[roomId]?.session.participants.get(pid)?.socketId || pid;
 }
 
+// Per-user lecture language: a member may override the room language for
+// THEIR OWN audio/text — the class stays on the same segment index and
+// slide; only the delivered payload is localized. rooms[roomId][pid].lang
+// === null/undefined means "follow the room language".
+function langFor(roomId, pid) {
+  return rooms[roomId]?.[pid]?.lang
+    || ncipRooms[roomId]?.language?.roomLanguage || 'en';
+}
+
+// Connected participants grouped by effective language — professor-speak is
+// emitted once per distinct language so each member hears their own.
+function connectedLangGroups(roomId) {
+  const groups = new Map();
+  for (const [pid, sess] of ncipRooms[roomId]?.session.participants || []) {
+    if (!sess.connected) continue;
+    const lang = langFor(roomId, pid);
+    if (!groups.has(lang)) groups.set(lang, []);
+    groups.get(lang).push(pid);
+  }
+  return groups;
+}
+
+// Per-language manifest cache on the run — overriding users need their own
+// language's segment payloads; run.manifest stays the canonical (room) one.
+async function manifestForLang(roomId, run, lang) {
+  if (lang === ncipRooms[roomId]?.language?.roomLanguage) return run.manifest;
+  (run.manifestByLang ??= {});
+  if (!run.manifestByLang[lang]) {
+    try {
+      run.manifestByLang[lang] = await loadLectureManifest(run.lectureId, lang);
+    } catch (err) {
+      console.warn(`[agent] ${roomId}: per-user manifest '${lang}' failed:`, err.message);
+      run.manifestByLang[lang] = run.manifest;
+    }
+  }
+  return run.manifestByLang[lang];
+}
+
 function trackRoomTimer(roomId, timer) {
   (roomTimers[roomId] ??= new Set()).add(timer);
 }
@@ -1639,25 +1677,33 @@ async function emitNextLectureUnit(roomId) {
           segmentIndex: action.segmentId,
           playbackOffsetMs: 0,
         }));
-        io.to(roomId).emit('professor-speak', {
-          id: unitId,
-          type: 'lecture',
-          unitStartedAt: Date.now(),
-          lectureId: run.lectureId,
-          runId: run.runId,
-          title: run.manifest.title,
-          text: seg.text,
-          audioUrl: seg.audioUrl,
-          a2fUrl: seg.a2fUrl || null,
-          animation: seg.animation,
-          facialExpression: seg.facialExpression,
-          lipsync: seg.lipsync,
-          // Segment-level provenance wins over the topic's first page — the
-          // board must follow THIS segment's page/document.
-          slidePage: seg.slidePage ?? action.slidePage ?? null,
-          slideDoc: seg.slideDoc ?? null,
-          stateVersion: ncip.stateVersion,
-        });
+        // Per-user language: one emit per distinct effective language — same
+        // unitId/segment/slide for everyone, only text+audio localized.
+        for (const [lang, pids] of connectedLangGroups(roomId)) {
+          const m = await manifestForLang(roomId, run, lang);
+          const lseg = m?.segments.find((s) => s.id === seg.id) || seg;
+          const payload = {
+            id: unitId,
+            type: 'lecture',
+            unitStartedAt: Date.now(),
+            lectureId: run.lectureId,
+            runId: run.runId,
+            title: run.manifest.title,
+            text: lseg.text,
+            audioUrl: lseg.audioUrl,
+            a2fUrl: lseg.a2fUrl || null,
+            animation: lseg.animation,
+            facialExpression: lseg.facialExpression,
+            lipsync: lseg.lipsync,
+            // Segment-level provenance wins over the topic's first page — the
+            // board must follow THIS segment's page/document.
+            slidePage: lseg.slidePage ?? action.slidePage ?? null,
+            slideDoc: lseg.slideDoc ?? null,
+            language: lang,
+            stateVersion: ncip.stateVersion,
+          };
+          for (const pid of pids) io.to(socketFor(roomId, pid)).emit('professor-speak', payload);
+        }
         return;
       }
 
@@ -1685,44 +1731,64 @@ async function emitNextLectureUnit(roomId) {
       run.currentUnit = { id: pendingId, kind: 'dynamic', purpose: action.purpose, nextSegIndex, action };
       try {
         const topicTitle = run.plan?.topics.find((t) => t.id === action.topicId)?.title ?? null;
+        // Per-user language: every distinct effective language gets its own
+        // utterance — baked ones are cache hits. The room-language utterance
+        // MUST succeed; a failing override language degrades to it.
+        const groups = connectedLangGroups(roomId);
+        const roomLang = ncip.language.roomLanguage;
+        const langs = new Set(groups.keys());
+        langs.add(roomLang); // generate even with no live listeners (legacy semantics)
+        const timeoutMs = Number(process.env.NXR_UTTERANCE_TIMEOUT_MS || 45_000);
+        const msgs = new Map();
+        let roomErr = null;
         // Utterance timeout: a hung Ollama/TTS must never leave the room in a
         // synthetic "lecturing but silent" state. Fallbacks below apply.
-        const msg = await Promise.race([
-          generateLectureUtterance({
-            lectureId: run.lectureId,
-            language: ncip.language.roomLanguage,
-            purpose: action.purpose,
-            topicId: action.topicId,
-            topicTitle,
-            sourceSegmentIds: action.sourceSegmentIds,
-          }),
-          new Promise((_, rej) => setTimeout(() =>
-            rej(new Error(`utterance timeout (${action.purpose})`)),
-            Number(process.env.NXR_UTTERANCE_TIMEOUT_MS || 45_000))),
-        ]);
+        await Promise.all([...langs].map(async (lang) => {
+          try {
+            msgs.set(lang, await Promise.race([
+              generateLectureUtterance({
+                lectureId: run.lectureId,
+                language: lang,
+                purpose: action.purpose,
+                topicId: action.topicId,
+                topicTitle,
+                sourceSegmentIds: action.sourceSegmentIds,
+              }),
+              new Promise((_, rej) => setTimeout(() =>
+                rej(new Error(`utterance timeout (${action.purpose})`)), timeoutMs)),
+            ]));
+          } catch (e) { if (lang === roomLang) roomErr = e; msgs.set(lang, null); }
+        }));
+        const roomMsg = msgs.get(roomLang);
+        if (roomErr || !roomMsg) throw (roomErr || new Error('room-language utterance failed'));
         if (ncipRooms[roomId]?.lectureRun !== run) return; // ended mid-generation
         const unitId = `${run.lectureId}_dyn_${run.dynSeq}`;
         run.currentUnit = { id: unitId, kind: 'dynamic', purpose: action.purpose, nextSegIndex, action };
         applyEffects(roomId, ncip.lectureUnitStarted());
-        io.to(roomId).emit('professor-speak', {
-          id: unitId,
-          type: 'lecture',
-          unitStartedAt: Date.now(),
-          dynamic: action.purpose,
-          lectureId: run.lectureId,
-          runId: run.runId,
-          title: run.manifest.title,
-          text: msg.text,
-          audioUrl: msg.audioUrl,
-          a2fUrl: msg.a2fUrl || null,
-          animation: msg.animation,
-          facialExpression: msg.facialExpression,
-          lipsync: msg.lipsync,
-          durationMs: msg.durationMs,
-          slidePage: action.slidePage ?? null,
-          slideDoc: run.manifest.segments.find((s) => s.id === (action.sourceSegmentIds || [])[0])?.slideDoc ?? null,
-          stateVersion: ncip.stateVersion,
-        });
+        for (const [lang, pids] of groups) {
+          const msg = msgs.get(lang) || roomMsg;
+          const payload = {
+            id: unitId,
+            type: 'lecture',
+            unitStartedAt: Date.now(),
+            dynamic: action.purpose,
+            lectureId: run.lectureId,
+            runId: run.runId,
+            title: run.manifest.title,
+            text: msg.text,
+            audioUrl: msg.audioUrl,
+            a2fUrl: msg.a2fUrl || null,
+            animation: msg.animation,
+            facialExpression: msg.facialExpression,
+            lipsync: msg.lipsync,
+            durationMs: msg.durationMs,
+            slidePage: action.slidePage ?? null,
+            slideDoc: run.manifest.segments.find((s) => s.id === (action.sourceSegmentIds || [])[0])?.slideDoc ?? null,
+            language: lang,
+            stateVersion: ncip.stateVersion,
+          };
+          for (const pid of pids) io.to(socketFor(roomId, pid)).emit('professor-speak', payload);
+        }
         return;
       } catch (err) {
         console.error(`[agent] ${roomId}: ${action.purpose} generation failed (${err.message}) — falling back`);
@@ -1772,6 +1838,9 @@ function buildSnapshotPayload(roomId, pid = null) {
   const s = ncip.snapshot();
   return {
     ...s,
+    // Per-recipient effective language — the member's personal override when
+    // set, else the room language. Reconnects keep hearing their own choice.
+    language: { ...(s.language || {}), myLanguage: langFor(roomId, pid) },
     // V1 catch-up: per-recipient flag — true only when THIS participant has a
     // valid recap anchor for the lecture currently playing.
     canCatchUp: pid ? ncip.canCatchUp(pid) : false,
@@ -2304,6 +2373,40 @@ io.on('connection', (socket) => {
     // emitNextLectureUnit waits for it instead of racing ahead in English.
     const swapRun = ncip.lectureRun;
     if (swapRun) swapRun.manifestSwap = refreshLectureManifest(ctx.roomId);
+  });
+
+  // Per-user lecture language: any participant may override ONLY their own
+  // audio/text — the class stays on the same segment index and slide. Picking
+  // the room language clears the override (rejoins the shared channel).
+  socket.on('language.mine', async ({ language } = {}) => {
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    if (typeof language !== 'string' || !LANGUAGE_CODES.includes(language)) {
+      socket.emit('lecture-control', { action: 'language-error', error: 'Unsupported language.' });
+      return;
+    }
+    const ncip = getNcipRoom(ctx.roomId);
+    const roomLang = ncip.language.roomLanguage || 'en';
+    const override = language === roomLang ? null : language;
+    // Availability gate: same rule as the room switch — never offer a
+    // partially-baked language to anyone.
+    const activeLid = ncip.lectureRun?.lectureId;
+    if (activeLid && override) {
+      try {
+        const { ready, readyCount, total } = await isLanguageReady(activeLid, override);
+        if (!ready) {
+          socket.emit('lecture-control', { action: 'language-error',
+            error: `${LECTURE_LANG_LABELS[override] || override.toUpperCase()} is not ready for this lecture yet (${readyCount}/${total} segments).` });
+          return;
+        }
+      } catch (err) {
+        socket.emit('lecture-control', { action: 'language-error', error: 'Could not verify that language.' });
+        return;
+      }
+    }
+    rooms[ctx.roomId][ctx.participantId].lang = override;
+    console.log(`[server] ${ctx.participantId} set personal lecture language: ${override || '(room)'}`);
+    socket.emit('lecture-control', { action: 'language-mine', language });
   });
 
   // NCIP floor.request: dedupe; auto-grant when the floor is free, else FIFO queue.

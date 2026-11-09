@@ -376,20 +376,16 @@ function ClassroomPanel({
 
           <div className='relative'>
             <button
-              onClick={() => canChangeLanguage && setLangMenuOpen((v) => !v)}
-              title={canChangeLanguage
-                ? 'Lecture language — changes immediately for everyone in the room'
-                : `Lecture language — ${currentLangLabel} (only the host can change)`}
-              className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''} ${canChangeLanguage ? '' : 'cursor-default'}`}
+              onClick={() => setLangMenuOpen((v) => !v)}
+              title={`Your lecture language — applies only to you (${currentLangLabel})`}
+              className={`${pillBase} ${langMenuOpen ? 'bg-slate-800/80 ring-1 ring-cyan-400/50' : ''}`}
             >
               <Languages size={16} className='text-slate-300' />
               <div className='leading-tight'>
                 <p className='text-[11px] font-semibold'>Language</p>
                 <p className='hidden text-[10px] text-slate-400 sm:block'>{currentLangLabel}</p>
               </div>
-              {canChangeLanguage && (
-                <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
-              )}
+              <ChevronDown size={14} className={`text-slate-500 transition ${langMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {langMenuOpen && (
@@ -412,7 +408,7 @@ function ClassroomPanel({
                   </button>
                 ))}
                 <p className='mt-1 border-t border-slate-700/50 px-3 pt-2 text-[11px] text-slate-500'>
-                  Switches mid-lecture from the next segment
+                  Your language only — others keep theirs. Applies from the next segment.
                 </p>
               </div>
             )}
@@ -1048,11 +1044,14 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
   //  - if a floor answer is playing while a lecture segment is paused: the
   //    answer finishes, then the interrupted segment resumes in the new
   //    language (resumeAt is dropped — timestamps don't map across languages)
-  // NCIP Slice 3: language is server-authoritative — the selector only
-  // requests; the room broadcasts 'language-change' and every client
-  // (including the requester) applies it through applyLanguageChange.
+  // Per-user language: the selector sets THIS participant's language only
+  // (same segment index + slide for everyone; other members keep theirs).
+  // The server acks with 'language-mine' and this client applies it through
+  // applyLanguageChange — identical mechanics to a room-wide switch.
+  const myLangOverrideRef = useRef(null); // personal override — room 'language-change' no longer applies to me
+  const roomLangRef = useRef('en');
   const requestLanguageChange = useCallback((lang) => {
-    socketRef.current?.emit('language.change', { language: lang });
+    socketRef.current?.emit('language.mine', { language: lang });
   }, []);
 
   // Applies an authoritative language change to the local lecture queue.
@@ -1071,6 +1070,16 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
 
     const plan = planLanguageSwitch(speechCtlRef.current.messages, hintSegmentIndex);
     if (!plan) return; // no known position — leave the queue untouched
+
+    // Mid-segment resume inputs, captured BEFORE the rebuild: the live
+    // playback offset inside the current segment, and the OLD language's
+    // sentence alignment for that segment (from the current manifest).
+    const livePos = plan.headIsLecture
+      ? speechCtlRef.current.getLecturePosition?.()
+      : null;
+    const oldSeg = plan.headIsLecture
+      ? (lectureManifestRef.current || []).find((s) => s.id === plan.segmentIndex)
+      : null;
 
     try {
       const res = await fetch(`${API_URL}/api/lecture/segments/${lid}?lang=${lang}`);
@@ -1093,6 +1102,27 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
           slideDoc: seg.slideDoc ?? null,
         }));
       if (seq !== langSwitchSeqRef.current || !segs.length) return;
+
+      // Same-sentence resume: the index of the sentence playing at the live
+      // offset in the OLD language maps to that sentence's start time in the
+      // NEW language (baked alignment on both sides). Without alignment the
+      // interrupted segment restarts from its beginning — the old behavior.
+      if (livePos?.offsetSec > 0 && oldSeg?.sentences?.length
+          && segs[0].id === `${lid}_seg_${plan.segmentIndex}`) {
+        const newSents = data.segments.find(
+          (s) => s.id === plan.segmentIndex)?.sentences;
+        if (newSents?.length) {
+          let si = 0;
+          for (let k = 0; k < oldSeg.sentences.length; k++) {
+            if ((oldSeg.sentences[k].start ?? 0) <= livePos.offsetSec + 0.15) si = k;
+          }
+          const resumeSec =
+            newSents[Math.min(si, newSents.length - 1)]?.start ?? 0;
+          if (resumeSec > 0.05) segs[0].resumeAt = resumeSec;
+          console.log(`[lang-switch] resume seg ${plan.segmentIndex} ` +
+            `at sentence ${si} → ${resumeSec.toFixed(2)}s (${lang})`);
+        }
+      }
 
       if (plan.headIsLecture) {
         // Lecture segment is playing now — invalidate it (detach handlers so
@@ -1547,13 +1577,21 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         setFloorError(null);
       } else if (data?.action === 'answer-error') {
         setFloorAnswering(false);
-      } else if (data?.action === 'language-change') {
-        // NCIP Slice 3: the server accepted a language.change — every client
-        // applies it identically. Floor-held states only retarget the
-        // checkpoint language locally (already done server-side); an active
-        // lecture rebuilds from its current segment in the new language.
-        console.log('[client] language-change received:', data.language);
+      } else if (data?.action === 'language-mine') {
+        // Personal language override accepted — only THIS client's queue is
+        // rebuilt; everyone else keeps the room language.
+        console.log('[client] language-mine accepted:', data.language);
+        myLangOverrideRef.current =
+          data.language === roomLangRef.current ? null : data.language;
         languageChangeRef.current?.(data.language, data.segmentIndex);
+      } else if (data?.action === 'language-change') {
+        // NCIP Slice 3: room-wide change — members holding a personal
+        // override keep their own language and queue untouched.
+        console.log('[client] language-change received:', data.language);
+        roomLangRef.current = data.language;
+        if (!myLangOverrideRef.current) {
+          languageChangeRef.current?.(data.language, data.segmentIndex);
+        }
       } else if (data?.action === 'language-error') {
         console.warn('[client] language change rejected:', data?.error);
         flashLangNotice(data?.error || 'That language is not prepared for this lecture.');
@@ -1591,11 +1629,16 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       if (snap?.mic?.permissions) setMicPerms(snap.mic.permissions);
       if (activeSpeaker?.userId !== myIdRef.current) floorReadyRef.current = false;
 
-      // NCIP Slice 3: adopt the authoritative room language immediately —
-      // lecture recovery below and future checkpoint reports use it.
+      // NCIP Slice 3: adopt the authoritative language immediately —
+      // myLanguage (personal override) wins over the room default so a
+      // reconnecting member keeps hearing their own language.
       if (snap?.language?.roomLanguage) {
-        lectureLangRef.current = snap.language.roomLanguage;
-        setLectureLang(snap.language.roomLanguage);
+        roomLangRef.current = snap.language.roomLanguage;
+        const myLang = snap.language.myLanguage || snap.language.roomLanguage;
+        lectureLangRef.current = myLang;
+        setLectureLang(myLang);
+        myLangOverrideRef.current =
+          myLang !== snap.language.roomLanguage ? myLang : null;
       }
 
       // Floor held => a recovered lecture head must stay paused (Avatar

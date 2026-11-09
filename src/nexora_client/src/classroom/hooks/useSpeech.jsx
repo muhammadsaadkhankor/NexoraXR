@@ -314,6 +314,20 @@ export const SpeechProvider = ({ children }) => {
     };
   }, []);
 
+  // Read-only playback position — mid-segment language resume maps this
+  // offset into the new language's sentence alignment. No side effects
+  // (unlike pauseLectureForFloor, which stamps resumeAt + pauses).
+  const getLecturePosition = useCallback(() => {
+    const audio = audioElementRef.current;
+    const current = messageRef.current;
+    if (current?.type !== 'lecture' || !audio) return null;
+    const segMatch = /_seg_(\d+)$/.exec(current.id || '');
+    return {
+      segmentIndex: segMatch ? Number(segMatch[1]) : null,
+      offsetSec: audio.currentTime,
+    };
+  }, []);
+
   // Resume a floor-paused lecture. When the server supplies a canonical
   // checkpoint {lectureId, segmentIndex, playbackOffsetMs, language}, that is
   // the authoritative resume target for every client; the local resumeAt is
@@ -443,6 +457,7 @@ export const SpeechProvider = ({ children }) => {
         stopAudio,
         prependMessages,
         pauseLectureForFloor,
+        getLecturePosition,
         resumeLecture,
         floorPausedRef,
         floorPaused,

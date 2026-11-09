@@ -473,6 +473,17 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
   // lectures get their own audio/lipsync cache (e.g. segments/Lecture_1__ar).
   const cacheKey = lang === 'en' ? lectureId : `${lectureId}__${lang}`;
 
+  // Sentence-level audio alignment (baked by scripts/bake_alignment.py) —
+  // enables mid-segment language resume: a switch maps the current playback
+  // offset to a sentence index, then seeks the new language's audio to that
+  // sentence's start. Absent for un-baked lectures (resume falls back to
+  // segment restart).
+  let alignment = null;
+  try {
+    alignment = JSON.parse(await fs.readFile(
+      path.join(segmentCacheDir(cacheKey), 'alignment.json'), 'utf-8'));
+  } catch {}
+
   // Every language must return the SAME segmented manifest — seg.id indexes
   // the shared logical position. A single-segment English shortcut breaks
   // NCIP mid-lecture language switching: switches away rebuild from seg 0,
@@ -543,6 +554,9 @@ export async function loadLectureManifest(lectureId, lang = 'en') {
         : (() => { const m = slideMap?.segments?.[String(i)];
             return typeof m === 'object' && m !== null ? m.page : (Number(m) || null); })(),
       slideDoc: segList ? (segList[i]?.document ?? null) : null,
+      // Sentence boundaries in THIS language's audio (baked alignment) —
+      // used by the client for mid-segment language resume.
+      sentences: alignment?.segments?.[String(i).padStart(3, '0')]?.sentences ?? null,
       ...(pendingTranslation ? { pendingTranslation: true } : {}),
     });
   }
