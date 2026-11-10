@@ -383,7 +383,11 @@ def main():
 
                     def ensure_lecture_alive():
                         """Restart the lecture if every client's queue is
-                        empty — extras otherwise stall at end-of-lecture."""
+                        empty — extras otherwise stall at end-of-lecture.
+                        Emits 'lecture-ended' first: a reload-killed client
+                        never reports lecture-segment-ended, so the server
+                        run can sit stalled and reject 'start' as duplicate."""
+                        nonlocal holder
                         poss = [c.pos() for c in clients]
                         if not poss or any(p and p.get('segmentIndex') is not None
                                            for p in poss):
@@ -393,17 +397,49 @@ def main():
                         if any(p and p.get('segmentIndex') is not None for p in poss):
                             return False
                         print(f'[harness] n={n}: lecture exhausted — restarting')
-                        holder.stdin.write('start\n'); holder.stdin.flush()
-                        deadline = time.time() + 60
-                        while time.time() < deadline:
-                            poss = [c.pos() for c in clients]
-                            if all(p and p.get('segmentIndex') is not None
-                                   and (p.get('currentTimeSec') or 0) > 0.3
-                                   and not p.get('paused') for p in poss):
-                                return True
-                            time.sleep(0.5)
-                        print(f'[harness] n={n}: restart did not take')
+                        for attempt in range(2):
+                            if holder.poll() is not None or not holder_alive():
+                                print(f'[harness] n={n}: holder dead — relaunching')
+                                holder = relaunch_holder()
+                            holder.stdin.write('end\n'); holder.stdin.flush()
+                            time.sleep(0.8)
+                            holder.stdin.write('start\n'); holder.stdin.flush()
+                            deadline = time.time() + 60
+                            while time.time() < deadline:
+                                poss = [c.pos() for c in clients]
+                                if all(p and p.get('segmentIndex') is not None
+                                       and (p.get('currentTimeSec') or 0) > 0.3
+                                       and not p.get('paused') for p in poss):
+                                    return True
+                                time.sleep(0.5)
+                            print(f'[harness] n={n}: restart attempt {attempt+1} did not take')
                         return True
+
+                    def holder_alive():
+                        if holder.poll() is not None:
+                            return False
+                        try:
+                            holder.stdin.write('pos\n'); holder.stdin.flush()
+                        except Exception:
+                            return False
+                        try:
+                            holder_event(holder, 'pos', timeout=8)
+                            return True
+                        except TimeoutError:
+                            return False
+
+                    def relaunch_holder():
+                        try:
+                            holder.stdin.write('quit\n'); holder.stdin.flush()
+                            holder.wait(timeout=3)
+                        except Exception:
+                            try:
+                                holder.kill()
+                            except Exception:
+                                pass
+                        h = start_holder(room)
+                        holder_event(h, 'joined', timeout=30)
+                        return h
 
                     def holder_pos():
                         holder.stdin.write('pos\n'); holder.stdin.flush()

@@ -41,10 +41,14 @@ let askDelayMs = 0; // hold the floor this long before asking (extra cases)
 let lastSegIndex = null;
 let lastSegAt = null; // wall ms when the current segment's speak broadcast arrived
 
-const s = io(BASE, { transports: ['websocket'], reconnection: false });
+// Reconnection enabled: a transient ws drop during the extras must not
+// kill the driver for the rest of the cell — on reconnect we re-join with
+// the same participantId (server treats it as a grace-window reconnect).
+const s = io(BASE, { transports: ['websocket'] });
 s.on('connect', () => {
   s.emit('join', { roomId: ROOM, name: PID, participantId: PID });
 });
+s.on('disconnect', (reason) => say('socket-down', { reason }));
 s.on('self-info', (d) => {
   if (d?.participantId === PID) say('joined');
 });
@@ -94,6 +98,13 @@ s.on('floor-question-error', (d) => say('question-error', { error: d?.error }));
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const cmd = line.trim();
   if (cmd === 'start') s.emit('lecture.start', { lectureId: LECTURE });
+  if (cmd === 'end') {
+    // Reset a stalled run before restarting: a reload-killed client never
+    // reports lecture-segment-ended, so the server-side run can sit on a
+    // half-finished unit forever and reject 'start' as a duplicate.
+    s.emit('lecture-ended');
+    say('ended');
+  }
   if (cmd === 'hold' || cmd.startsWith('hold ')) {
     askDelayMs = Number(cmd.split(' ')[1]) || 0;
     awaitingResume = true;
