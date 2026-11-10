@@ -11,7 +11,7 @@ Measures per-learner pause/resume accuracy across languages:
   EVAL_LABEL=resume_baseline|resume_fixed  EVAL_SEED=...  EVAL_REPS=30
   EVAL_NS='2,4'  EVAL_PORT=4120  EVAL_VITE_PORT=5174
 """
-import json, os, random, shutil, signal, subprocess, sys, time, urllib.request
+import json, os, random, select, shutil, signal, subprocess, sys, time, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -87,9 +87,15 @@ def start_holder(room):
 
 
 def holder_event(p, want, timeout=30):
+    # select() so a silent holder cannot block readline forever — a dead
+    # socket used to freeze the whole extras loop inside this function.
     deadline = time.time() + timeout
     buf = []
     while time.time() < deadline:
+        r, _, _ = select.select([p.stdout], [], [],
+                                max(0.05, min(1.0, deadline - time.time())))
+        if not r:
+            continue
         line = p.stdout.readline()
         if not line:
             time.sleep(0.05)
