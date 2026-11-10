@@ -11,7 +11,7 @@ Measures per-learner pause/resume accuracy across languages:
   EVAL_LABEL=resume_baseline|resume_fixed  EVAL_SEED=...  EVAL_REPS=30
   EVAL_NS='2,4'  EVAL_PORT=4120  EVAL_VITE_PORT=5174
 """
-import json, os, random, signal, subprocess, sys, time, urllib.request
+import json, os, random, shutil, signal, subprocess, sys, time, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -118,12 +118,17 @@ class BrowserClient:
     def __init__(self, pw, join_url, lang, idx):
         self.lang = lang
         self.pid = f'br-{lang}-{idx}'
-        self.ctx = pw.chromium.launch(
-            headless=True,
-            args=['--autoplay-policy=no-user-gesture-required',
-                  '--use-fake-ui-for-media-stream',
-                  '--use-fake-device-for-media-stream',
-                  '--mute-audio']).new_context()
+        # Prefer the bundled chromium; fall back to system Chrome when the
+        # playwright browser cache is absent.
+        chrome = shutil.which('google-chrome') or shutil.which('chromium')
+        launch_kw = dict(headless=True,
+                         args=['--autoplay-policy=no-user-gesture-required',
+                               '--use-fake-ui-for-media-stream',
+                               '--use-fake-device-for-media-stream',
+                               '--mute-audio'])
+        if chrome and not os.environ.get('EVAL_PW_CHROMIUM'):
+            launch_kw['executable_path'] = chrome
+        self.ctx = pw.chromium.launch(**launch_kw).new_context()
         self.page = self.ctx.new_page()
         self.page.add_init_script(f"""
           sessionStorage.setItem('nexoraxr_display_name', '{self.pid}');
@@ -345,6 +350,16 @@ def main():
                     if rep % 10 == 0:
                         print(f'[harness] n={n} rep {rep} pause-log entries {new_len}')
 
+                # Collect per-client pause/resume pairs (order-based pairing)
+                # BEFORE extras — the reconnect case reloads pages, which
+                # wipes window.__nxrPauseEvents.
+                for c in clients:
+                    for i, pr in enumerate(pair_events(c.pause_log())):
+                        records.append(dict(
+                            cell=f'n{n}', lang=c.lang, pid=c.pid, rep=i,
+                            pause=pr['pause'], resume=pr['resume'],
+                            actual=pr['actual']))
+
                 # ---- extra cases: switch-while-paused, disconnect-reconnect
                 if os.environ.get('EVAL_EXTRA', '1') == '1':
                     ex_reps = int(os.environ.get('EVAL_EXTRA_REPS', '5'))
@@ -363,7 +378,7 @@ def main():
                         saved = pre[-1] if pre else None
                         old_lang = sw.lang
                         sw.lang = {'ar': 'en', 'en': 'ar', 'zh': 'en'}.get(sw.lang, 'en')
-                        sw.set_language(timeout=15)
+                        sw.set_language(timeout=30)
                         try:
                             holder_event(holder, 'resume', timeout=45)
                         except TimeoutError:
@@ -376,7 +391,7 @@ def main():
                             actual=post.get('actual'), case='switch',
                             newLang=sw.lang))
                         sw.lang = old_lang
-                        sw.set_language(timeout=15)
+                        sw.set_language(timeout=30)
                     for rep in range(ex_reps):
                         time.sleep(rng.uniform(1.5, 3.0))
                         holder.stdin.write('hold 15000\n'); holder.stdin.flush()
@@ -392,10 +407,13 @@ def main():
                             rc.page.reload(wait_until='domcontentloaded')
                         except Exception as e:
                             print(f'[harness] n={n} reconnect rep {rep}: reload {e}')
-                        # Wait for the rejoined hook.
-                        dl = time.time() + 30
+                        # Wait for the rejoined hook, then restore the
+                        # language — a reload resets lectureLang to 'en'.
+                        dl = time.time() + 60
                         while time.time() < dl and rc.pos() is None:
                             time.sleep(0.5)
+                        if rc.lang != 'en':
+                            rc.set_language(timeout=30)
                         try:
                             holder_event(holder, 'resume', timeout=45)
                         except TimeoutError:
@@ -408,13 +426,6 @@ def main():
                             cell=f'n{n}-reconnect', lang=rc.lang, pid=rc.pid, rep=rep,
                             pause=saved, resume=res, actual=act,
                             case='reconnect'))
-                # Collect per-client pause/resume pairs (order-based pairing).
-                for c in clients:
-                    for i, pr in enumerate(pair_events(c.pause_log())):
-                        records.append(dict(
-                            cell=f'n{n}', lang=c.lang, pid=c.pid, rep=i,
-                            pause=pr['pause'], resume=pr['resume'],
-                            actual=pr['actual']))
                 for c in clients:
                     c.close()
                 holder.stdin.write('quit\n'); holder.stdin.flush()
