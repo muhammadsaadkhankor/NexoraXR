@@ -1960,6 +1960,10 @@ function buildSnapshotPayload(roomId, pid = null) {
       queue: s.floor.queue.map((id) => ({ userId: id, name: nameFor(roomId, id) })),
     },
     mic: { permissions: Object.fromEntries(micPerms.get(roomId) || []) },
+    // Reconnect-after-resume: THIS participant's projected position — its own
+    // pause checkpoint + the wall-clock the class has played since resume.
+    // null outside LECTURING or when no fresh checkpoint exists.
+    resume: pid ? ncip.resumeProjection(pid) : null,
   };
 }
 
@@ -2304,6 +2308,68 @@ async function finishJoin(socket, data, roomId, registryRoom = null, identity = 
       ? { id: identity.user.id, email: identity.user.email, displayName: identity.user.display_name, role: identity.user.role }
       : null,
   });
+}
+
+// Segment barrier (eval feature, default ON): the room advances to the next
+// lecture unit only when every CONNECTED participant has reported the
+// current unit ended, or BARRIER_MAX_WAIT_MS after the first report.
+// Faster clients wait at the boundary (empty queue, current slide still
+// shown). Disconnected participants never block the barrier — a lagging
+// client that drops simply stops counting.
+const SEGMENT_BARRIER = (process.env.NXR_SEGMENT_BARRIER ?? '1') !== '0';
+const BARRIER_MAX_WAIT_MS =
+  Math.max(0, Number(process.env.NXR_BARRIER_MAX_WAIT_MS) || 5_000);
+
+function barrierMissing(ncip, run) {
+  const reporters = run?.barrier?.reporters;
+  if (!reporters) return [];
+  const out = [];
+  for (const [pid, p] of ncip.session.participants) {
+    if (p.connected && !reporters.has(pid)) out.push(pid);
+  }
+  return out;
+}
+
+// Advance the run iff every connected participant reported the barrier
+// unit ended; otherwise arm (once) the max-wait timeout which advances
+// anyway and logs the lagging clients. Called on each segment-ended
+// report and on disconnect (a departing laggard unblocks the barrier).
+function maybeAdvanceLectureBarrier(roomId) {
+  const ncip = getNcipRoom(roomId);
+  const run = ncip?.lectureRun;
+  const barrier = run?.barrier;
+  if (!run || !barrier) return;
+  if (run.currentUnit?.id !== barrier.unitId) {
+    clearTimeout(barrier.timer);
+    run.barrier = null;
+    return;
+  }
+  const missing = barrierMissing(ncip, run);
+  if (missing.length === 0) {
+    const waitedMs = Date.now() - barrier.armedAt;
+    clearTimeout(barrier.timer);
+    run.barrier = null;
+    evalInbound(roomId, null, 'barrier-pass', { unitId: barrier.unitId, waitedMs }, ncip);
+    emitNextLectureUnit(roomId).catch((err) =>
+      console.error(`[agent] ${roomId}: progression error:`, err));
+    return;
+  }
+  if (!barrier.timer) {
+    const unitId = barrier.unitId;
+    barrier.timer = setTimeout(() => {
+      const room = ncipRooms[roomId];
+      if (!room || room.lectureRun !== run || !run.barrier) return;
+      const lagging = barrierMissing(room, run);
+      console.warn(`[barrier] ${roomId}: unit ${unitId} timed out after ` +
+        `${BARRIER_MAX_WAIT_MS}ms — lagging: ${lagging.join(', ') || 'none'}`);
+      evalInbound(roomId, null, 'barrier-timeout', { unitId, lagging }, room);
+      run.barrier = null;
+      emitNextLectureUnit(roomId).catch((err) =>
+        console.error(`[agent] ${roomId}: progression error:`, err));
+    }, BARRIER_MAX_WAIT_MS);
+    barrier.timer.unref?.();
+    evalInbound(roomId, null, 'barrier-wait', { unitId, waitingFor: missing }, ncip);
+  }
 }
 
 io.on('connection', (socket) => {
@@ -2969,8 +3035,25 @@ io.on('connection', (socket) => {
       }
       console.log(`[PROF MEMORY] ${roomId}: reexplained ${act.topicId}`);
     }
-    emitNextLectureUnit(roomId).catch((err) =>
-      console.error(`[agent] ${roomId}: progression error:`, err));
+    if (!SEGMENT_BARRIER) {
+      emitNextLectureUnit(roomId).catch((err) =>
+        console.error(`[agent] ${roomId}: progression error:`, err));
+      return;
+    }
+    // Segment barrier: the room advances only once every CONNECTED
+    // participant reports this unit ended, or BARRIER_MAX_WAIT_MS after the
+    // first report. Disconnected participants never block the barrier.
+    const barrier = run.barrier ??= {
+      unitId: claimed, reporters: new Set(), timer: null, armedAt: Date.now(),
+    };
+    if (barrier.unitId !== claimed) {
+      clearTimeout(barrier.timer);
+      run.barrier = {
+        unitId: claimed, reporters: new Set(), timer: null, armedAt: Date.now(),
+      };
+    }
+    run.barrier.reporters.add(ctx.participantId);
+    maybeAdvanceLectureBarrier(roomId);
   });
 
   socket.on('chat', (data) => {
@@ -3057,6 +3140,8 @@ io.on('connection', (socket) => {
     if (ncip.participantDisconnected(pid)) {
       console.log(`[server] disconnect: ${pid} offline in '${roomId}' — ${ncip.RECONNECT_GRACE_MS}ms grace`);
       emitFloorState(roomId); // participants list shows them offline
+      // A disconnecting laggard no longer blocks the segment barrier.
+      maybeAdvanceLectureBarrier(roomId);
       const graceKey = `${roomId} ${pid}`;
       const timer = setTimeout(() => {
         graceTimers.delete(graceKey);

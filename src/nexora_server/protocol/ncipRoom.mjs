@@ -118,6 +118,12 @@ export class NcipRoom {
     this.RECONNECT_GRACE_MS =
       Math.max(0, Number(process.env.EVAL_RECONNECT_GRACE_MS) || 10_000);
     this._graceDeadlines = new Map(); // pid -> epoch ms when grace expires
+    // Resume cycle markers — participantCheckpoints entries are valid for
+    // the pause that produced them; after resume they're KEPT so a client
+    // reconnecting mid-play can project its own position (own checkpoint
+    // + class elapsed), instead of restarting the segment from 0.
+    this.lastResumeAt = null; // wall ms when the latest 'resume' broadcast went out
+    this.prevResumeAt = 0;    // wall ms of the resume before that
     // NCIP Slice 2: monotonically increasing authoritative state version.
     // Bumped only when protocol state changes (floor / professor / lecture
     // checkpoint / answer lifecycle) — never for avatar movement or chat.
@@ -395,6 +401,20 @@ export class NcipRoom {
     };
   }
 
+  // A client reconnecting AFTER the room resumed needs its PROJECTED own
+  // position: its pause checkpoint (reported during the latest pause) plus
+  // the wall-clock the class has played since the resume broadcast. The
+  // client's own-language sentence map turns that into a seek target.
+  // Null outside LECTURING or when the stored checkpoint predates the
+  // latest pause cycle (stale or never reported).
+  resumeProjection(pid) {
+    if (this.professor.status !== ProfessorStatus.LECTURING
+        || !this.lastResumeAt) return null;
+    const myCp = this.participantCheckpoints.get(pid);
+    if (!myCp || myCp.reportedAt <= this.prevResumeAt) return null;
+    return { at: this.lastResumeAt, myCp };
+  }
+
   // ---- helpers -----------------------------------------------------------
 
   _resumeEffects() {
@@ -409,7 +429,10 @@ export class NcipRoom {
         perCheckpoints[pid] = cp;
       }
     }
-    this.participantCheckpoints.clear();
+    // Keep the map: entries are re-validated per pause by reportedAt, so a
+    // reconnecting client can still project its own position post-resume.
+    this.prevResumeAt = this.lastResumeAt ?? 0;
+    this.lastResumeAt = Date.now();
     return [
       ev('lecture-control', {
         action: 'resume',
@@ -735,6 +758,8 @@ export class NcipRoom {
     this.interruption.pauseReason = null;
     this.interruption.checkpoint = null;
     this.participantCheckpoints.clear(); // new lecture = new pause state
+    this.lastResumeAt = null;
+    this.prevResumeAt = 0;
     this.currentAnswer = null;      // stale answer must not replay to joiners
     this.floorDeadline = null;      // invariants: armed timeouts exist only
     this.thinkingDeadline = null;   // while PAUSED/THINKING

@@ -729,6 +729,8 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
   const [floorNotice, setFloorNotice] = useState(null); // "<name> is asking" toast
   const floorNoticeTimer = useRef(null);
   const [professorStatus, setProfessorStatus] = useState('IDLE');
+  const professorStatusRef = useRef('IDLE');
+  professorStatusRef.current = professorStatus;
   const [floorAnswering, setFloorAnswering] = useState(false);
   const [floorError, setFloorError] = useState(null);
   // Transient notice for rejected language changes (unprepared language).
@@ -889,6 +891,22 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     slidePageRef.current = p;
     return p;
   }, [messages]);
+
+  // Eval instrumentation (read-only, gated on ?nxrdbg): per-client segment
+  // head transitions — 'to' = new segment start, 'from' = segment just
+  // ended (null = queue empty / waiting at a barrier boundary).
+  const nxrdbg = useMemo(
+    () => new URLSearchParams(window.location.search).has('nxrdbg'), []);
+  const prevHeadRef = useRef(null);
+  useEffect(() => {
+    if (!nxrdbg) return;
+    const head = messages?.[0];
+    const id = head?.type === 'lecture' ? head.id : null;
+    if (id === prevHeadRef.current) return;
+    const prev = prevHeadRef.current;
+    prevHeadRef.current = id;
+    (window.__nxrSegEvents ??= []).push({ ev: 'head-change', from: prev, to: id, t: Date.now() });
+  }, [messages, nxrdbg]);
   // The document the current slide belongs to — multi-PDF lectures switch
   // the board between source files as segments change.
   const slideDocRef = useRef(null);
@@ -1409,6 +1427,11 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       if (Number.isFinite(data?.stateVersion)) {
         lastAppliedVersionRef.current = Math.max(lastAppliedVersionRef.current, data.stateVersion);
       }
+      // Eval instrumentation: when each authoritative version is applied —
+      // convergence latency = applied.t - server emit time.
+      if (nxrdbg) {
+        (window.__nxrApplied ??= []).push({ v: data?.stateVersion ?? null, t: Date.now() });
+      }
       apply();
     };
 
@@ -1638,6 +1661,26 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     if (DBG_POS) {
       window.__nxrPos = nxrLive;
       window.__nxrPauseLog = () => (window.__nxrPauseEvents ??= []);
+      // Drift-eval hooks: applied-version log and a state sampler the
+      // driver polls at 250ms for cross-client agreement.
+      window.__nxrApplied = window.__nxrApplied || [];
+      window.__nxrSegEvents = window.__nxrSegEvents || [];
+      window.__nxrState = () => {
+        const head = (speechCtlRef.current.messages || [])[0];
+        const pos = speechCtlRef.current.getLecturePosition?.();
+        return {
+          v: lastAppliedVersionRef.current,
+          status: professorStatusRef.current,
+          holder: floorHolderRef.current,
+          seg: head?.type === 'lecture' ? head.id : null,
+          segIndex: pos?.segmentIndex ?? null,
+          offsetSec: pos?.offsetSec ?? null,
+          slide: slidePageRef.current,
+          slideDoc: slideDocRef.current,
+          paused: speechCtlRef.current.floorPausedRef?.current === true,
+          t: Date.now(),
+        };
+      };
     }
     const nxrLog = (entry) => {
       if (!DBG_POS || !entry) return;
@@ -1967,6 +2010,49 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       // and only ever for the lecture this client actually entered
       // (a stale Lecture_1 run must not hijack a Lecture_2 session).
       const plan = planLectureRecovery(snap, speechCtlRef.current.messages, lectureIdRef.current);
+      // Reconnect AFTER the room resumed: join at the PROJECTED own
+      // position — my stored checkpoint sentence + class play-time since
+      // the resume broadcast, mapped through MY language's sentences[],
+      // clamped to the shared frontier. Never restart a segment from 0:
+      // when sentence alignment is absent, fall back to the shared room
+      // position rather than offset 0.
+      const resumeCp = (() => {
+        const myCp = snap?.resume?.myCp;
+        if (!myCp || !Number.isInteger(myCp.segmentIndex)
+            || myCp.lectureId !== lectureIdRef.current) return null;
+        const elapsedSec = Math.max(0,
+          ((Number(snap?.serverNow) || Date.now()) - snap.resume.at) / 1000);
+        const sents = (lectureManifestRef.current || [])
+          .find((s) => s.id === myCp.segmentIndex)?.sentences;
+        const s = Number.isInteger(myCp.sentenceIndex)
+          ? sents?.[Math.min(myCp.sentenceIndex, (sents?.length || 1) - 1)] : null;
+        const frac = Number.isFinite(myCp.fractionWithinSentence)
+          ? myCp.fractionWithinSentence : 0;
+        const roomSeg = snap?.lecture?.segmentIndex;
+        const roomOff = (snap?.lecture?.playbackOffsetMs ?? 0) / 1000;
+        let segIdx = myCp.segmentIndex;
+        let offSec = s
+          ? s.start + frac * ((s.end ?? s.start) - s.start) + elapsedSec
+          : null;
+        if (offSec == null || (Number.isInteger(roomSeg) && segIdx > roomSeg)) {
+          segIdx = Number.isInteger(roomSeg) ? roomSeg : segIdx;
+          offSec = Number.isInteger(roomSeg) ? roomOff : (offSec ?? 0);
+        } else if (Number.isInteger(roomSeg) && segIdx === roomSeg) {
+          offSec = Math.min(offSec, roomOff);
+        }
+        return {
+          lectureId: myCp.lectureId, segmentIndex: segIdx,
+          playbackOffsetMs: Math.round(offSec * 1000),
+          language: lectureLangRef.current,
+        };
+      })();
+      if (resumeCp) {
+        console.log('[ncip] reconnect-after-resume: projected seg',
+          resumeCp.segmentIndex,
+          `offset ${(resumeCp.playbackOffsetMs / 1000).toFixed(2)}s`);
+        plan.checkpoint = resumeCp;
+        if (plan.action === 'none') plan.action = 'reload';
+      }
       if (plan.action === 'resume' || plan.action === 'reload') {
         // The room is actively lecturing — reflect that in the panel so a
         // late joiner sees "Class in Progress", not "Start Class", and so a

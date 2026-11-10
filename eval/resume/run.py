@@ -385,6 +385,8 @@ def main():
                 # is restarted whenever every client has drained its queue.
                 if os.environ.get('EVAL_EXTRA', '1') == '1':
                     ex_reps = int(os.environ.get('EVAL_EXTRA_REPS', '30'))
+                    ex_cases = set(os.environ.get(
+                        'EVAL_EXTRA_CASES', 'switch,reconnect,rc-after').split(','))
                     max_attempts = ex_reps * 3
 
                     def ensure_lecture_alive():
@@ -459,7 +461,8 @@ def main():
 
                     # --- case 1: language switch while paused (or in flight)
                     valid, rep = 0, 0
-                    while valid < ex_reps and rep < max_attempts:
+                    while ('switch' in ex_cases and valid < ex_reps
+                           and rep < max_attempts):
                         rep += 1
                         ensure_lecture_alive()
                         time.sleep(rng.uniform(1.5, 3.0))
@@ -498,7 +501,8 @@ def main():
 
                     # --- case 2: reconnect BEFORE resume — expected = own cp
                     valid, rep = 0, 0
-                    while valid < ex_reps and rep < max_attempts:
+                    while ('reconnect' in ex_cases and valid < ex_reps
+                           and rep < max_attempts):
                         rep += 1
                         ensure_lecture_alive()
                         time.sleep(rng.uniform(1.5, 3.0))
@@ -543,7 +547,8 @@ def main():
                     # room's live position (catch-up via snapshot), NOT the
                     # learner's old checkpoint.
                     valid, rep = 0, 0
-                    while valid < ex_reps and rep < max_attempts:
+                    while ('rc-after' in ex_cases and valid < ex_reps
+                           and rep < max_attempts):
                         rep += 1
                         ensure_lecture_alive()
                         time.sleep(rng.uniform(1.5, 3.0))
