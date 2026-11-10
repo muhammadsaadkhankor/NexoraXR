@@ -100,5 +100,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     granted = false;
     s.emit('request-floor');
   }
+  if (cmd === 'pos') {
+    // Room frontier: last professor-speak segment head + wall-clock elapsed.
+    // The reconnect-after-resume oracle measures against this.
+    say('pos', {
+      segmentIndex: lastSegIndex,
+      offSec: lastSegAt != null
+        ? +((Date.now() - lastSegAt) / 1000).toFixed(2) : null,
+    });
+  }
   if (cmd === 'quit') process.exit(0);
 });

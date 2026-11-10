@@ -372,11 +372,54 @@ def main():
                             pause=pr['pause'], resume=pr['resume'],
                             actual=pr['actual']))
 
-                # ---- extra cases: switch-while-paused, disconnect-reconnect
+                # ---- extra cases: switch-while-paused, reconnect-before,
+                # reconnect-after. Each case collects EVAL_EXTRA_REPS VALID
+                # reps (a rep counts only when its pause+resume (or its
+                # post-rejoin position) was actually recorded). The lecture
+                # is restarted whenever every client has drained its queue.
                 if os.environ.get('EVAL_EXTRA', '1') == '1':
-                    ex_reps = int(os.environ.get('EVAL_EXTRA_REPS', '5'))
+                    ex_reps = int(os.environ.get('EVAL_EXTRA_REPS', '30'))
+                    max_attempts = ex_reps * 3
+
+                    def ensure_lecture_alive():
+                        """Restart the lecture if every client's queue is
+                        empty — extras otherwise stall at end-of-lecture."""
+                        poss = [c.pos() for c in clients]
+                        if not poss or any(p and p.get('segmentIndex') is not None
+                                           for p in poss):
+                            return False
+                        time.sleep(1.5)  # between-segment blip check
+                        poss = [c.pos() for c in clients]
+                        if any(p and p.get('segmentIndex') is not None for p in poss):
+                            return False
+                        print(f'[harness] n={n}: lecture exhausted — restarting')
+                        holder.stdin.write('start\n'); holder.stdin.flush()
+                        deadline = time.time() + 60
+                        while time.time() < deadline:
+                            poss = [c.pos() for c in clients]
+                            if all(p and p.get('segmentIndex') is not None
+                                   and (p.get('currentTimeSec') or 0) > 0.3
+                                   and not p.get('paused') for p in poss):
+                                return True
+                            time.sleep(0.5)
+                        print(f'[harness] n={n}: restart did not take')
+                        return True
+
+                    def holder_pos():
+                        holder.stdin.write('pos\n'); holder.stdin.flush()
+                        try:
+                            ev, _ = holder_event(holder, 'pos', timeout=10)
+                            return ev
+                        except TimeoutError:
+                            return None
+
                     switchers = [c for c in clients if c.lang != 'en'] or clients
-                    for rep in range(ex_reps):
+
+                    # --- case 1: language switch while paused (or in flight)
+                    valid, rep = 0, 0
+                    while valid < ex_reps and rep < max_attempts:
+                        rep += 1
+                        ensure_lecture_alive()
                         time.sleep(rng.uniform(1.5, 3.0))
                         holder.stdin.write('hold 20000\n'); holder.stdin.flush()
                         try:
@@ -388,6 +431,8 @@ def main():
                         sw = switchers[rep % len(switchers)]
                         pre = [e for e in sw.pause_log() if e['event'] == 'pause']
                         saved = pre[-1] if pre else None
+                        if not saved or saved.get('segmentIndex') is None:
+                            continue  # lecture boundary — not a real rep
                         old_lang = sw.lang
                         sw.lang = {'ar': 'en', 'en': 'ar', 'zh': 'en'}.get(sw.lang, 'en')
                         sw.set_language(timeout=30)
@@ -397,6 +442,9 @@ def main():
                             print(f'[harness] n={n} switch rep {rep}: resume TIMEOUT')
                         time.sleep(1.0)
                         post = pair_events(sw.pause_log())[-1] if sw.pause_log() else {}
+                        if not post.get('resume'):
+                            continue
+                        valid += 1
                         records.append(dict(
                             cell=f'n{n}-switch', lang=old_lang, pid=sw.pid, rep=rep,
                             pause=saved, resume=post.get('resume'),
@@ -404,7 +452,13 @@ def main():
                             newLang=sw.lang))
                         sw.lang = old_lang
                         sw.set_language(timeout=30)
-                    for rep in range(ex_reps):
+                    print(f'[harness] n={n} switch: {valid} valid reps in {rep} attempts')
+
+                    # --- case 2: reconnect BEFORE resume — expected = own cp
+                    valid, rep = 0, 0
+                    while valid < ex_reps and rep < max_attempts:
+                        rep += 1
+                        ensure_lecture_alive()
                         time.sleep(rng.uniform(1.5, 3.0))
                         holder.stdin.write('hold 22000\n'); holder.stdin.flush()
                         try:
@@ -415,12 +469,12 @@ def main():
                         rc = clients[rep % len(clients)]
                         pre = [e for e in rc.pause_log() if e['event'] == 'pause']
                         saved = pre[-1] if pre else None
+                        if not saved or saved.get('segmentIndex') is None:
+                            continue
                         try:
                             rc.page.reload(wait_until='domcontentloaded')
                         except Exception as e:
                             print(f'[harness] n={n} reconnect rep {rep}: reload {e}')
-                        # Wait for the rejoined hook, then restore the
-                        # language — a reload resets lectureLang to 'en'.
                         dl = time.time() + 60
                         while time.time() < dl and rc.pos() is None:
                             time.sleep(0.5)
@@ -434,10 +488,63 @@ def main():
                         log = rc.pause_log()
                         res = next((e for e in log if e['event'] == 'resume'), None)
                         act = next((e for e in log if e['event'] == 'resume-actual'), None)
+                        if not res:
+                            continue
+                        valid += 1
                         records.append(dict(
                             cell=f'n{n}-reconnect', lang=rc.lang, pid=rc.pid, rep=rep,
                             pause=saved, resume=res, actual=act,
                             case='reconnect'))
+                    print(f'[harness] n={n} reconnect: {valid} valid reps in {rep} attempts')
+
+                    # --- case 3: reconnect AFTER resume — expected = the
+                    # room's live position (catch-up via snapshot), NOT the
+                    # learner's old checkpoint.
+                    valid, rep = 0, 0
+                    while valid < ex_reps and rep < max_attempts:
+                        rep += 1
+                        ensure_lecture_alive()
+                        time.sleep(rng.uniform(1.5, 3.0))
+                        holder.stdin.write('hold\n'); holder.stdin.flush()
+                        try:
+                            holder_event(holder, 'resume', timeout=45)
+                        except TimeoutError:
+                            print(f'[harness] n={n} rc-after rep {rep}: resume TIMEOUT')
+                            continue
+                        time.sleep(1.5)  # lecture is playing again
+                        rc = clients[rep % len(clients)]
+                        try:
+                            rc.page.reload(wait_until='domcontentloaded')
+                        except Exception as e:
+                            print(f'[harness] n={n} rc-after rep {rep}: reload {e}')
+                        dl = time.time() + 60
+                        while time.time() < dl and rc.pos() is None:
+                            time.sleep(0.5)
+                        if rc.lang != 'en':
+                            rc.set_language(timeout=30)
+                        # give the converged client a couple seconds of play
+                        time.sleep(2.5)
+                        t0 = time.time()
+                        front = holder_pos()
+                        got = rc.pos()
+                        t1 = time.time()
+                        if not got or got.get('segmentIndex') is None:
+                            continue
+                        valid += 1
+                        # Frontier at the moment the client pos was read
+                        exp = None
+                        if front and front.get('segmentIndex') is not None:
+                            exp = {
+                                'segmentIndex': front['segmentIndex'],
+                                'currentTimeSec': (front.get('offSec') or 0)
+                                                  + (t1 - t0) / 2,
+                            }
+                        records.append(dict(
+                            cell=f'n{n}-rc-after', lang=rc.lang, pid=rc.pid,
+                            rep=rep, pause=None, resume=None, actual=None,
+                            case='rc-after',
+                            rejoin=got, frontier=exp))
+                    print(f'[harness] n={n} rc-after: {valid} valid reps in {rep} attempts')
                 for c in clients:
                     c.close()
                 holder.stdin.write('quit\n'); holder.stdin.flush()
@@ -483,33 +590,69 @@ def main():
 
     rows = compute_metrics(records, durs)
 
-    # Extra-case rows: switch (paused in lang A, resumed in lang B — expected
-    # = A's sentence index + fraction re-grounded into B) and reconnect
-    # (expected = the client's own pre-disconnect paused offset).
+    # Extra-case rows:
+    #   switch      — paused in lang A, resumed in lang B; expected = A's
+    #                 sentence index + fraction re-grounded into B.
+    #   reconnect   — reconnect BEFORE resume; expected = the client's own
+    #                 pre-disconnect paused offset.
+    #   rc-after    — reconnect AFTER resume; expected = the room's live
+    #                 (frontier) position, not the old checkpoint.
     ex_rows = []
     for r in records:
-        if not r.get('case') or not r['pause'] or not (r['resume'] or r['actual']):
+        if not r.get('case'):
+            continue
+        if r['case'] == 'rc-after':
+            got, front = r.get('rejoin'), r.get('frontier')
+            if not got or got.get('segmentIndex') is None:
+                continue
+            err = None
+            same_seg = False
+            if front and front.get('segmentIndex') is not None:
+                same_seg = got.get('segmentIndex') == front['segmentIndex']
+                if same_seg:
+                    err = abs((got.get('currentTimeSec') or 0)
+                              - (front.get('currentTimeSec') or 0)) * 1000
+            ex_rows.append(dict(cell=r['cell'], case=r['case'], lang=r.get('lang'),
+                                newLang=None, ok=err is not None and err < 500,
+                                err_ms=round(err, 1) if err is not None else None,
+                                same_seg=same_seg))
+            continue
+        if not r['pause'] or not (r['resume'] or r['actual']):
             continue
         res = r['actual'] if (r['actual'] and r['actual'].get('segmentIndex') is not None
                               and r['actual'].get('currentTimeSec') is not None) else r['resume']
         old_lang = r['pause'].get('lang') or 'en'
         new_lang = r.get('newLang') or old_lang
         exp = expected_pos(r['pause'], old_lang, new_lang)
+        # For the switch case the resumed LANGUAGE must also be the new one.
+        res_lang = res.get('lang')
+        lang_ok = (r['case'] != 'switch') or (res_lang == new_lang)
         err = (abs((res.get('currentTimeSec') or 0) - exp) * 1000
                if exp is not None and res.get('segmentIndex') == r['pause'].get('segmentIndex')
                else None)
         ex_rows.append(dict(cell=r['cell'], case=r['case'], lang=r['pause'].get('lang'),
-                            newLang=r.get('newLang'), ok=err is not None and err < 500,
+                            newLang=r.get('newLang'),
+                            ok=err is not None and err < 500 and lang_ok,
                             err_ms=round(err, 1) if err is not None else None,
-                            same_seg=res.get('segmentIndex') == r['pause'].get('segmentIndex')))
+                            same_seg=res.get('segmentIndex') == r['pause'].get('segmentIndex'),
+                            res_lang=res_lang))
     ex_sum = {}
     for r in ex_rows:
         k = (r['cell'], r['case'])
         ex_sum.setdefault(k, []).append(r)
-    ex_summary = [dict(cell=k[0], case=k[1], n=len(v),
-                       ok_pct=round(100 * sum(1 for x in v if x['ok']) / len(v), 1),
-                       same_seg_pct=round(100 * sum(1 for x in v if x['same_seg']) / len(v), 1))
-                  for k, v in sorted(ex_sum.items())]
+    def _pct(xs, q):
+        if not xs:
+            return None
+        ys = sorted(xs)
+        return round(ys[min(len(ys) - 1, int((q / 100) * len(ys)))], 1)
+    ex_summary = []
+    for k, v in sorted(ex_sum.items()):
+        errs = [x['err_ms'] for x in v if x['err_ms'] is not None]
+        ex_summary.append(dict(cell=k[0], case=k[1], n=len(v),
+                               ok_pct=round(100 * sum(1 for x in v if x['ok']) / len(v), 1),
+                               same_seg_pct=round(100 * sum(1 for x in v if x['same_seg']) / len(v), 1),
+                               err_p50=_pct(errs, 50), err_p95=_pct(errs, 95),
+                               err_max=round(max(errs), 1) if errs else None))
     csv_path = label_dir / f'summary_{LABEL}_{TS}.csv'
     with csv_path.open('w') as f:
         hdr = ['cell','lang','n','same_sentence_pct','err_p50','err_p95','err_max',
@@ -519,19 +662,21 @@ def main():
             f.write(','.join(str(r[h]) for h in hdr) + '\n')
     if ex_rows:
         with (label_dir / f'extras_{LABEL}_{TS}.csv').open('w') as f:
-            f.write('cell,case,lang,newLang,ok,err_ms,same_seg\n')
+            f.write('cell,case,lang,newLang,ok,err_ms,same_seg,res_lang\n')
             for r in ex_rows:
                 f.write(f"{r['cell']},{r['case']},{r['lang']},{r['newLang']},"
-                        f"{r['ok']},{r['err_ms']},{r['same_seg']}\n")
+                        f"{r['ok']},{r['err_ms']},{r['same_seg']},{r.get('res_lang')}\n")
     print('\ncell   lang  n    same-sent%  err p50/p95/max (ms)   skipped s (n)  repeated s (n)')
     for r in rows:
         print(f"{r['cell']:5}  {r['lang']:4}  {r['n']:3}  {r['same_sentence_pct']:>9}  "
               f"{str(r['err_p50']):>7}/{str(r['err_p95']):>7}/{str(r['err_max']):>8}  "
               f"{r['skipped_s']:>7} ({r['skipped_n']})  {r['repeated_s']:>7} ({r['repeated_n']})")
     if ex_summary:
-        print('\nextras: cell        case        n   ok%   same-seg%')
+        print('\nextras: cell        case        n   ok%   same-seg%   err p50/p95/max (ms)')
         for r in ex_summary:
-            print(f"        {r['cell']:11} {r['case']:10} {r['n']:3}  {r['ok_pct']:>5}  {r['same_seg_pct']:>9}")
+            print(f"        {r['cell']:11} {r['case']:10} {r['n']:3}  {r['ok_pct']:>5}  "
+                  f"{r['same_seg_pct']:>9}   "
+                  f"{str(r['err_p50']):>7}/{str(r['err_p95']):>7}/{str(r['err_max']):>8}")
     print(f'\n[harness] records -> {out}\n[harness] summary -> {csv_path}')
 
 

@@ -1093,7 +1093,16 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
   // applyLanguageChange — identical mechanics to a room-wide switch.
   const myLangOverrideRef = useRef(null); // personal override — room 'language-change' no longer applies to me
   const roomLangRef = useRef('en');
+  // A personal language switch that hasn't finished rebuilding the queue.
+  // While set, an incoming floor 'resume' is deferred (re-applied after the
+  // switch) instead of resuming mid-flight in the old language.
+  const langSwitchInFlightRef = useRef(null);   // target lang, or null
+  const pendingResumeRef = useRef(null);        // {pauseSeq, localCp, mine, roomCp}
+  const pauseSeqRef = useRef(0);                // bumped per pause-for-floor
+  const resolveResumeCpRef = useRef(null);      // set inside socket effect
+  const applyDeferredResumeRef = useRef(null);  // set inside socket effect
   const requestLanguageChange = useCallback((lang) => {
+    langSwitchInFlightRef.current = lang;
     socketRef.current?.emit('language.mine', { language: lang });
   }, []);
 
@@ -1109,10 +1118,22 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     setLectureLang(lang);
     lectureLangRef.current = lang;
     const lid = lectureIdRef.current;
-    if (lectureStatusRef.current !== 'teaching' || !lid) return;
+    if (lectureStatusRef.current !== 'teaching' || !lid) {
+      if (langSwitchInFlightRef.current === lang) {
+        langSwitchInFlightRef.current = null;
+        applyDeferredResumeRef.current?.();
+      }
+      return;
+    }
 
     const plan = planLanguageSwitch(speechCtlRef.current.messages, hintSegmentIndex);
-    if (!plan) return; // no known position — leave the queue untouched
+    if (!plan) {
+      if (langSwitchInFlightRef.current === lang) {
+        langSwitchInFlightRef.current = null;
+        applyDeferredResumeRef.current?.();
+      }
+      return;
+    } // no known position — leave the queue untouched
 
     // Mid-segment resume inputs, captured BEFORE the rebuild: the live
     // playback offset inside the current segment, and the OLD language's
@@ -1179,6 +1200,12 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       }
     } catch (err) {
       console.error('[lang-switch]', err);
+    }
+    // Switch settled — clear the in-flight marker and, if a floor resume was
+    // deferred mid-switch, apply it now through the NEW manifest.
+    if (langSwitchInFlightRef.current === lang) {
+      langSwitchInFlightRef.current = null;
+      applyDeferredResumeRef.current?.();
     }
   };
   languageChangeRef.current = handleLanguageChange;
@@ -1617,6 +1644,82 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       (window.__nxrPauseEvents ??= []).push(entry);
     };
 
+    // Shared per-learner resume resolution (used by the 'resume' handler and
+    // by the deferred-resume applier after a mid-pause language switch):
+    //   1. LOCAL pause record — raw offset same-language, sentence+fraction
+    //      re-grounded through the CURRENT manifest after a switch.
+    //   2. Server per-pid checkpoint — reconnect path.
+    //   3. Shared room checkpoint — logged fallback.
+    const cpFromSentFrac = (m) => {
+      const sents = (lectureManifestRef.current || [])
+        .find((s) => s.id === m.segmentIndex)?.sentences;
+      const s = Number.isInteger(m.sentenceIndex)
+        ? sents?.[Math.min(m.sentenceIndex, (sents?.length || 1) - 1)]
+        : null;
+      if (s) {
+        const frac = Number.isFinite(m.fractionWithinSentence)
+          ? m.fractionWithinSentence : 0;
+        const offsetSec = s.start + frac * ((s.end ?? s.start) - s.start);
+        return {
+          lectureId: m.lectureId || lectureIdRef.current,
+          segmentIndex: m.segmentIndex,
+          playbackOffsetMs: Math.round(offsetSec * 1000),
+          language: lectureLangRef.current,
+        };
+      }
+      console.warn('[ncip-resume] fallback: checkpoint lacks sentence ' +
+        `alignment (seg ${m.segmentIndex}) — segment start`);
+      return {
+        lectureId: m.lectureId || lectureIdRef.current,
+        segmentIndex: m.segmentIndex,
+        playbackOffsetMs: 0,
+        language: lectureLangRef.current,
+      };
+    };
+    const resolveResumeCp = ({ localCp, mine, roomCp }) => {
+      if (localCp && Number.isInteger(localCp.segmentIndex)) {
+        if (localCp.language === lectureLangRef.current
+            && Number.isFinite(localCp.playbackOffsetMs)) {
+          console.log('[ncip-resume] local checkpoint: seg',
+            localCp.segmentIndex,
+            `offset ${(localCp.playbackOffsetMs / 1000).toFixed(2)}s`);
+          return {
+            lectureId: localCp.lectureId || lectureIdRef.current,
+            segmentIndex: localCp.segmentIndex,
+            playbackOffsetMs: localCp.playbackOffsetMs,
+            language: lectureLangRef.current,
+          };
+        }
+        return cpFromSentFrac(localCp);
+      }
+      if (mine && Number.isInteger(mine.segmentIndex)) {
+        console.log('[ncip-resume] server checkpoint (reconnect path): seg',
+          mine.segmentIndex);
+        return cpFromSentFrac(mine);
+      }
+      console.warn('[ncip-resume] fallback: no per-learner checkpoint ' +
+        'for me — using room checkpoint');
+      return localizeCheckpoint(roomCp);
+    };
+    resolveResumeCpRef.current = resolveResumeCp;
+    applyDeferredResumeRef.current = () => {
+      const p = pendingResumeRef.current;
+      if (!p) return;
+      pendingResumeRef.current = null;
+      const cp = resolveResumeCp(p);
+      const roomCp = p.roomCp;
+      if (roomCp?.slidePage != null) slidePageRef.current = roomCp.slidePage;
+      if (roomCp?.slideDoc != null) slideDocRef.current = roomCp.slideDoc;
+      speechCtlRef.current.resumeLecture(cp);
+      console.log('[ncip-resume] deferred resume applied after language switch');
+      nxrLog(nxrSnap('resume', cp?.segmentIndex, (cp?.playbackOffsetMs ?? 0) / 1000,
+        { cpLanguage: cp?.language ?? null }));
+      setTimeout(() => {
+        const pos = speechCtlRef.current.getLecturePosition?.();
+        nxrLog(nxrSnap('resume-actual', pos?.segmentIndex, pos?.offsetSec));
+      }, 1200);
+    };
+
     socket.on('lecture-control', (data) => applyNcip(data, () => {
       console.log('[client] lecture-control received:', data?.action);
       if (data?.action === 'pause-for-host') {
@@ -1650,6 +1753,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         setLectureStatus('idle');
         setFloorAnswering(false);
       } else if (data?.action === 'pause-for-floor') {
+        pauseSeqRef.current += 1;
         const cp = speechCtlRef.current.pauseLectureForFloor();
         nxrLog(nxrSnap('pause', cp?.segmentIndex, (cp?.playbackOffsetMs ?? 0) / 1000));
         // Per-learner checkpoint: keep a LOCAL copy AND report it — segment,
@@ -1720,68 +1824,42 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         }
       } else if (data?.action === 'resume') {
         setFloorAnswering(false);
-        // Resume checkpoint priority:
-        //   1. LOCAL pause record — exact raw offset when the language never
-        //      changed; sentence+fraction re-grounded through the CURRENT
-        //      manifest after a mid-pause language switch.
+        // A personal language switch is mid-flight (queue still in the OLD
+        // language): defer the resume — it is re-applied by
+        // handleLanguageChange once the NEW-language queue is in place, so
+        // the client never resumes in a language it just left.
+        if (langSwitchInFlightRef.current) {
+          const seqAtDefer = pauseSeqRef.current;
+          pendingResumeRef.current = {
+            pauseSeq: seqAtDefer,
+            localCp: NXRL1 ? null : localResumeCpRef.current,
+            mine: NXRL1 ? null : data?.perCheckpoints?.[myIdRef.current],
+            roomCp: data?.checkpoint ?? null,
+          };
+          localResumeCpRef.current = null;
+          console.log('[ncip-resume] deferred — language switch in flight');
+          // Safety: if the switch never settles, resume anyway — but only
+          // while THIS pause is still the current one.
+          setTimeout(() => {
+            const p = pendingResumeRef.current;
+            if (p && p.pauseSeq === seqAtDefer
+                && speechCtlRef.current.floorPausedRef?.current) {
+              langSwitchInFlightRef.current = null;
+              applyDeferredResumeRef.current?.();
+            }
+          }, 15000);
+          return;
+        }
+        // Resume checkpoint resolution shared with the deferred path:
+        //   1. LOCAL pause record — raw offset same-language, sentence+fraction
+        //      re-grounded through the CURRENT manifest after a switch.
         //   2. Server per-pid checkpoint — the path taken after a reconnect
         //      (no local pause record exists).
         //   3. Shared room checkpoint (holder's) — logged fallback.
-        // Every fallback is logged.
-        const cpFromSentFrac = (m) => {
-          const sents = (lectureManifestRef.current || [])
-            .find((s) => s.id === m.segmentIndex)?.sentences;
-          const s = Number.isInteger(m.sentenceIndex)
-            ? sents?.[Math.min(m.sentenceIndex, (sents?.length || 1) - 1)]
-            : null;
-          if (s) {
-            const frac = Number.isFinite(m.fractionWithinSentence)
-              ? m.fractionWithinSentence : 0;
-            const offsetSec = s.start + frac * ((s.end ?? s.start) - s.start);
-            return {
-              lectureId: m.lectureId || lectureIdRef.current,
-              segmentIndex: m.segmentIndex,
-              playbackOffsetMs: Math.round(offsetSec * 1000),
-              language: lectureLangRef.current,
-            };
-          }
-          console.warn('[ncip-resume] fallback: checkpoint lacks sentence ' +
-            `alignment (seg ${m.segmentIndex}) — segment start`);
-          return {
-            lectureId: m.lectureId || lectureIdRef.current,
-            segmentIndex: m.segmentIndex,
-            playbackOffsetMs: 0,
-            language: lectureLangRef.current,
-          };
-        };
         const localCp = NXRL1 ? null : localResumeCpRef.current;
         localResumeCpRef.current = null;
         const mine = NXRL1 ? null : data?.perCheckpoints?.[myIdRef.current];
-        let cp = null;
-        if (localCp && Number.isInteger(localCp.segmentIndex)) {
-          if (localCp.language === lectureLangRef.current
-              && Number.isFinite(localCp.playbackOffsetMs)) {
-            cp = {
-              lectureId: localCp.lectureId || lectureIdRef.current,
-              segmentIndex: localCp.segmentIndex,
-              playbackOffsetMs: localCp.playbackOffsetMs,
-              language: lectureLangRef.current,
-            };
-            console.log('[ncip-resume] local checkpoint: seg',
-              localCp.segmentIndex, `offset ${(localCp.playbackOffsetMs / 1000).toFixed(2)}s`);
-          } else {
-            cp = cpFromSentFrac(localCp);
-          }
-        } else if (mine && Number.isInteger(mine.segmentIndex)) {
-          cp = cpFromSentFrac(mine);
-          console.log('[ncip-resume] server checkpoint (reconnect path): seg',
-            mine.segmentIndex);
-        }
-        if (!cp) {
-          cp = localizeCheckpoint(data?.checkpoint);
-          console.warn('[ncip-resume] fallback: no per-learner checkpoint ' +
-            'for me — using room checkpoint');
-        }
+        const cp = resolveResumeCp({ localCp, mine, roomCp: data?.checkpoint });
         if (cp?.language && cp.language !== lectureLangRef.current) {
           console.warn('[client] resume checkpoint language differs from local lecture language:', cp.language, 'vs', lectureLangRef.current);
         }
@@ -1823,6 +1901,9 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       } else if (data?.action === 'language-error') {
         console.warn('[client] language change rejected:', data?.error);
         flashLangNotice(data?.error || 'That language is not prepared for this lecture.');
+        // Switch rejected — unblock any resume that was deferred for it.
+        langSwitchInFlightRef.current = null;
+        applyDeferredResumeRef.current?.();
       }
     }));
 
