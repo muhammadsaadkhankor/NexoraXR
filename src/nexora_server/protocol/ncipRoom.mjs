@@ -153,7 +153,7 @@ export class NcipRoom {
   // Register a participant or rebind it to a (new) socket. Returns flags so
   // the caller can distinguish a first join, a same-socket re-join, and a
   // reconnect during the grace window.
-  joinParticipant(pid, socketId, now = Date.now()) {
+  joinParticipant(pid, socketId, now = Date.now(), opts = {}) {
     const p = this.session.participants.get(pid);
     if (p) {
       const wasOffline = !p.connected;
@@ -164,6 +164,9 @@ export class NcipRoom {
       p.connected = true;
       p.socketId = socketId;
       p.disconnectedAt = null;
+      // passive = non-playing participant (eval pads/drivers): never blocks
+      // the segment barrier. Sticky — a passive joiner stays passive.
+      if (opts.passive) p.passive = true;
       this._graceDeadlines.delete(pid);
       this._bump();
       return { isNew: false, reconnected: wasOffline };
@@ -173,6 +176,7 @@ export class NcipRoom {
       socketId,
       joinedAt: now,
       disconnectedAt: null,
+      passive: opts.passive === true,
     });
     this._bump();
     this._recordRecapAnchor(pid, now);

@@ -2217,7 +2217,9 @@ async function finishJoin(socket, data, roomId, registryRoom = null, identity = 
     ncip.roomType = registryRoom.roomType;
     ncip.language.roomLanguage = registryRoom.language;
   }
-  const joinResult = ncip.joinParticipant(pid, socket.id);
+  const joinResult = ncip.joinParticipant(pid, socket.id, Date.now(), {
+    passive: data?.passive === true,
+  });
   evalInbound(roomId, pid, 'join', { name: safeName, isNew: joinResult.isNew, reconnected: joinResult.reconnected }, ncip);
 
   // V2.3 user memory: hydrate on first touch; on joining an in-flight lecture,
@@ -2325,7 +2327,9 @@ function barrierMissing(ncip, run) {
   if (!reporters) return [];
   const out = [];
   for (const [pid, p] of ncip.session.participants) {
-    if (p.connected && !reporters.has(pid)) out.push(pid);
+    // Passive participants (eval drivers/pads that never play audio) do
+    // not block the barrier; disconnected participants don't either.
+    if (p.connected && !p.passive && !reporters.has(pid)) out.push(pid);
   }
   return out;
 }

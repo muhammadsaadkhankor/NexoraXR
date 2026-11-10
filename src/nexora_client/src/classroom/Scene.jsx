@@ -1663,6 +1663,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       window.__nxrPauseLog = () => (window.__nxrPauseEvents ??= []);
       // Drift-eval hooks: applied-version log and a state sampler the
       // driver polls at 250ms for cross-client agreement.
+      window.__nxrSocket = socket; // isolation eval: emit language.mine/chat
       window.__nxrApplied = window.__nxrApplied || [];
       window.__nxrSegEvents = window.__nxrSegEvents || [];
       window.__nxrState = () => {

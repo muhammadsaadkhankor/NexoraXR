@@ -7,7 +7,8 @@ import { io } from 'socket.io-client';
 const [BASE, ROOM, PID] = process.argv.slice(2);
 const s = io(BASE, { transports: ['websocket'] });
 s.on('connect', () => {
-  s.emit('join', { roomId: ROOM, name: PID, participantId: PID });
+  // passive: we never play audio — never block the segment barrier.
+  s.emit('join', { roomId: ROOM, name: PID, participantId: PID, passive: true });
 });
 s.on('self-info', () => console.log(JSON.stringify({ event: 'joined', pid: PID })));
 s.on('disconnect', () => console.log(JSON.stringify({ event: 'down', pid: PID })));

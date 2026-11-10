@@ -46,7 +46,9 @@ let lastSegAt = null; // wall ms when the current segment's speak broadcast arri
 // the same participantId (server treats it as a grace-window reconnect).
 const s = io(BASE, { transports: ['websocket'] });
 s.on('connect', () => {
-  s.emit('join', { roomId: ROOM, name: PID, participantId: PID });
+  // passive: protocol driver without playback — must not block the
+  // segment barrier.
+  s.emit('join', { roomId: ROOM, name: PID, participantId: PID, passive: true });
 });
 s.on('disconnect', (reason) => say('socket-down', { reason }));
 s.on('self-info', (d) => {

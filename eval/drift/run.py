@@ -14,7 +14,7 @@
 # Periodic 'hold 8000' floor exercises every ~45s inject real commits so
 # convergence (emit -> applied) has data during an otherwise commit-sparse
 # pure-lecture run.
-import json, os, signal, subprocess, sys, time, urllib.request
+import json, os, shutil, signal, subprocess, sys, time, urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'resume'))
 import run as H  # noqa: E402  (resume harness: env, server/vite, holder, browsers)
@@ -27,7 +27,9 @@ os.makedirs(OUT, exist_ok=True)
 PAD_SCRIPT = os.path.join(os.path.dirname(__file__), 'pad.mjs')
 SAMPLE_MS = 250
 HOLD_EVERY_S = 45
-CELLS = [(3, 3), (5, 3), (10, 3)]  # (total participants, browser clients)
+CELLS = [tuple(int(x) for x in c.split(':'))
+         for c in os.environ.get('EVAL_CELLS', '3:3,5:3,10:3').split(',')]
+# (total participants, browser clients)
 
 
 def start_pad(room, pid):
@@ -78,13 +80,29 @@ def seg_timeline(events):
     return out
 
 
-def run_cell(browser, total, n_br, seed):
+def run_cell(pw, total, n_br, seed):
     print(f'[drift] cell total={total} browsers={n_br} — starting eval server')
+    cell_start_ms = int(time.time() * 1000)
     server = H.start_server()
     pads, clients = [], []
     try:
-        room = H.lecture_room()
+        room_meta = H.lecture_room()
+        room = room_meta['roomId']
+        print(f"[drift] room {room} ({room_meta.get('className')})")
         pads = [start_pad(room, f'pad-{i}') for i in range(total - n_br)]
+
+        langs = ['en', 'ar', 'zh'][:n_br]
+        for i, lang in enumerate(langs):
+            c = H.BrowserClient(pw, room_meta['joinUrl'], lang, i)
+            clients.append(c)
+        # hooks installed
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            if all(c.pos() is not None for c in clients):
+                break
+            time.sleep(0.3)
+        if n_br > 1:
+            time.sleep(1)
         holder = H.start_holder(room)
         try:
             H.holder_event(holder, 'joined', timeout=30)
@@ -92,12 +110,6 @@ def run_cell(browser, total, n_br, seed):
             print('[drift] holder never joined')
             return None
         holder.stdin.write('start\n'); holder.stdin.flush()
-
-        langs = ['en', 'ar', 'zh'][:n_br]
-        for i, lang in enumerate(langs):
-            c = H.BrowserClient(browser, f'br-{lang}-{i}', room, lang, i)
-            c.set_language()
-            clients.append(c)
         print(f'[drift] waiting for lecture on {n_br} browsers')
         poss = wait_lecture(clients)
         if any(not p or p.get('segmentIndex') is None for p in poss):
@@ -145,7 +157,8 @@ def run_cell(browser, total, n_br, seed):
                 seg_evs[c.pid], applied[c.pid] = [], []
 
         return {'samples': samples, 'segEvents': seg_evs,
-                'applied': applied, 'langs': langs}
+                'applied': applied, 'langs': langs,
+                'cell_start_ms': cell_start_ms}
     finally:
         for p in pads:
             try: p.kill()
@@ -172,7 +185,8 @@ def analyze(cell_key, cell, trace):
     all_idx = sorted({i for tl in timelines.values() for i, _, _ in tl})
     lag_rows, max_lag = [], 0.0
     for idx in all_idx:
-        ends = [dict(tl)[idx][2] for tl in timelines.values() if idx in dict(tl)]
+        ends = [t[2] for tl in timelines.values()
+                for t in tl if t[0] == idx]
         if len(ends) < 2: continue
         lag = (max(ends) - min(ends)) / 1000.0
         lag_rows.append({'seg': idx, 'lag_s': round(lag, 2)})
@@ -204,22 +218,27 @@ def analyze(cell_key, cell, trace):
                  'state_pct': round(100 * agree_state / n, 1) if n else None,
                  'strict_pct': round(100 * agree_strict / n, 1) if n else None}
 
-    # --- convergence: emit (trace) -> applied (client)
-    commit_t = {}
+    # --- convergence: emit (trace) -> applied (client). Each applied record
+    # matches the LATEST emit of that version before it — re-emitted versions
+    # (floor-state after a disconnect) would otherwise count join latency.
+    emits_by_v = {}
     for e in trace:
         v = e.get('stateVersion')
         if v is None: continue
         if str(e.get('event', '')).startswith('emit.'):
-            commit_t[v] = min(commit_t.get(v, 1 << 62), e['ts_wall_ms'])
-    conv = []
-    for v, t0 in commit_t.items():
-        lags = []
-        for pid, apps in cell['applied'].items():
-            t = next((a['t'] for a in apps if a.get('v') == v), None)
-            if t is not None and t >= t0 - 50:  # allow clock epsilon
-                lags.append(t - t0)
-        if lags:
-            conv.append({'v': v, 'max_ms': max(lags), 'min_ms': min(lags)})
+            emits_by_v.setdefault(v, []).append(e['ts_wall_ms'])
+    import bisect
+    lags_by_v = {}
+    for pid, apps in cell['applied'].items():
+        for a in apps:
+            v, t = a.get('v'), a.get('t')
+            ts = emits_by_v.get(v)
+            if not ts: continue
+            i = bisect.bisect_right(ts, t + 50)
+            if i == 0: continue
+            lags_by_v.setdefault(v, []).append(t - ts[i - 1])
+    conv = [{'v': v, 'max_ms': max(ls), 'min_ms': min(ls)}
+            for v, ls in lags_by_v.items()]
     conv_lags = [c['max_ms'] for c in conv]
 
     # --- barrier events
@@ -264,11 +283,10 @@ def main():
     H.start_vite()
     results = {}
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
         try:
             for total, n_br in CELLS:
                 key = f'n{total}'
-                cell = run_cell(browser, total, n_br, seed=42)
+                cell = run_cell(pw, total, n_br, seed=42)
                 if not cell:
                     continue
                 with open(os.path.join(OUT, f'raw_{key}_{LABEL}.json'), 'w') as f:
@@ -281,14 +299,34 @@ def main():
                     key=os.path.getmtime)
                 trace = []
                 if traces:
+                    # Each cell's eval server truncates the shared runId
+                    # file on boot — snapshot this cell's trace now.
+                    shutil.copy(traces[-1],
+                                os.path.join(OUT, f'trace_{key}_{LABEL}.jsonl'))
+                    # The runId is shared across cells — keep only this
+                    # cell's events (ts_wall_ms >= cell start).
                     for line in open(traces[-1]):
-                        try: trace.append(json.loads(line))
-                        except Exception: pass
+                        try:
+                            e = json.loads(line)
+                            if (e.get('ts_wall_ms') or 0) >= cell['cell_start_ms'] - 2000:
+                                trace.append(e)
+                        except Exception:
+                            pass
                 results[key] = analyze(key, cell, trace)
         finally:
-            browser.close()
+            pass
 
-    with open(os.path.join(OUT, f'summary_{LABEL}.json'), 'w') as f:
+    # Merge with any earlier partial-run summary for the same label.
+    summary_path = os.path.join(OUT, f'summary_{LABEL}.json')
+    if os.path.exists(summary_path):
+        try:
+            old = json.load(open(summary_path))
+            if isinstance(old, dict):
+                old.update(results)
+                results = old
+        except Exception:
+            pass
+    with open(summary_path, 'w') as f:
         json.dump(results, f, indent=2)
 
     print('\ncell  lag_s  spread  agree% (strict%)  conv p50/p95/max  barrier pass/timeouts')
