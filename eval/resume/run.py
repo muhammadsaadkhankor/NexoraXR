@@ -430,23 +430,31 @@ def main():
     with out.open('w') as f:
         for r in records:
             f.write(json.dumps(r) + '\n')
-    def expected_pos(pause, lang):
-        """Expected resume offset: own paused seg + sentence+fraction → lang."""
+    def sents_for(lang, seg_id):
+        segs = (manifests or {}).get(lang, {}).get('segments', [])
+        seg = next((s for s in segs if s['id'] == seg_id), None)
+        return (seg or {}).get('sentences') or []
+
+    def expected_pos(pause, old_lang, new_lang):
+        """Expected resume offset: fraction inside the paused sentence in the
+        OLD language's alignment, re-grounded into the NEW language's."""
         if not pause or pause.get('segmentIndex') is None:
             return None
-        segs = (manifests or {}).get(lang, {}).get('segments', [])
-        seg = next((s for s in segs if s['id'] == pause['segmentIndex']), None)
-        sents = (seg or {}).get('sentences') or []
-        if not sents or pause.get('sentenceIndex') is None:
+        si = pause.get('sentenceIndex')
+        if si is None:
             return None
-        si = min(pause['sentenceIndex'], len(sents) - 1)
-        s = sents[si]
-        frac = 0.0
-        span = (s.get('end') or 0) - (s.get('start') or 0)
+        s_old_list = sents_for(old_lang, pause['segmentIndex'])
+        s_new_list = sents_for(new_lang, pause['segmentIndex'])
+        if not s_old_list or not s_new_list:
+            return None
+        s_old = s_old_list[min(si, len(s_old_list) - 1)]
+        s_new = s_new_list[min(si, len(s_new_list) - 1)]
+        span_old = (s_old.get('end') or 0) - (s_old.get('start') or 0)
         t = pause.get('currentTimeSec') or 0
-        if span > 0:
-            frac = max(0.0, min(1.0, (t - (s.get('start') or 0)) / span))
-        return (s.get('start') or 0) + frac * span
+        frac = (max(0.0, min(1.0, (t - (s_old.get('start') or 0)) / span_old))
+                if span_old > 0 else 0.0)
+        return (s_new.get('start') or 0) + frac * (
+            (s_new.get('end') or 0) - (s_new.get('start') or 0))
 
     rows = compute_metrics(records, durs)
 
@@ -459,8 +467,9 @@ def main():
             continue
         res = r['actual'] if (r['actual'] and r['actual'].get('segmentIndex') is not None
                               and r['actual'].get('currentTimeSec') is not None) else r['resume']
-        exp_lang = r.get('newLang') if r['case'] == 'switch' else r['pause'].get('lang')
-        exp = expected_pos(r['pause'], exp_lang or 'en')
+        old_lang = r['pause'].get('lang') or 'en'
+        new_lang = r.get('newLang') or old_lang
+        exp = expected_pos(r['pause'], old_lang, new_lang)
         err = (abs((res.get('currentTimeSec') or 0) - exp) * 1000
                if exp is not None and res.get('segmentIndex') == r['pause'].get('segmentIndex')
                else None)

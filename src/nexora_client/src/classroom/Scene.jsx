@@ -928,6 +928,11 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
   // 'floor-ready' acknowledgement (holder checkpoint accepted) arrives.
   const pendingQuestionRef = useRef(null);
   const floorReadyRef = useRef(false);
+  // Locally-recorded pause checkpoint — this client's own paused position,
+  // used FIRST on resume (exact same-language offset; sentence+fraction
+  // re-grounded through the current language after a mid-pause switch).
+  // The server's per-pid checkpoint is the fallback for reconnects.
+  const localResumeCpRef = useRef(null);
   // Start-class watchdog — resolved on 'lecture-started'/'control-error',
   // fires an error if the server never answers (see handleStartClass).
   const startWatchdogRef = useRef(null);
@@ -1642,7 +1647,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       } else if (data?.action === 'pause-for-floor') {
         const cp = speechCtlRef.current.pauseLectureForFloor();
         nxrLog(nxrSnap('pause', cp?.segmentIndex, (cp?.playbackOffsetMs ?? 0) / 1000));
-        // Per-learner checkpoint: report MY paused position — segment,
+        // Per-learner checkpoint: keep a LOCAL copy AND report it — segment,
         // sentence and fraction inside it, in MY language's alignment —
         // so resume can seek me to my own point, not the holder's.
         if (cp?.segmentIndex != null) {
@@ -1663,6 +1668,14 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
                 Math.max(0, (offSec - s.start) / span));
             }
           }
+          localResumeCpRef.current = {
+            lectureId: lectureIdRef.current,
+            segmentIndex: cp.segmentIndex,
+            sentenceIndex,
+            fractionWithinSentence,
+            playbackOffsetMs: cp.playbackOffsetMs,
+            language: lectureLangRef.current,
+          };
           socket.emit('lecture-checkpoint-mine', {
             lectureId: lectureIdRef.current,
             segmentIndex: cp.segmentIndex,
@@ -1702,48 +1715,67 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         }
       } else if (data?.action === 'resume') {
         setFloorAnswering(false);
-        // Per-learner resume: prefer MY stored checkpoint (sentence+fraction
-        // mapped through MY language's alignment). Fall back to the shared
-        // room checkpoint when mine is missing, and to the segment start
-        // when my alignment data is absent — every fallback is logged.
-        const mine = data?.perCheckpoints?.[myIdRef.current];
-        let cp;
-        if (mine && Number.isInteger(mine.segmentIndex)) {
+        // Resume checkpoint priority:
+        //   1. LOCAL pause record — exact raw offset when the language never
+        //      changed; sentence+fraction re-grounded through the CURRENT
+        //      manifest after a mid-pause language switch.
+        //   2. Server per-pid checkpoint — the path taken after a reconnect
+        //      (no local pause record exists).
+        //   3. Shared room checkpoint (holder's) — logged fallback.
+        // Every fallback is logged.
+        const cpFromSentFrac = (m) => {
           const sents = (lectureManifestRef.current || [])
-            .find((s) => s.id === mine.segmentIndex)?.sentences;
-          const s = Number.isInteger(mine.sentenceIndex)
-            ? sents?.[Math.min(mine.sentenceIndex, (sents?.length || 1) - 1)]
+            .find((s) => s.id === m.segmentIndex)?.sentences;
+          const s = Number.isInteger(m.sentenceIndex)
+            ? sents?.[Math.min(m.sentenceIndex, (sents?.length || 1) - 1)]
             : null;
           if (s) {
-            const frac = Number.isFinite(mine.fractionWithinSentence)
-              ? mine.fractionWithinSentence : 0;
+            const frac = Number.isFinite(m.fractionWithinSentence)
+              ? m.fractionWithinSentence : 0;
             const offsetSec = s.start + frac * ((s.end ?? s.start) - s.start);
-            cp = {
-              lectureId: mine.lectureId || lectureIdRef.current,
-              segmentIndex: mine.segmentIndex,
+            return {
+              lectureId: m.lectureId || lectureIdRef.current,
+              segmentIndex: m.segmentIndex,
               playbackOffsetMs: Math.round(offsetSec * 1000),
               language: lectureLangRef.current,
             };
-            console.log('[ncip-resume] own checkpoint: seg', mine.segmentIndex,
-              `sentence ${mine.sentenceIndex} @${offsetSec.toFixed(2)}s`);
-          } else {
+          }
+          console.warn('[ncip-resume] fallback: checkpoint lacks sentence ' +
+            `alignment (seg ${m.segmentIndex}) — segment start`);
+          return {
+            lectureId: m.lectureId || lectureIdRef.current,
+            segmentIndex: m.segmentIndex,
+            playbackOffsetMs: 0,
+            language: lectureLangRef.current,
+          };
+        };
+        const localCp = localResumeCpRef.current;
+        localResumeCpRef.current = null;
+        const mine = data?.perCheckpoints?.[myIdRef.current];
+        let cp = null;
+        if (localCp && Number.isInteger(localCp.segmentIndex)) {
+          if (localCp.language === lectureLangRef.current
+              && Number.isFinite(localCp.playbackOffsetMs)) {
             cp = {
-              lectureId: mine.lectureId || lectureIdRef.current,
-              segmentIndex: mine.segmentIndex,
-              playbackOffsetMs: 0,
+              lectureId: localCp.lectureId || lectureIdRef.current,
+              segmentIndex: localCp.segmentIndex,
+              playbackOffsetMs: localCp.playbackOffsetMs,
               language: lectureLangRef.current,
             };
-            console.warn('[ncip-resume] fallback: my checkpoint lacks ' +
-              `sentence alignment (seg ${mine.segmentIndex}) — segment start`);
+            console.log('[ncip-resume] local checkpoint: seg',
+              localCp.segmentIndex, `offset ${(localCp.playbackOffsetMs / 1000).toFixed(2)}s`);
+          } else {
+            cp = cpFromSentFrac(localCp);
           }
-        } else {
-          // Server-authoritative checkpoint: every client resumes from the
-          // same {lectureId, segmentIndex, playbackOffsetMs}.
+        } else if (mine && Number.isInteger(mine.segmentIndex)) {
+          cp = cpFromSentFrac(mine);
+          console.log('[ncip-resume] server checkpoint (reconnect path): seg',
+            mine.segmentIndex);
+        }
+        if (!cp) {
           cp = localizeCheckpoint(data?.checkpoint);
-          if (!mine) {
-            console.warn('[ncip-resume] fallback: no per-learner checkpoint ' +
-              'for me — using room checkpoint');
-          }
+          console.warn('[ncip-resume] fallback: no per-learner checkpoint ' +
+            'for me — using room checkpoint');
         }
         if (cp?.language && cp.language !== lectureLangRef.current) {
           console.warn('[client] resume checkpoint language differs from local lecture language:', cp.language, 'vs', lectureLangRef.current);
