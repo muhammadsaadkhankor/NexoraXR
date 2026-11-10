@@ -37,6 +37,7 @@ const sentIdx = (seg, offSec) => {
 
 let granted = false;
 let awaitingResume = false;
+let askDelayMs = 0; // hold the floor this long before asking (extra cases)
 let lastSegIndex = null;
 let lastSegAt = null; // wall ms when the current segment's speak broadcast arrived
 
@@ -82,16 +83,21 @@ s.on('lecture-control', (d) => {
   }
 });
 s.on('floor-ready', () => {
-  s.emit('ask-floor-question', { question: 'eval question', lectureId: LECTURE });
-  say('asked');
+  say('ready');
+  setTimeout(() => {
+    s.emit('ask-floor-question', { question: 'eval question', lectureId: LECTURE });
+    say('asked');
+  }, askDelayMs);
 });
 s.on('floor-question-error', (d) => say('question-error', { error: d?.error }));
 
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const cmd = line.trim();
   if (cmd === 'start') s.emit('lecture.start', { lectureId: LECTURE });
-  if (cmd === 'hold') {
+  if (cmd === 'hold' || cmd.startsWith('hold ')) {
+    askDelayMs = Number(cmd.split(' ')[1]) || 0;
     awaitingResume = true;
+    granted = false;
     s.emit('request-floor');
   }
   if (cmd === 'quit') process.exit(0);

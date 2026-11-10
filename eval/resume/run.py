@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SERVER_DIR = REPO / 'src' / 'nexora_server'
-CLIENT_DIR = REPO / 'src' / 'nexora_client'
+# Alternate checkouts (e.g. a pre-fix git worktree for the honest baseline)
+# via EVAL_SERVER_DIR / EVAL_CLIENT_DIR.
+SERVER_DIR = Path(os.environ.get('EVAL_SERVER_DIR', str(REPO / 'src' / 'nexora_server')))
+CLIENT_DIR = Path(os.environ.get('EVAL_CLIENT_DIR', str(REPO / 'src' / 'nexora_client')))
 RESULTS = REPO / 'eval' / 'resume' / 'results'
 
 PORT = int(os.environ.get('EVAL_PORT', '4120'))
@@ -215,10 +217,16 @@ def compute_metrics(records, durs):
     for r in records:
         if not r['pause'] or not (r['resume'] or r['actual']):
             continue
-        actual = r['actual']
-        res = (actual if actual and actual.get('segmentIndex') is not None
-               and actual.get('currentTimeSec') is not None
-               else r['resume'])
+        # The seek TARGET is the true resumed position. resume-actual is a
+        # sanity read +1200ms later — near-segment-end resumes legitimately
+        # advance to the next segment inside that window, so prefer actual
+        # only when it lands within 1.5s of the target on the same segment.
+        tgt, actual = r['resume'], r['actual']
+        res = tgt
+        if (tgt and actual and actual.get('segmentIndex') == tgt.get('segmentIndex')
+                and abs((actual.get('currentTimeSec') or 0)
+                        - (tgt.get('currentTimeSec') or 0)) <= 1.5):
+            res = actual
         p, s = r['pause'], res
         key = (r['cell'], r['pause'].get('lang') or r['lang'])
         per.setdefault(key, []).append((p, s, r['resume']))
@@ -325,16 +333,79 @@ def main():
                 for rep in range(REPS):
                     # dwell until a random mid-segment moment
                     time.sleep(rng.uniform(2.0, 8.0))
-                    base_len = sum(len(c.pause_log()) for c in clients)
                     holder.stdin.write('hold\n'); holder.stdin.flush()
                     try:
                         ev, _ = holder_event(holder, 'resume', timeout=40)
                     except TimeoutError:
                         print(f'[harness] n={n} rep {rep}: resume TIMEOUT')
-                    time.sleep(0.6)  # resume-actual snapshot lands +200ms
+                    time.sleep(0.8)  # resume-actual snapshot lands +1200ms
                     new_len = sum(len(c.pause_log()) for c in clients)
                     if rep % 10 == 0:
                         print(f'[harness] n={n} rep {rep} pause-log entries {new_len}')
+
+                # ---- extra cases: switch-while-paused, disconnect-reconnect
+                if os.environ.get('EVAL_EXTRA', '1') == '1':
+                    ex_reps = int(os.environ.get('EVAL_EXTRA_REPS', '5'))
+                    switchers = [c for c in clients if c.lang != 'en'] or clients
+                    for rep in range(ex_reps):
+                        time.sleep(rng.uniform(1.5, 3.0))
+                        holder.stdin.write('hold 12000\n'); holder.stdin.flush()
+                        try:
+                            holder_event(holder, 'granted', timeout=20)
+                        except TimeoutError:
+                            print(f'[harness] n={n} switch rep {rep}: no grant')
+                            continue
+                        time.sleep(0.6)
+                        sw = switchers[rep % len(switchers)]
+                        pre = [e for e in sw.pause_log() if e['event'] == 'pause']
+                        saved = pre[-1] if pre else None
+                        old_lang = sw.lang
+                        sw.lang = {'ar': 'en', 'en': 'ar', 'zh': 'en'}.get(sw.lang, 'en')
+                        sw.set_language(timeout=15)
+                        try:
+                            holder_event(holder, 'resume', timeout=45)
+                        except TimeoutError:
+                            print(f'[harness] n={n} switch rep {rep}: resume TIMEOUT')
+                        time.sleep(1.0)
+                        post = pair_events(sw.pause_log())[-1] if sw.pause_log() else {}
+                        records.append(dict(
+                            cell=f'n{n}-switch', lang=old_lang, pid=sw.pid, rep=rep,
+                            pause=saved, resume=post.get('resume'),
+                            actual=post.get('actual'), case='switch',
+                            newLang=sw.lang))
+                        sw.lang = old_lang
+                        sw.set_language(timeout=15)
+                    for rep in range(ex_reps):
+                        time.sleep(rng.uniform(1.5, 3.0))
+                        holder.stdin.write('hold 15000\n'); holder.stdin.flush()
+                        try:
+                            holder_event(holder, 'granted', timeout=20)
+                        except TimeoutError:
+                            continue
+                        time.sleep(0.6)
+                        rc = clients[rep % len(clients)]
+                        pre = [e for e in rc.pause_log() if e['event'] == 'pause']
+                        saved = pre[-1] if pre else None
+                        try:
+                            rc.page.reload(wait_until='domcontentloaded')
+                        except Exception as e:
+                            print(f'[harness] n={n} reconnect rep {rep}: reload {e}')
+                        # Wait for the rejoined hook.
+                        dl = time.time() + 30
+                        while time.time() < dl and rc.pos() is None:
+                            time.sleep(0.5)
+                        try:
+                            holder_event(holder, 'resume', timeout=45)
+                        except TimeoutError:
+                            print(f'[harness] n={n} reconnect rep {rep}: resume TIMEOUT')
+                        time.sleep(1.0)
+                        log = rc.pause_log()
+                        res = next((e for e in log if e['event'] == 'resume'), None)
+                        act = next((e for e in log if e['event'] == 'resume-actual'), None)
+                        records.append(dict(
+                            cell=f'n{n}-reconnect', lang=rc.lang, pid=rc.pid, rep=rep,
+                            pause=saved, resume=res, actual=act,
+                            case='reconnect'))
                 # Collect per-client pause/resume pairs (order-based pairing).
                 for c in clients:
                     for i, pr in enumerate(pair_events(c.pause_log())):
@@ -359,7 +430,52 @@ def main():
     with out.open('w') as f:
         for r in records:
             f.write(json.dumps(r) + '\n')
+    def expected_pos(pause, lang):
+        """Expected resume offset: own paused seg + sentence+fraction → lang."""
+        if not pause or pause.get('segmentIndex') is None:
+            return None
+        segs = (manifests or {}).get(lang, {}).get('segments', [])
+        seg = next((s for s in segs if s['id'] == pause['segmentIndex']), None)
+        sents = (seg or {}).get('sentences') or []
+        if not sents or pause.get('sentenceIndex') is None:
+            return None
+        si = min(pause['sentenceIndex'], len(sents) - 1)
+        s = sents[si]
+        frac = 0.0
+        span = (s.get('end') or 0) - (s.get('start') or 0)
+        t = pause.get('currentTimeSec') or 0
+        if span > 0:
+            frac = max(0.0, min(1.0, (t - (s.get('start') or 0)) / span))
+        return (s.get('start') or 0) + frac * span
+
     rows = compute_metrics(records, durs)
+
+    # Extra-case rows: switch (paused in lang A, resumed in lang B — expected
+    # = A's sentence index + fraction re-grounded into B) and reconnect
+    # (expected = the client's own pre-disconnect paused offset).
+    ex_rows = []
+    for r in records:
+        if not r.get('case') or not r['pause'] or not (r['resume'] or r['actual']):
+            continue
+        res = r['actual'] if (r['actual'] and r['actual'].get('segmentIndex') is not None
+                              and r['actual'].get('currentTimeSec') is not None) else r['resume']
+        exp_lang = r.get('newLang') if r['case'] == 'switch' else r['pause'].get('lang')
+        exp = expected_pos(r['pause'], exp_lang or 'en')
+        err = (abs((res.get('currentTimeSec') or 0) - exp) * 1000
+               if exp is not None and res.get('segmentIndex') == r['pause'].get('segmentIndex')
+               else None)
+        ex_rows.append(dict(cell=r['cell'], case=r['case'], lang=r['pause'].get('lang'),
+                            newLang=r.get('newLang'), ok=err is not None and err < 500,
+                            err_ms=round(err, 1) if err is not None else None,
+                            same_seg=res.get('segmentIndex') == r['pause'].get('segmentIndex')))
+    ex_sum = {}
+    for r in ex_rows:
+        k = (r['cell'], r['case'])
+        ex_sum.setdefault(k, []).append(r)
+    ex_summary = [dict(cell=k[0], case=k[1], n=len(v),
+                       ok_pct=round(100 * sum(1 for x in v if x['ok']) / len(v), 1),
+                       same_seg_pct=round(100 * sum(1 for x in v if x['same_seg']) / len(v), 1))
+                  for k, v in sorted(ex_sum.items())]
     csv_path = label_dir / f'summary_{LABEL}_{TS}.csv'
     with csv_path.open('w') as f:
         hdr = ['cell','lang','n','same_sentence_pct','err_p50','err_p95','err_max',
@@ -367,13 +483,38 @@ def main():
         f.write(','.join(hdr) + '\n')
         for r in rows:
             f.write(','.join(str(r[h]) for h in hdr) + '\n')
+    if ex_rows:
+        with (label_dir / f'extras_{LABEL}_{TS}.csv').open('w') as f:
+            f.write('cell,case,lang,newLang,ok,err_ms,same_seg\n')
+            for r in ex_rows:
+                f.write(f"{r['cell']},{r['case']},{r['lang']},{r['newLang']},"
+                        f"{r['ok']},{r['err_ms']},{r['same_seg']}\n")
     print('\ncell   lang  n    same-sent%  err p50/p95/max (ms)   skipped s (n)  repeated s (n)')
     for r in rows:
         print(f"{r['cell']:5}  {r['lang']:4}  {r['n']:3}  {r['same_sentence_pct']:>9}  "
               f"{str(r['err_p50']):>7}/{str(r['err_p95']):>7}/{str(r['err_max']):>8}  "
               f"{r['skipped_s']:>7} ({r['skipped_n']})  {r['repeated_s']:>7} ({r['repeated_n']})")
+    if ex_summary:
+        print('\nextras: cell        case        n   ok%   same-seg%')
+        for r in ex_summary:
+            print(f"        {r['cell']:11} {r['case']:10} {r['n']:3}  {r['ok_pct']:>5}  {r['same_seg_pct']:>9}")
     print(f'\n[harness] records -> {out}\n[harness] summary -> {csv_path}')
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == 'recompute':
+        # Recompute metrics from existing JSONL(s) — metric logic fixes don't
+        # require re-measuring.
+        sys.path.insert(0, str(REPO / 'eval' / 'resume'))
+        import importlib
+        run = importlib.import_module('run')
+        for f in sys.argv[2:]:
+            recs = [json.loads(l) for l in open(f)]
+            rows = run.compute_metrics(recs, {})
+            print(f'\n=== {Path(f).parent.name}/{Path(f).name[:40]}')
+            for r in rows:
+                print(f"{r['cell']:5}  {r['lang']:4}  {r['n']:3}  {r['same_sentence_pct']:>9}  "
+                      f"{str(r['err_p50']):>7}/{str(r['err_p95']):>7}/{str(r['err_max']):>8}  "
+                      f"{r['skipped_s']:>7} ({r['skipped_n']})  {r['repeated_s']:>7} ({r['repeated_n']})")
+    else:
+        main()

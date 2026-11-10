@@ -399,9 +399,15 @@ export class NcipRoom {
 
   _resumeEffects() {
     this._mark('resume');
+    // EVAL_RESUME_LEGACY=1: eval-only A/B switch — withhold per-learner
+    // checkpoints so clients fall back to the shared room checkpoint,
+    // reproducing pre-fix resume semantics on the same stack.
+    const legacy = process.env.EVAL_RESUME_LEGACY === '1';
     const perCheckpoints = {};
-    for (const [pid, cp] of this.participantCheckpoints) {
-      perCheckpoints[pid] = cp;
+    if (!legacy) {
+      for (const [pid, cp] of this.participantCheckpoints) {
+        perCheckpoints[pid] = cp;
+      }
     }
     this.participantCheckpoints.clear();
     return [
