@@ -161,11 +161,23 @@ class BrowserClient:
             if pos and pos.get('lang') == self.lang:
                 return True
             try:
-                self.page.get_by_text('Language', exact=True).first.click(timeout=5000)
-                self.page.get_by_text(LANG_LABELS[self.lang], exact=True).first.click(timeout=4000)
+                # DOM-level clicks bypass hit-testing — the floor/pause UI
+                # overlays the toolbar and blocks real pointer clicks.
+                self.page.evaluate("""(label) => {
+                  const btns = [...document.querySelectorAll('button')];
+                  const b = btns.find(x => x.innerText && x.innerText.includes('Language'));
+                  if (b) {
+                    b.click();
+                    setTimeout(() => {
+                      const o = [...document.querySelectorAll('button')]
+                        .find(x => x.innerText && x.innerText.trim() === label);
+                      if (o) o.click();
+                    }, 400);
+                  }
+                }""", LANG_LABELS[self.lang])
             except Exception as e:
                 print(f'[harness] {self.pid}: lang click retry ({e.__class__.__name__})')
-            time.sleep(1.5)
+            time.sleep(2)
         print(f'[harness] {self.pid}: FAILED to set language {self.lang}')
         return False
 
@@ -366,7 +378,7 @@ def main():
                     switchers = [c for c in clients if c.lang != 'en'] or clients
                     for rep in range(ex_reps):
                         time.sleep(rng.uniform(1.5, 3.0))
-                        holder.stdin.write('hold 12000\n'); holder.stdin.flush()
+                        holder.stdin.write('hold 20000\n'); holder.stdin.flush()
                         try:
                             holder_event(holder, 'granted', timeout=20)
                         except TimeoutError:
@@ -394,7 +406,7 @@ def main():
                         sw.set_language(timeout=30)
                     for rep in range(ex_reps):
                         time.sleep(rng.uniform(1.5, 3.0))
-                        holder.stdin.write('hold 15000\n'); holder.stdin.flush()
+                        holder.stdin.write('hold 22000\n'); holder.stdin.flush()
                         try:
                             holder_event(holder, 'granted', timeout=20)
                         except TimeoutError:
