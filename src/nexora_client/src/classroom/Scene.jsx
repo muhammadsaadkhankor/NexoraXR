@@ -1575,6 +1575,11 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     // and resume (target + actual post-seek position). Read-only: it never
     // writes to playback or protocol state.
     const DBG_POS = new URLSearchParams(window.location.search).has('nxrdbg');
+    // Ablation L1: legacy resume semantics on the client too — skips the
+    // per-learner checkpoint emit AND the local/server checkpoint resume
+    // branches, so every client uses the shared room checkpoint. The
+    // position wiring (getLecturePosition + hooks) stays active.
+    const NXRL1 = new URLSearchParams(window.location.search).has('nxrl1');
     const nxrSentenceAt = (segIndex, offSec) => {
       const sents = (lectureManifestRef.current || [])
         .find((s) => s.id === segIndex)?.sentences;
@@ -1676,7 +1681,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
             playbackOffsetMs: cp.playbackOffsetMs,
             language: lectureLangRef.current,
           };
-          socket.emit('lecture-checkpoint-mine', {
+          if (!NXRL1) socket.emit('lecture-checkpoint-mine', {
             lectureId: lectureIdRef.current,
             segmentIndex: cp.segmentIndex,
             sentenceIndex,
@@ -1749,9 +1754,9 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
             language: lectureLangRef.current,
           };
         };
-        const localCp = localResumeCpRef.current;
+        const localCp = NXRL1 ? null : localResumeCpRef.current;
         localResumeCpRef.current = null;
-        const mine = data?.perCheckpoints?.[myIdRef.current];
+        const mine = NXRL1 ? null : data?.perCheckpoints?.[myIdRef.current];
         let cp = null;
         if (localCp && Number.isInteger(localCp.segmentIndex)) {
           if (localCp.language === lectureLangRef.current

@@ -35,6 +35,8 @@ MIXES = {2: ['en', 'ar'], 4: ['en', 'en', 'ar', 'zh']}
 LANG_LABELS = {'en': 'English', 'ar': 'العربية', 'zh': '中文', 'fr': 'Français',
                'de': 'Deutsch', 'es': 'Español'}
 TS = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H-%M-%S-%f')[:23] + 'Z'
+# Extra query params appended to every browser URL (ablation flags).
+EXTRA_QS = os.environ.get('EVAL_EXTRA_QS', '')
 
 
 def http_json(url, tries=80, delay=0.25):
@@ -127,7 +129,7 @@ class BrowserClient:
           sessionStorage.setItem('nexoraxr_display_name', '{self.pid}');
           sessionStorage.setItem('nexoraxr_participant_id', '{self.pid}');
         """)
-        self.page.goto(f'{FRONT}{join_url}&nxrdbg=1',
+        self.page.goto(f'{FRONT}{join_url}&nxrdbg=1{EXTRA_QS}',
                        wait_until='domcontentloaded', timeout=30000)
 
     def set_language(self, timeout=90):
