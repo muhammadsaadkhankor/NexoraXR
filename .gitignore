@@ -66,3 +66,5 @@ src/nexora_server/uploads/
 /eval/floor/results/
 /my_report.md
 /out.csv
+eval/resume/results/
+__pycache__/
