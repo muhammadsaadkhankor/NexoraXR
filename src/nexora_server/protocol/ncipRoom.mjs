@@ -55,6 +55,14 @@ export class NcipRoom {
       // keeps a host pause unambiguous from a student question pause.
       pauseReason: null,
     };
+    // Per-learner resume checkpoints: pid -> {lectureId, segmentIndex,
+    // sentenceIndex, fractionWithinSentence, reportedAt}. Every participant
+    // reports its own paused position on pause-for-floor (the shared
+    // interruption.checkpoint stays the holder's); on resume each client
+    // seeks to its OWN entry, mapped through its own language's sentence
+    // alignment. Survives a mid-pause reconnect — the map outlives the
+    // participant's socket so a rejoin still finds its checkpoint.
+    this.participantCheckpoints = new Map();
     // { id, startedAt, durationMs } — server timing is authoritative for when
     // the answer ends; client 'answer-ended' events are fallback telemetry.
     this.currentAnswer = null;
@@ -258,6 +266,7 @@ export class NcipRoom {
     if (!p || p.connected) return [];
     this._graceDeadlines.delete(pid);
     this.session.participants.delete(pid);
+    this.participantCheckpoints.delete(pid); // gone for good — its cp is moot
     if (MUTANT === 'M3' && this.floor.holder === pid) {
       // The expired holder's floor is freed AND the waiting queue is
       // dropped — queued students starve instead of being granted.
@@ -271,6 +280,7 @@ export class NcipRoom {
   // Explicit intentional leave = immediate expiry, no grace window.
   leave(pid) {
     this._graceDeadlines.delete(pid);
+    this.participantCheckpoints.delete(pid);
     if (!this.session.participants.has(pid)) return [];
     this.session.participants.delete(pid);
     return this.disconnect(pid);
@@ -389,12 +399,35 @@ export class NcipRoom {
 
   _resumeEffects() {
     this._mark('resume');
+    const perCheckpoints = {};
+    for (const [pid, cp] of this.participantCheckpoints) {
+      perCheckpoints[pid] = cp;
+    }
+    this.participantCheckpoints.clear();
     return [
       ev('lecture-control', {
         action: 'resume',
         checkpoint: this.interruption.checkpoint,
+        // Per-learner checkpoints — each client picks its own entry by pid.
+        perCheckpoints,
       }),
     ];
+  }
+
+  // A participant's own paused position, reported on pause-for-floor.
+  // No version bump — it rides out inside the next 'resume' effect.
+  recordParticipantCheckpoint(pid, cp) {
+    if (!cp || typeof cp !== 'object') return;
+    if (!Number.isInteger(cp.segmentIndex) || cp.segmentIndex < 0) return;
+    this.participantCheckpoints.set(pid, {
+      lectureId: typeof cp.lectureId === 'string' ? cp.lectureId : null,
+      segmentIndex: cp.segmentIndex,
+      sentenceIndex: Number.isInteger(cp.sentenceIndex) ? cp.sentenceIndex : null,
+      fractionWithinSentence:
+        Number.isFinite(cp.fractionWithinSentence)
+          ? Math.min(1, Math.max(0, cp.fractionWithinSentence)) : null,
+      reportedAt: Date.now(),
+    });
   }
 
   // Floor release / answer end / failure all converge here: next queued
@@ -695,6 +728,7 @@ export class NcipRoom {
     this.floor.queue = [];
     this.interruption.pauseReason = null;
     this.interruption.checkpoint = null;
+    this.participantCheckpoints.clear(); // new lecture = new pause state
     this.currentAnswer = null;      // stale answer must not replay to joiners
     this.floorDeadline = null;      // invariants: armed timeouts exist only
     this.thinkingDeadline = null;   // while PAUSED/THINKING

@@ -876,9 +876,9 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
   const [lectureTitle, setLectureTitle] = useState(null);
 
 
-  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, audioErrorRef, setRecognitionLang } = useSpeech();
+  const { message, messages, pushMessage, clearMessages, replacePending, replaceQueue, audioElementRef, stopAudio, requestMicrophoneAccess, prependMessages, pauseLectureForFloor, resumeLecture, floorPausedRef, setFloorPaused, answerEndedRef, lectureSegmentEndedRef, audioErrorRef, setRecognitionLang, getLecturePosition } = useSpeech();
   const speechCtlRef = useRef({});
-  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, clearMessages, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages, audioErrorRef };
+  speechCtlRef.current = { prependMessages, pauseLectureForFloor, resumeLecture, replaceQueue, clearMessages, setFloorPaused, floorPausedRef, audioElementRef, stopAudio, messages, audioErrorRef, getLecturePosition };
 
   // Slide follows the current lecture segment's slidePage. The head during
   // Q&A is an answer, so resolveSlidePage anchors on the first lecture
@@ -1564,6 +1564,49 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       return { ...cp, playbackOffsetMs: Math.round(start * 1000) };
     };
 
+    // ---- eval instrumentation (read-only, gated on ?nxrdbg=1) ------------
+    // window.__nxrPos()  -> live lecture position for a driver.
+    // window.__nxrPauseLog() -> exact snapshots recorded at pause-for-floor
+    // and resume (target + actual post-seek position). Read-only: it never
+    // writes to playback or protocol state.
+    const DBG_POS = new URLSearchParams(window.location.search).has('nxrdbg');
+    const nxrSentenceAt = (segIndex, offSec) => {
+      const sents = (lectureManifestRef.current || [])
+        .find((s) => s.id === segIndex)?.sentences;
+      if (!sents?.length || !Number.isFinite(offSec)) return null;
+      let si = 0;
+      for (let k = 0; k < sents.length; k++) {
+        if ((sents[k].start ?? 0) <= offSec + 0.15) si = k;
+      }
+      return { sentenceIndex: si, sentenceCount: sents.length };
+    };
+    const nxrSnap = (event, segIndex, offSec, extra = {}) => ({
+      event,
+      tWall: Date.now(),
+      tPerf: Math.round(performance.now()),
+      pid: myIdRef.current,
+      lang: lectureLangRef.current,
+      segmentIndex: segIndex ?? null,
+      segmentId: segIndex != null ? `${lectureIdRef.current}_seg_${segIndex}` : null,
+      currentTimeSec: Number.isFinite(offSec) ? +offSec.toFixed(3) : null,
+      ...(nxrSentenceAt(segIndex, offSec) || {}),
+      ...extra,
+    });
+    const nxrLive = () => {
+      const pos = speechCtlRef.current.getLecturePosition?.();
+      return nxrSnap('live', pos?.segmentIndex, pos?.offsetSec, {
+        paused: speechCtlRef.current.floorPausedRef?.current === true,
+      });
+    };
+    if (DBG_POS) {
+      window.__nxrPos = nxrLive;
+      window.__nxrPauseLog = () => (window.__nxrPauseEvents ??= []);
+    }
+    const nxrLog = (entry) => {
+      if (!DBG_POS || !entry) return;
+      (window.__nxrPauseEvents ??= []).push(entry);
+    };
+
     socket.on('lecture-control', (data) => applyNcip(data, () => {
       console.log('[client] lecture-control received:', data?.action);
       if (data?.action === 'pause-for-host') {
@@ -1598,6 +1641,35 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         setFloorAnswering(false);
       } else if (data?.action === 'pause-for-floor') {
         const cp = speechCtlRef.current.pauseLectureForFloor();
+        nxrLog(nxrSnap('pause', cp?.segmentIndex, (cp?.playbackOffsetMs ?? 0) / 1000));
+        // Per-learner checkpoint: report MY paused position — segment,
+        // sentence and fraction inside it, in MY language's alignment —
+        // so resume can seek me to my own point, not the holder's.
+        if (cp?.segmentIndex != null) {
+          const offSec = cp.playbackOffsetMs / 1000;
+          const sents = (lectureManifestRef.current || [])
+            .find((s) => s.id === cp.segmentIndex)?.sentences;
+          let sentenceIndex = null;
+          let fractionWithinSentence = null;
+          if (sents?.length) {
+            sentenceIndex = 0;
+            for (let k = 0; k < sents.length; k++) {
+              if ((sents[k].start ?? 0) <= offSec + 0.15) sentenceIndex = k;
+            }
+            const s = sents[sentenceIndex];
+            const span = (s?.end ?? 0) - (s?.start ?? 0);
+            if (span > 0) {
+              fractionWithinSentence = Math.min(1,
+                Math.max(0, (offSec - s.start) / span));
+            }
+          }
+          socket.emit('lecture-checkpoint-mine', {
+            lectureId: lectureIdRef.current,
+            segmentIndex: cp.segmentIndex,
+            sentenceIndex,
+            fractionWithinSentence,
+          });
+        }
         // Only the holder reports the canonical checkpoint; a null
         // segmentIndex means "no lecture playing locally" but still counts
         // as a report so the floor can proceed.
@@ -1630,18 +1702,67 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         }
       } else if (data?.action === 'resume') {
         setFloorAnswering(false);
-        // Server-authoritative checkpoint: every client resumes from the same
-        // {lectureId, segmentIndex, playbackOffsetMs}.
-        const cp = localizeCheckpoint(data?.checkpoint);
+        // Per-learner resume: prefer MY stored checkpoint (sentence+fraction
+        // mapped through MY language's alignment). Fall back to the shared
+        // room checkpoint when mine is missing, and to the segment start
+        // when my alignment data is absent — every fallback is logged.
+        const mine = data?.perCheckpoints?.[myIdRef.current];
+        let cp;
+        if (mine && Number.isInteger(mine.segmentIndex)) {
+          const sents = (lectureManifestRef.current || [])
+            .find((s) => s.id === mine.segmentIndex)?.sentences;
+          const s = Number.isInteger(mine.sentenceIndex)
+            ? sents?.[Math.min(mine.sentenceIndex, (sents?.length || 1) - 1)]
+            : null;
+          if (s) {
+            const frac = Number.isFinite(mine.fractionWithinSentence)
+              ? mine.fractionWithinSentence : 0;
+            const offsetSec = s.start + frac * ((s.end ?? s.start) - s.start);
+            cp = {
+              lectureId: mine.lectureId || lectureIdRef.current,
+              segmentIndex: mine.segmentIndex,
+              playbackOffsetMs: Math.round(offsetSec * 1000),
+              language: lectureLangRef.current,
+            };
+            console.log('[ncip-resume] own checkpoint: seg', mine.segmentIndex,
+              `sentence ${mine.sentenceIndex} @${offsetSec.toFixed(2)}s`);
+          } else {
+            cp = {
+              lectureId: mine.lectureId || lectureIdRef.current,
+              segmentIndex: mine.segmentIndex,
+              playbackOffsetMs: 0,
+              language: lectureLangRef.current,
+            };
+            console.warn('[ncip-resume] fallback: my checkpoint lacks ' +
+              `sentence alignment (seg ${mine.segmentIndex}) — segment start`);
+          }
+        } else {
+          // Server-authoritative checkpoint: every client resumes from the
+          // same {lectureId, segmentIndex, playbackOffsetMs}.
+          cp = localizeCheckpoint(data?.checkpoint);
+          if (!mine) {
+            console.warn('[ncip-resume] fallback: no per-learner checkpoint ' +
+              'for me — using room checkpoint');
+          }
+        }
         if (cp?.language && cp.language !== lectureLangRef.current) {
           console.warn('[client] resume checkpoint language differs from local lecture language:', cp.language, 'vs', lectureLangRef.current);
         }
-        // Restore the exact board position saved at interrupt — the queued
-        // segment's own page/doc still wins when present; these are the
-        // fallback for rebuilt/empty queues.
-        if (cp?.slidePage != null) slidePageRef.current = cp.slidePage;
-        if (cp?.slideDoc != null) slideDocRef.current = cp.slideDoc;
+        // Restore the exact board position saved at interrupt — the room
+        // checkpoint carries slides (shared state, not per-learner); the
+        // queued segment's own page/doc still wins when present.
+        const roomCp = data?.checkpoint;
+        if (roomCp?.slidePage != null) slidePageRef.current = roomCp.slidePage;
+        if (roomCp?.slideDoc != null) slideDocRef.current = roomCp.slideDoc;
         speechCtlRef.current.resumeLecture(cp);
+        // Eval: the localized checkpoint IS the seek target; a delayed read
+        // records where the audio actually landed.
+        nxrLog(nxrSnap('resume', cp?.segmentIndex, (cp?.playbackOffsetMs ?? 0) / 1000,
+          { cpLanguage: cp?.language ?? null }));
+        setTimeout(() => {
+          const pos = speechCtlRef.current.getLecturePosition?.();
+          nxrLog(nxrSnap('resume-actual', pos?.segmentIndex, pos?.offsetSec));
+        }, 1200);
       } else if (data?.action === 'thinking' || data?.action === 'answering') {
         setFloorAnswering(true);
         setFloorError(null);

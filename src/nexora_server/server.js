@@ -2588,6 +2588,19 @@ io.on('connection', (socket) => {
     syncFloorTimer(ctx.roomId, ctx.participantId);
   });
 
+  // Per-learner resume checkpoint: EVERY participant reports its own paused
+  // position on pause-for-floor (sentence + fraction in its own language's
+  // alignment). Stored per-pid and carried back to each client on 'resume' —
+  // survives a mid-pause reconnect via the same store.
+  socket.on('lecture-checkpoint-mine', (data) => {
+    if (!socketIsParticipant(socket)) return participantError(socket, 'lecture-checkpoint-mine');
+    const ctx = socketCtx.get(socket.id);
+    if (!ctx || !rooms[ctx.roomId]?.[ctx.participantId]) return;
+    const ncip = getNcipRoom(ctx.roomId);
+    ncip.recordParticipantCheckpoint(ctx.participantId, data);
+    evalInbound(ctx.roomId, ctx.participantId, 'lecture-checkpoint-mine', data, ncip);
+  });
+
   // NCIP question.submit: only the current floor holder, only while PAUSED.
   socket.on('ask-floor-question', async (data) => {
     // AI-professor questions are a registered-user interaction (Stage 2).
