@@ -2115,6 +2115,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
           <ChatInterface
             hidden={!chatOpen}
             onMinimize={() => setChatOpen(false)}
+            displayName={displayName}
             lectureId={lectureId}
             courseTitle={lectureTitle || config?.title || 'Class'}
             lectureScript={lectureScript}

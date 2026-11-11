@@ -3,7 +3,7 @@ import { useSpeech } from "../hooks/useSpeech";
 import { SpeakingTranscript } from "./SpeakingTranscript";
 import { Mic, Send, Bot, User, Trash2, Maximize2, Minus, MoreHorizontal } from "lucide-react";
 
-export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, showLectureScript = false, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, courseTitle = '', ...props }) => {
+export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, showLectureScript = false, floorHolder, isFloorHolder, floorAnswering, floorError, onFloorQuestion, scriptSeed, transcriptEpoch, isGuest = false, courseTitle = '', displayName = '', ...props }) => {
   const input = useRef();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
@@ -46,7 +46,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
     setChatHistory((prev2) => {
       const last = prev2[prev2.length - 1];
       if (last && last.role === "assistant" && last.text === message.text) return prev2;
-      return [...prev2, { role: "assistant", text: message.text, time: new Date() }];
+      return [...prev2, { role: "assistant", name: 'LeProf', text: message.text, time: new Date() }];
     });
   }, [message]);
 
@@ -95,7 +95,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
     if (floorHolder || interruptingLecture) {
       // Hard rule: only the floor holder may ask — no auto-raise shortcut.
       if (!isFloorHolder || floorAnswering || loading) return;
-      setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
+      setChatHistory((prev) => [...prev, { role: "user", name: displayName || 'You', text, time: new Date() }]);
       input.current.value = "";
       onFloorQuestion?.(text);
       return;
@@ -103,7 +103,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
 
     // No lecture in progress — free-form chat with the professor.
     if (!loading && !message) {
-      setChatHistory((prev) => [...prev, { role: "user", text, time: new Date() }]);
+      setChatHistory((prev) => [...prev, { role: "user", name: displayName || 'You', text, time: new Date() }]);
       input.current.value = "";
       try {
         await tts(text);
@@ -267,6 +267,7 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
                     : "bg-slate-800 text-slate-100 rounded-tl-none"
                 }`}
               >
+                {msg.name && <span className="font-semibold">{msg.name}: </span>}
                 {msg.text}
                 <div
                   className={`text-[10px] mt-1 ${
@@ -286,37 +287,35 @@ export const ChatInterface = ({ hidden, onMinimize, lectureId, lectureScript, sh
               </div>
               <div className="max-w-[80%] p-3 rounded-2xl rounded-tl-none text-sm leading-relaxed bg-slate-800 text-slate-100 ring-1 ring-cyan-500/40">
                 <div className="text-[10px] mb-1 font-semibold text-cyan-300 uppercase tracking-wide">
-                  Live transcript
+                  Lecture subtitles
                 </div>
-                {/* Per-segment blocks: each lecture unit is its own row —
-                    HISTORY is deduped by message id and never renders the
-                    live unit (the active block shows it instead). */}
-                <div className="space-y-2">
+                {/* ONE continuous block: every segment (intro, lecture units,
+                    dynamic units — all languages) flows inline in order with
+                    no gaps; the live unit's words reveal inline at the tail.
+                    History is deduped by id and never wiped mid-lecture —
+                    only a full restart (transcriptEpoch) clears it. */}
+                <p className="text-slate-200">
                   {(() => {
                     const seen = new Set();
                     return lectureLines
                       .filter((l) => l.id !== activeMessage?.id)
                       .filter((l) => (seen.has(l.id) ? false : (seen.add(l.id), true)))
                       .map((line) => (
-                        <p key={line.id} className="rounded-lg bg-slate-900/60 px-2.5 py-2 text-slate-200">
-                          {String(line.text || '').replace(/\s+/g, ' ').trim()}
-                        </p>
+                        <span key={line.id}>
+                          {String(line.text || '').replace(/\s+/g, ' ').trim()}{' '}
+                        </span>
                       ));
                   })()}
-                  {/* LIVE: the exact lecture unit whose audio is playing —
-                      SpeakingTranscript highlights words off the audio clock. */}
                   {activeMessage?.type === 'lecture' && activeMessage?.text && (
-                    <p className="rounded-lg bg-slate-900/60 px-2.5 py-2 text-slate-200 ring-1 ring-cyan-500/30">
-                      <SpeakingTranscript
-                        key={activeMessage.id}
-                        text={activeMessage.text}
-                        audioRef={audioElementRef}
-                        lipsync={activeMessage.lipsync}
-                        floorPaused={floorPaused}
-                      />
-                    </p>
+                    <SpeakingTranscript
+                      key={activeMessage.id}
+                      text={activeMessage.text}
+                      audioRef={audioElementRef}
+                      lipsync={activeMessage.lipsync}
+                      floorPaused={floorPaused}
+                    />
                   )}
-                </div>
+                </p>
               </div>
             </div>
           )}
