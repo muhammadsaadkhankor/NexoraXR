@@ -66,3 +66,8 @@ src/nexora_server/uploads/
 /eval/floor/results/
 /my_report.md
 /out.csv
+
+# Local eval experiment outputs (metrics already recorded in the paper)
+/eval/drift/
+/eval/isolation/
+/eval/resume/
