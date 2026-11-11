@@ -18,7 +18,12 @@ const PID = process.env.PID || 'holder';
 const LECTURE = process.env.LECTURE || 'multimedia_L1';
 const LANG = process.env.HOLDER_LANG || 'en';
 
-const say = (ev, extra = {}) => console.log(JSON.stringify({ ev, ...extra }));
+const say = (ev, extra = {}) => {
+  // stdout may be piped to a driver that doesn't drain it — an EPIPE
+  // must never kill the protocol driver.
+  try { console.log(JSON.stringify({ ev, ...extra })); } catch {}
+};
+process.stdout.on('error', () => {});
 
 // EN manifest — for the holder's own sentenceIndex computation.
 const manifest = await (await fetch(

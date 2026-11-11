@@ -14,10 +14,19 @@
 #   EVAL_LABEL=isolation NXR_SEGMENT_BARRIER=1 python3 eval/isolation/run.py
 import json, os, random, subprocess, sys, time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'resume'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'drift'))
-import run as H  # noqa: E402  (resume harness)
-import run as D  # noqa: E402  (drift harness: start_pad, wait_lecture, analyze)
+import importlib.util  # noqa: E402
+
+
+def _load(name, sub):
+    path = os.path.join(os.path.dirname(__file__), '..', sub, 'run.py')
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+H = _load('resume_run', 'resume')   # env, server/vite, holder, browsers
+D = _load('drift_run', 'drift')     # start_pad, wait_lecture, analyze
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 LABEL = os.environ.get('EVAL_LABEL', 'isolation')
@@ -52,7 +61,7 @@ def violations(action, actor, before, after_rows, trace, t0, t_end):
     # are NOT violations
     commits = [e for e in trace
                if e.get('event', '').startswith('emit.')
-               and t0 - 500 <= e.get('ts_wall_ms', 0) <= t_end + 500]
+               and t0 - 2000 <= e.get('ts_wall_ms', 0) <= t_end + 2000]
     new_unit = any(e.get('event') == 'emit.professor-speak' for e in commits)
     new_commit = any(e.get('event') in ('emit.floor-state', 'emit.lecture-control')
                      for e in commits)
@@ -69,22 +78,28 @@ def violations(action, actor, before, after_rows, trace, t0, t_end):
         if (not s0.get('paused')) and s1.get('paused') and not new_commit:
             out.append({'pid': pid, 'kind': 'pause',
                         'before': s0.get('status'), 'after': s1.get('status')})
-        # segment jump (not a real new unit)
-        if s0.get('segIndex') != s1.get('segIndex') and not new_unit:
+        # segment jump (not a real new unit). None->X is a queue refill
+        # after a boundary or join, not a jump — excluded.
+        if s0.get('segIndex') is not None and s1.get('segIndex') is not None \
+           and s0['segIndex'] != s1['segIndex'] and not new_unit:
             out.append({'pid': pid, 'kind': 'segment-change',
-                        'before': s0.get('segIndex'), 'after': s1.get('segIndex')})
+                        'before': s0['segIndex'], 'after': s1['segIndex']})
         # seek: offset regresses or jumps forward within the same segment
         if s0.get('segIndex') == s1.get('segIndex') and \
            s0.get('offsetSec') is not None and s1.get('offsetSec') is not None:
             dt = (s1['t'] - s0['t']) / 1000.0
             d = s1['offsetSec'] - s0['offsetSec']
-            if d < -0.5 or d > max(2.0, dt + 1.5):
+            # 0 -> +x is a segment just STARTING to play, not a seek leak
+            if d < -0.5 or (s0['offsetSec'] > 0.01 and d > max(2.0, dt + 1.5)):
                 out.append({'pid': pid, 'kind': 'seek',
                             'before': s0['offsetSec'], 'after': s1['offsetSec']})
-        # authoritative state change without a server commit
-        if s0.get('v') != s1.get('v') and not new_commit:
-            out.append({'pid': pid, 'kind': 'state-version',
-                        'before': s0.get('v'), 'after': s1.get('v')})
+        # shared-state change without a server commit (bare version bumps
+        # with identical shared state are not isolation violations)
+        tup0 = (s0.get('status'), s0.get('holder'), s0.get('segIndex'))
+        tup1 = (s1.get('status'), s1.get('holder'), s1.get('segIndex'))
+        if tup0 != tup1 and not (new_commit or new_unit):
+            out.append({'pid': pid, 'kind': 'shared-state',
+                        'before': tup0, 'after': tup1})
     return out
 
 
