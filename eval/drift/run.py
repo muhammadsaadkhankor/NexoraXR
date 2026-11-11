@@ -27,6 +27,9 @@ os.makedirs(OUT, exist_ok=True)
 PAD_SCRIPT = os.path.join(os.path.dirname(__file__), 'pad.mjs')
 SAMPLE_MS = 250
 HOLD_EVERY_S = 45
+# Optional segment cap: stop sampling once every client's head segment
+# passed MAX_SEG (bounded runs, e.g. first 4 segments only).
+MAX_SEG = int(os.environ.get('EVAL_MAX_SEG', '0')) or None
 CELLS = [tuple(int(x) for x in c.split(':'))
          for c in os.environ.get('EVAL_CELLS', '3:3,5:3,10:3').split(',')]
 # (total participants, browser clients)
@@ -129,6 +132,10 @@ def run_cell(pw, total, n_br, seed):
                     row[c.pid] = None
             samples.append({'t': int(time.time() * 1000), 'st': row})
             live = [s for s in row.values() if s]
+            if MAX_SEG is not None and live and all(
+                    (s.get('segIndex') is None or s['segIndex'] > MAX_SEG)
+                    for s in live):
+                break
             if live and all(s.get('seg') is None and
                             s.get('status') in ('IDLE', None) for s in live):
                 idle_streak += 1

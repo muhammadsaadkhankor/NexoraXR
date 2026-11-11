@@ -30,6 +30,8 @@ WINDOW_S = 4
 ACTIONS_PER_CELL = int(os.environ.get('EVAL_ACTIONS', '24'))
 CELLS = [int(x) for x in os.environ.get('EVAL_CELLS', '3,5').split(',')]
 SEED = int(os.environ.get('EVAL_SEED', '0x1E0A7'), 16)
+# Segment cap: stop injecting actions once every client passed MAX_SEG.
+MAX_SEG = int(os.environ.get('EVAL_MAX_SEG', '0')) or None
 
 
 def sample(clients):
@@ -117,6 +119,11 @@ def run_cell(pw, total, rng):
         other_langs = ['en', 'ar', 'zh', 'fr', 'de', 'es']
         trace_file = None
         for a in range(ACTIONS_PER_CELL):
+            if MAX_SEG is not None:
+                st = sample(clients)
+                if all(s and (s.get('segIndex') is None or s['segIndex'] > MAX_SEG)
+                       for s in st.values()):
+                    break
             during_answer = (a % 2 == 1)
             if during_answer:
                 # floor Q&A in progress while the action lands
