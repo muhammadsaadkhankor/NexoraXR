@@ -1929,6 +1929,7 @@ function buildFloorStatePayload(roomId) {
       ? { userId: ncip.floor.holder, name: nameFor(roomId, ncip.floor.holder) }
       : null,
     professorStatus: ncip.professor.status,
+    pauseReason: ncip.interruption.pauseReason,
     checkpoint: ncip.interruption.checkpoint,
     participants: ncip.sessionParticipants(),
     stateVersion: ncip.stateVersion,

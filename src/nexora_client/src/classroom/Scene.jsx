@@ -1394,6 +1394,10 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
       }
       setActiveSpeaker(newHolder);
       if (data?.professorStatus) setProfessorStatus(data.professorStatus);
+      // Host discussion pause vs floor pause — only the snapshot used to
+      // carry this, so a live pause-for-host never flipped the button to
+      // "Continue Class". floor-state now broadcasts it too.
+      if (data?.pauseReason !== undefined) setPauseReason(data.pauseReason);
       if (data?.activeSpeaker?.userId !== myIdRef.current) {
         floorReadyRef.current = false;
       }
