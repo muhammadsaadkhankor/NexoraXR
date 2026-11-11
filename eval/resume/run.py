@@ -569,8 +569,16 @@ def main():
                             time.sleep(0.5)
                         if rc.lang != 'en':
                             rc.set_language(timeout=30)
-                        # give the converged client a couple seconds of play
-                        time.sleep(2.5)
+                        # wait until the recovered client is actually PLAYING
+                        # (manifest fetch + queue rebuild + seek takes a few
+                        # seconds post-reload — currentTimeSec=0 before then)
+                        dl2 = time.time() + 15
+                        while time.time() < dl2:
+                            g = rc.pos()
+                            if g and g.get('segmentIndex') is not None \
+                               and (g.get('currentTimeSec') or 0) > 0.3:
+                                break
+                            time.sleep(0.4)
                         t0 = time.time()
                         front = holder_pos()
                         got = rc.pos()

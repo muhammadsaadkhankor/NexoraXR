@@ -1245,6 +1245,21 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     return () => window.removeEventListener('resize', detect);
   }, []);
 
+  // Checkpoints carrying `projected` (reconnect-after-resume) are
+  // re-projected at apply time: the class kept playing while the client
+  // fetched manifests and rebuilt its queue.
+  const projOffsetSec = (cp) => {
+    const p = cp.projected;
+    if (!p) return (cp.playbackOffsetMs ?? 0) / 1000;
+    const estNow = p.snapNowMs + (Date.now() - p.recvAtMs);
+    let off = p.baseSec + Math.max(0, (estNow - p.atMs) / 1000);
+    if (Number.isInteger(p.roomSeg) && cp.segmentIndex === p.roomSeg) {
+      const frontier = p.roomOffSec + Math.max(0, (estNow - p.snapNowMs) / 1000);
+      off = Math.min(off, frontier);
+    }
+    return off;
+  };
+
   // NCIP Slice 2: the checkpoint segment is already in the local queue.
   // Trim everything before it, stamp the authoritative offset as resumeAt,
   // and keep it paused while the floor is held.
@@ -1253,7 +1268,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
     const segId = `${cp.lectureId}_seg_${cp.segmentIndex}`;
     const idx = msgs.findIndex((m) => m.type === 'lecture' && m.id === segId);
     if (idx < 0) return false;
-    msgs[idx].resumeAt = cp.playbackOffsetMs / 1000;
+    msgs[idx].resumeAt = projOffsetSec(cp);
     if (idx === 0) {
       if (floorHeld) speechCtlRef.current.audioElementRef?.current?.pause();
     } else if (msgs[0]?.type === 'lecture') {
@@ -1296,7 +1311,7 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
           slideDoc: seg.slideDoc ?? null,
         }));
       if (!segs.length) return;
-      segs[0].resumeAt = cp.playbackOffsetMs / 1000;
+      segs[0].resumeAt = projOffsetSec(cp);
       // This head resumes mid-segment at a position the server already tracks
       // — it must not be reported as a new segment start.
       segs[0].skipPlaybackReport = true;
@@ -2021,8 +2036,8 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
         const myCp = snap?.resume?.myCp;
         if (!myCp || !Number.isInteger(myCp.segmentIndex)
             || myCp.lectureId !== lectureIdRef.current) return null;
-        const elapsedSec = Math.max(0,
-          ((Number(snap?.serverNow) || Date.now()) - snap.resume.at) / 1000);
+        const recvAtMs = Date.now();
+        const snapNowMs = Number(snap?.serverNow) || recvAtMs;
         const sents = (lectureManifestRef.current || [])
           .find((s) => s.id === myCp.segmentIndex)?.sentences;
         const s = Number.isInteger(myCp.sentenceIndex)
@@ -2031,20 +2046,31 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
           ? myCp.fractionWithinSentence : 0;
         const roomSeg = snap?.lecture?.segmentIndex;
         const roomOff = (snap?.lecture?.playbackOffsetMs ?? 0) / 1000;
+        // baseSec: my checkpoint position WITHOUT class-elapsed — elapsed is
+        // added at apply time so manifest-fetch latency doesn't put the
+        // seek seconds behind the live frontier.
         let segIdx = myCp.segmentIndex;
-        let offSec = s
-          ? s.start + frac * ((s.end ?? s.start) - s.start) + elapsedSec
+        let baseSec = s
+          ? s.start + frac * ((s.end ?? s.start) - s.start)
           : null;
-        if (offSec == null || (Number.isInteger(roomSeg) && segIdx > roomSeg)) {
+        let atMs = snap.resume.at;
+        // Clamp to the shared segment in BOTH directions: never ahead of
+        // the class, and catch up to the shared segment when behind.
+        if (baseSec == null || (Number.isInteger(roomSeg) && segIdx !== roomSeg)) {
           segIdx = Number.isInteger(roomSeg) ? roomSeg : segIdx;
-          offSec = Number.isInteger(roomSeg) ? roomOff : (offSec ?? 0);
-        } else if (Number.isInteger(roomSeg) && segIdx === roomSeg) {
-          offSec = Math.min(offSec, roomOff);
+          baseSec = baseSec == null ? roomOff : roomOff;
+          atMs = snapNowMs;
         }
         return {
           lectureId: myCp.lectureId, segmentIndex: segIdx,
-          playbackOffsetMs: Math.round(offSec * 1000),
+          playbackOffsetMs: Math.round(
+            (baseSec + Math.max(0, (snapNowMs - atMs) / 1000)) * 1000),
           language: lectureLangRef.current,
+          // Re-projected at apply time by projOffsetSec().
+          projected: {
+            baseSec, atMs, snapNowMs, recvAtMs,
+            roomSeg, roomOffSec: roomOff,
+          },
         };
       })();
       if (resumeCp) {
@@ -2065,7 +2091,11 @@ function SceneRoom({ sceneName, baseConfig, classTitle }) {
           positionLectureAtCheckpoint(localizeCheckpoint(plan.checkpoint), true);
           if (answerMsg) speechCtlRef.current.prependMessages([answerMsg]);
         } else {
-          speechCtlRef.current.resumeLecture(localizeCheckpoint(plan.checkpoint));
+          const cp = localizeCheckpoint(plan.checkpoint);
+          speechCtlRef.current.resumeLecture(
+            cp.projected
+              ? { ...cp, playbackOffsetMs: Math.round(projOffsetSec(cp) * 1000) }
+              : cp);
         }
       } else if (plan.action === 'reload') {
         recoverLectureFromSnapshot(plan.checkpoint, floorHeld, answerMsg);
