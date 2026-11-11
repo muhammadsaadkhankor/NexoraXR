@@ -159,16 +159,15 @@ export const UserAvatar = React.forwardRef(({ cameraPreset = "third-person", flo
 
   // useLayoutEffect so the pose + reveal happen before paint.
   useLayoutEffect(() => {
-    if (actions[animation]) {
-      actions[animation]
+    const action = actions[animation];
+    if (action) {
+      action
         .reset()
         .fadeIn(mixer.stats.actions.inUse === 0 ? 0 : 0.5)
         .play();
       mixer.update(0.001);
       scene.visible = visible && cameraPreset !== "first-person";
-      return () => {
-        if (actions[animation]) actions[animation].fadeOut(0.5);
-      };
+      return () => action.fadeOut(0.5);
     }
   }, [animation, actions, mixer, scene, visible, cameraPreset]);
 
